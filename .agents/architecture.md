@@ -10,6 +10,7 @@ run.bat
     -> gui.py
       -> app_config.py      -> autocompare_config.ini
       -> processor.py       -> excel_writer.py -> compare.py -> csv_table.py
+      -> folder_compare.py  -> excel_writer.py -> compare.py -> csv_table.py
       -> fixme_notes.py     -> fixme_notes.json
       -> fixme_replacements.py
       -> db_roundtrip.py    -> dbeaver_csv.py
@@ -29,6 +30,7 @@ Owns:
 - Worker-to-UI log queue.
 - Compare workflow checkboxes.
 - FIXME review table and note management UI.
+- Ad-hoc two-folder CSV compare page.
 
 Avoid:
 
@@ -51,6 +53,14 @@ Important functions:
 - `process_root`
 - `discover_test_cases`
 - `_refresh_before_folders`
+
+### `autocompare_tool/folder_compare.py`
+
+Owns:
+
+- Validation for two user-selected CSV folders.
+- Ad-hoc compare workbook generation outside the `UT*` root workflow.
+- Passing `include_left_only_files=True` and `recursive=True` so all CSV files under both selected folders are represented.
 
 ### `autocompare_tool/compare.py`
 
@@ -181,6 +191,15 @@ Selected folder
   -> reorder to DB column order
   -> format datetime/decimal values
   -> rewrite CSV in place
+```
+
+### Folder Compare Flow
+
+```text
+Left CSV folder + right CSV folder + output workbook
+  -> validate selected folders and output path
+  -> run shared Excel writer with all recursive CSV files from both sides
+  -> return mismatch items for GUI FIXME review
 ```
 
 ## Extension Points

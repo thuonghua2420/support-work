@@ -27,6 +27,7 @@ class WorkbookConfig:
     htm_before_after_file: str
     htc_before_after_file: str
     after_htc_vs_htm_file: str
+    folder_compare_file: str
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,7 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
             "after_htc_vs_htm_file",
             "Compare現行_vs_新_After_After.xlsx",
         ),
+        folder_compare_file=_get(parser, "workbooks", "folder_compare_file", "Compare_2_Folder_CSV.xlsx"),
     )
     excel_headers = ExcelHeaderConfig(
         diff_count_title=_get(parser, "excel_headers", "diff_count_title", "差分行数"),

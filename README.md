@@ -11,6 +11,7 @@ Tool này sao chép CSV từ `Input` vào các folder `before...`, sau đó so s
 Menu hiện có:
 
 - `So sánh`: chọn folder cha chứa các folder `UT*`, chọn checkbox so sánh, bấm `Chạy so sánh`, và review/apply ghi chú FIXME.
+- `So sánh 2 folder CSV`: chọn 2 folder CSV bất kỳ và tạo 1 file Excel so sánh.
 - `Sao chép file UT`: sao chép CSV từ nguồn sang đích theo luồng xử lý UT.
 - `Kết nối SQL Server`: kiểm tra đăng nhập DB và chuẩn hóa CSV theo metadata SQL Server.
 
@@ -23,7 +24,7 @@ Những giá trị dùng để thay đổi cấu trúc folder/output nằm trong
 File này có comment cho từng config:
 
 - `[folders]`: tên folder `Input`, `Output`, `Compare`, các folder before/after của HTM và HTC.
-- `[workbooks]`: tên 3 file Excel output.
+- `[workbooks]`: tên các file Excel xuất ra.
 - `[excel_headers]`: các header/text trong file compare Excel, bao gồm `FIXME`.
 - `[compare_workflows]`: checkbox nào được chọn mặc định khi mở GUI.
 
@@ -42,6 +43,16 @@ Logic sao chép hiện có:
 - Sao chép từ `UT*/output` của nguồn sang `UT*/出力/現在のシステム以降` của đích.
 - Nếu đích đã có file CSV, tool so sánh value/raw format và ghi chi tiết vào log trước khi ghi đè.
 - Log được tạo trong folder `copy_logs` cạnh `copy_ut_files.py`.
+
+## So Sánh 2 Folder CSV
+
+Menu `So sánh 2 folder CSV` gồm 3 path:
+
+- `Folder bên trái`: folder CSV nguồn bên trái.
+- `Folder bên phải`: folder CSV nguồn bên phải.
+- `File Excel xuất ra`: file Excel so sánh sẽ được tạo.
+
+Bấm `Chạy so sánh folder CSV` để tạo workbook so sánh. Luồng này dùng cùng logic compare hiện tại và quét đệ quy toàn bộ file CSV ở cả 2 folder; file chỉ tồn tại ở một bên vẫn được đưa vào workbook xuất ra.
 
 ## Chuẩn Hóa CSV SQL Server
 
@@ -122,7 +133,7 @@ Mỗi `UT*` có thể tạo tối đa 3 file, tùy theo checkbox đã chọn:
 
 Với compare before/after, danh sách sheet lấy theo các file CSV trong folder bên phải/after. Với compare after/after của 2 hệ thống, danh sách sheet lấy theo tập hợp file CSV của cả 2 folder after. Tên sheet là tên file không gồm `.csv`. Record được map bằng cột đầu tiên của mỗi CSV.
 
-Nếu một checkbox không được chọn, workbook output tương ứng trong `Output\Compare` sẽ bị xóa nếu đang tồn tại từ lần chạy trước.
+Nếu một checkbox không được chọn, workbook xuất ra tương ứng trong `Output\Compare` sẽ bị xóa nếu đang tồn tại từ lần chạy trước.
 
 ## Kiểm Tra FIXME
 

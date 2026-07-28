@@ -15,6 +15,7 @@ Primary users are developers or testers working with UT folders and SQL Server-b
 The GUI is organized by a left-side `Main Menu`:
 
 - `Compare`: compare workflows and FIXME review.
+- `Compare CSV Folders`: ad-hoc compare for two user-selected CSV folders.
 - `Copy UT Files`: source/target copy workflow.
 - `SQL Server`: DB login and CSV normalize.
 
@@ -44,6 +45,21 @@ Current compare workflows:
 - HTM before/after.
 - HTC before/after.
 - HTC after vs HTM after.
+
+### Compare CSV Folders
+
+Input:
+
+- A left CSV folder.
+- A right CSV folder.
+- An output Excel workbook path.
+
+Behavior:
+
+- Generates one compare workbook for the two selected folders.
+- Uses the same Excel writer and row/column comparison rules as the UT compare flow.
+- Recursively includes CSV files that exist only on the left or only on the right side.
+- Returns FIXME entries to the GUI review state.
 
 ### FIXME Review
 

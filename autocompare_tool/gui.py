@@ -15,6 +15,7 @@ from .db_roundtrip import (
 )
 from .copy_ut import run_copy_ut_files
 from .excel_writer import WorkbookFixmeEntry
+from .folder_compare import compare_csv_folders
 from .fixme_notes import FixmeNote, FixmeNoteStore
 from .fixme_replacements import apply_fixme_replacements
 from .processor import process_root
@@ -33,6 +34,11 @@ class AutoCompareApp(tk.Tk):
         self.root_path = tk.StringVar(value=str(Path.cwd()))
         self.copy_source_path = tk.StringVar()
         self.copy_target_path = tk.StringVar()
+        self.folder_compare_left_path = tk.StringVar()
+        self.folder_compare_right_path = tk.StringVar()
+        self.folder_compare_output_path = tk.StringVar(
+            value=str(Path.cwd() / self.app_config.workbooks.folder_compare_file)
+        )
         self.compare_option_vars = {
             workflow.key: tk.BooleanVar(value=workflow.default_enabled)
             for workflow in self.app_config.compare_workflows
@@ -73,6 +79,7 @@ class AutoCompareApp(tk.Tk):
         ttk.Label(sidebar, text="Menu chính").pack(anchor="w", pady=(0, 8))
         for page_key, label in (
             ("compare", "So sánh"),
+            ("folder_compare", "So sánh 2 folder CSV"),
             ("copy", "Sao chép file UT"),
             ("sql", "Kết nối SQL Server"),
         ):
@@ -98,6 +105,7 @@ class AutoCompareApp(tk.Tk):
         self.page_container.rowconfigure(0, weight=1)
 
         self._build_compare_page()
+        self._build_folder_compare_page()
         self._build_copy_page()
         self._build_sql_page()
 
@@ -137,6 +145,14 @@ class AutoCompareApp(tk.Tk):
         copy_frame = ttk.LabelFrame(page, text="Sao chép file UT", padding=(12, 8, 12, 8))
         self._build_copy_ui(copy_frame)
         copy_frame.grid(row=0, column=0, sticky="ew")
+
+    def _build_folder_compare_page(self) -> None:
+        page = self._create_page("folder_compare")
+        page.rowconfigure(1, weight=1)
+
+        compare_frame = ttk.LabelFrame(page, text="So sánh 2 folder CSV", padding=(12, 8, 12, 8))
+        self._build_folder_compare_ui(compare_frame)
+        compare_frame.grid(row=0, column=0, sticky="ew")
 
     def _build_sql_page(self) -> None:
         page = self._create_page("sql")
@@ -216,6 +232,58 @@ class AutoCompareApp(tk.Tk):
 
         self.copy_button = ttk.Button(copy_frame, text="Chạy sao chép file UT", command=self._run_copy_ut_files)
         self.copy_button.grid(row=2, column=1, sticky="w", pady=(6, 0))
+
+    def _build_folder_compare_ui(self, compare_frame: ttk.LabelFrame) -> None:
+        compare_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(compare_frame, text="Folder bên trái").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
+        ttk.Entry(compare_frame, textvariable=self.folder_compare_left_path).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(0, 8),
+            pady=2,
+        )
+        ttk.Button(compare_frame, text="Chọn...", command=self._browse_folder_compare_left).grid(
+            row=0,
+            column=2,
+            pady=2,
+        )
+
+        ttk.Label(compare_frame, text="Folder bên phải").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
+        ttk.Entry(compare_frame, textvariable=self.folder_compare_right_path).grid(
+            row=1,
+            column=1,
+            sticky="ew",
+            padx=(0, 8),
+            pady=2,
+        )
+        ttk.Button(compare_frame, text="Chọn...", command=self._browse_folder_compare_right).grid(
+            row=1,
+            column=2,
+            pady=2,
+        )
+
+        ttk.Label(compare_frame, text="File Excel xuất ra").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=2)
+        ttk.Entry(compare_frame, textvariable=self.folder_compare_output_path).grid(
+            row=2,
+            column=1,
+            sticky="ew",
+            padx=(0, 8),
+            pady=2,
+        )
+        ttk.Button(compare_frame, text="Chọn...", command=self._browse_folder_compare_output).grid(
+            row=2,
+            column=2,
+            pady=2,
+        )
+
+        self.folder_compare_button = ttk.Button(
+            compare_frame,
+            text="Chạy so sánh folder CSV",
+            command=self._run_folder_compare,
+        )
+        self.folder_compare_button.grid(row=3, column=1, sticky="w", pady=(6, 0))
 
     def _build_fixme_ui(self, fixme_frame: ttk.LabelFrame) -> None:
         fixme_frame.columnconfigure(0, weight=1)
@@ -345,6 +413,30 @@ class AutoCompareApp(tk.Tk):
         if folder:
             self.copy_target_path.set(folder)
 
+    def _browse_folder_compare_left(self) -> None:
+        folder = filedialog.askdirectory(initialdir=self.folder_compare_left_path.get() or str(Path.cwd()))
+        if folder:
+            self.folder_compare_left_path.set(folder)
+            self._refresh_folder_compare_default_output()
+
+    def _browse_folder_compare_right(self) -> None:
+        folder = filedialog.askdirectory(initialdir=self.folder_compare_right_path.get() or str(Path.cwd()))
+        if folder:
+            self.folder_compare_right_path.set(folder)
+            self._refresh_folder_compare_default_output()
+
+    def _browse_folder_compare_output(self) -> None:
+        raw_output_path = self.folder_compare_output_path.get().strip()
+        initial_path = Path(raw_output_path) if raw_output_path else Path.cwd() / self.app_config.workbooks.folder_compare_file
+        file_name = filedialog.asksaveasfilename(
+            initialdir=str(initial_path.parent if initial_path.parent else Path.cwd()),
+            initialfile=initial_path.name or self.app_config.workbooks.folder_compare_file,
+            defaultextension=".xlsx",
+            filetypes=(("File Excel", "*.xlsx"), ("Tất cả file", "*.*")),
+        )
+        if file_name:
+            self.folder_compare_output_path.set(file_name)
+
     def _run_compare(self) -> None:
         if self.worker and self.worker.is_alive():
             return
@@ -384,6 +476,31 @@ class AutoCompareApp(tk.Tk):
         self.status_label.configure(text="Đang sao chép file UT...")
 
         self.worker = threading.Thread(target=self._copy_ut_worker, args=(source, target), daemon=True)
+        self.worker.start()
+
+    def _run_folder_compare(self) -> None:
+        if self.worker and self.worker.is_alive():
+            return
+
+        left = self.folder_compare_left_path.get().strip()
+        right = self.folder_compare_right_path.get().strip()
+        output = self.folder_compare_output_path.get().strip()
+        if not left:
+            messagebox.showerror(APP_TITLE, "Vui lòng chọn folder bên trái.")
+            return
+        if not right:
+            messagebox.showerror(APP_TITLE, "Vui lòng chọn folder bên phải.")
+            return
+        if not output:
+            messagebox.showerror(APP_TITLE, "Vui lòng chọn file Excel xuất ra.")
+            return
+
+        self._clear_log()
+        self._set_fixme_entries([])
+        self._set_actions_busy(True)
+        self.status_label.configure(text="Đang so sánh folder CSV...")
+
+        self.worker = threading.Thread(target=self._folder_compare_worker, args=(left, right, output), daemon=True)
         self.worker.start()
 
     def _test_db_login(self) -> None:
@@ -462,6 +579,24 @@ class AutoCompareApp(tk.Tk):
         except Exception as exc:
             self._log_from_worker(f"LỖI: {exc}")
             self.log_queue.put("__STATUS__:Sao chép thất bại")
+            self.log_queue.put(f"__MESSAGE_ERROR__:{exc}")
+        finally:
+            self.log_queue.put("__ENABLE_ACTIONS__")
+
+    def _folder_compare_worker(self, left: str, right: str, output: str) -> None:
+        try:
+            summary = compare_csv_folders(left, right, output, log=self._log_from_worker, config=self.app_config)
+            self.log_queue.put(("__FIXME_ENTRIES__", summary.fixme_entries))
+            self._log_from_worker("")
+            self._log_from_worker(
+                f"So sánh folder CSV hoàn tất. Đã tạo {summary.output_path} "
+                f"với {summary.sheet_count} sheet."
+            )
+            self.log_queue.put("__STATUS__:So sánh folder CSV hoàn tất")
+            self.log_queue.put(f"__MESSAGE_INFO__:So sánh folder CSV hoàn tất. File xuất ra: {summary.output_path}")
+        except Exception as exc:
+            self._log_from_worker(f"LỖI: {exc}")
+            self.log_queue.put("__STATUS__:So sánh folder CSV thất bại")
             self.log_queue.put(f"__MESSAGE_ERROR__:{exc}")
         finally:
             self.log_queue.put("__ENABLE_ACTIONS__")
@@ -569,6 +704,7 @@ class AutoCompareApp(tk.Tk):
     def _set_actions_busy(self, busy: bool) -> None:
         state = "disabled" if busy else "normal"
         self.compare_button.configure(state=state)
+        self.folder_compare_button.configure(state=state)
         self.copy_button.configure(state=state)
         self.test_db_button.configure(state=state)
         if busy:
@@ -601,6 +737,14 @@ class AutoCompareApp(tk.Tk):
         self.user_entry.configure(state=auth_state)
         self.password_entry.configure(state=auth_state)
         self._mark_db_unverified()
+
+    def _refresh_folder_compare_default_output(self) -> None:
+        if self.folder_compare_output_path.get().strip():
+            return
+        base_dir = self.folder_compare_right_path.get().strip() or self.folder_compare_left_path.get().strip()
+        if not base_dir:
+            return
+        self.folder_compare_output_path.set(str(Path(base_dir) / self.app_config.workbooks.folder_compare_file))
 
     def _selected_compare_workflows(self) -> set[str]:
         return {
@@ -674,7 +818,7 @@ class AutoCompareApp(tk.Tk):
         self.fixme_note_combos = []
 
         columns = [
-            ("Tên folder UT", 16),
+            ("Tên folder/case", 16),
             ("File Excel", 28),
             ("Tên sheet", 18),
             ("Tên cột", 22),

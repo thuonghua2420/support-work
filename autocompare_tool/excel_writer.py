@@ -65,6 +65,7 @@ def write_compare_workbook_with_fixmes(
     excel_headers: ExcelHeaderConfig | None = None,
     case_folder_name: str = "",
     include_left_only_files: bool = False,
+    recursive: bool = False,
 ) -> CompareWorkbookWriteResult:
     headers = excel_headers or load_app_config().excel_headers
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -75,13 +76,17 @@ def write_compare_workbook_with_fixmes(
     used_sheet_names: set[str] = set()
     fixme_entries: list[WorkbookFixmeEntry] = []
 
-    for after_csv in _iter_compare_csv_files(before_dir, after_dir, include_left_only_files):
-        before_csv = before_dir / after_csv.name
+    for before_csv, after_csv, csv_display_name in _iter_compare_csv_files(
+        before_dir,
+        after_dir,
+        include_left_only_files,
+        recursive,
+    ):
         before_table = read_csv_table(before_csv) if before_csv.exists() else CsvTable([], [])
         after_table = read_csv_table(after_csv) if after_csv.exists() else CsvTable([], [])
-        comparison = build_sheet_comparison(after_csv.stem, before_table, after_table)
+        comparison = build_sheet_comparison(Path(csv_display_name).stem, before_table, after_table)
 
-        sheet_name = sanitize_sheet_name(after_csv.stem, used_sheet_names)
+        sheet_name = sanitize_sheet_name(Path(csv_display_name).with_suffix("").as_posix(), used_sheet_names)
         worksheet = workbook.create_sheet(sheet_name)
         fixme_entries.extend(
             _write_sheet(
@@ -90,7 +95,7 @@ def write_compare_workbook_with_fixmes(
                 headers,
                 case_folder_name=case_folder_name,
                 workbook_path=output_path,
-                csv_file_name=after_csv.name,
+                csv_file_name=csv_display_name,
             )
         )
         sheet_count += 1
@@ -105,16 +110,40 @@ def write_compare_workbook_with_fixmes(
     return CompareWorkbookWriteResult(output_path=output_path, sheet_count=sheet_count, fixme_entries=fixme_entries)
 
 
-def _iter_compare_csv_files(before_dir: Path, after_dir: Path, include_left_only_files: bool) -> list[Path]:
+def _iter_compare_csv_files(
+    before_dir: Path,
+    after_dir: Path,
+    include_left_only_files: bool,
+    recursive: bool,
+) -> list[tuple[Path, Path, str]]:
+    pattern = "**/*.csv" if recursive else "*.csv"
     if not include_left_only_files:
-        return sorted(after_dir.glob("*.csv"), key=lambda path: path.name.lower())
+        entries: list[tuple[Path, Path, str]] = []
+        for csv_path in sorted(after_dir.glob(pattern), key=lambda path: str(path).lower()):
+            if not csv_path.is_file():
+                continue
+            relative_name = _relative_csv_name(csv_path, after_dir, recursive)
+            entries.append((before_dir / relative_name, csv_path, relative_name))
+        return entries
 
-    by_name: dict[str, Path] = {}
-    for csv_path in before_dir.glob("*.csv"):
-        by_name[csv_path.name.lower()] = after_dir / csv_path.name
-    for csv_path in after_dir.glob("*.csv"):
-        by_name[csv_path.name.lower()] = csv_path
+    by_name: dict[str, tuple[Path, Path, str]] = {}
+    for csv_path in before_dir.glob(pattern):
+        if not csv_path.is_file():
+            continue
+        relative_name = _relative_csv_name(csv_path, before_dir, recursive)
+        by_name[relative_name.casefold()] = (csv_path, after_dir / relative_name, relative_name)
+    for csv_path in after_dir.glob(pattern):
+        if not csv_path.is_file():
+            continue
+        relative_name = _relative_csv_name(csv_path, after_dir, recursive)
+        by_name[relative_name.casefold()] = (before_dir / relative_name, csv_path, relative_name)
     return [by_name[key] for key in sorted(by_name)]
+
+
+def _relative_csv_name(csv_path: Path, base_dir: Path, recursive: bool) -> str:
+    if not recursive:
+        return csv_path.name
+    return csv_path.relative_to(base_dir).as_posix()
 
 
 def sanitize_sheet_name(name: str, used_names: set[str] | None = None) -> str:

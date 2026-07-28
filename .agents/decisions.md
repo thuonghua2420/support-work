@@ -2,6 +2,24 @@
 
 Use this file for lightweight architecture decisions. Add newest entries at the top.
 
+## 2026-07-28 - Ad-Hoc CSV Folder Compare
+
+Decision:
+
+- Add a separate left-menu page for comparing two user-selected CSV folders.
+- Add `autocompare_tool/folder_compare.py` as the workflow wrapper.
+- Reuse `excel_writer.write_compare_workbook_with_fixmes` with `include_left_only_files=True`.
+
+Reason:
+
+- Users need a direct folder-to-folder compare that is not tied to `UT*` root structure.
+- Reusing the existing Excel writer keeps FIXME output and compare semantics consistent.
+
+Consequence:
+
+- The folder compare output workbook path is user-selected, with a default file name in `autocompare_config.ini`.
+- Future improvements to compare semantics should generally happen in `compare.py` or `excel_writer.py` so both compare flows benefit.
+
 ## 2026-07-28 - Left-Side Main Menu
 
 Decision:

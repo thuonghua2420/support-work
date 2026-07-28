@@ -7,9 +7,11 @@ from pathlib import Path
 try:
     from openpyxl import load_workbook
     from autocompare_tool.fixme_replacements import apply_fixme_replacements
+    from autocompare_tool.folder_compare import compare_csv_folders
     from autocompare_tool.processor import process_root
 except ImportError:  # pragma: no cover
     apply_fixme_replacements = None
+    compare_csv_folders = None
     load_workbook = None
     process_root = None
 
@@ -116,6 +118,34 @@ class ProcessorAndExcelTests(unittest.TestCase):
 
             workbook = load_workbook(compare_new)
             self.assertEqual(workbook["table"]["F4"].value, "KNOWN_DIFF")
+
+    def test_compare_csv_folders_uses_all_csv_files_from_both_folders(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            left = root / "left"
+            right = root / "right"
+            left.mkdir()
+            right.mkdir()
+
+            _write_text(left / "shared.csv", "id,name\n1,left\n")
+            _write_text(right / "shared.csv", "id,name\n1,right\n")
+            _write_text(left / "left_only.csv", "id,name\n2,left-only\n")
+            _write_text(right / "right_only.csv", "id,name\n3,right-only\n")
+            (left / "nested").mkdir()
+            (right / "nested").mkdir()
+            _write_text(left / "nested" / "child.csv", "id,name\n4,left-child\n")
+            _write_text(right / "nested" / "child.csv", "id,name\n4,right-child\n")
+
+            self.assertIsNotNone(compare_csv_folders)
+            output = root / "folder_compare.xlsx"
+            summary = compare_csv_folders(left, right, output)
+
+            self.assertTrue(output.exists())
+            self.assertEqual(summary.sheet_count, 4)
+            self.assertGreaterEqual(len(summary.fixme_entries), 1)
+
+            workbook = load_workbook(output)
+            self.assertEqual(set(workbook.sheetnames), {"left_only", "nested_child", "right_only", "shared"})
 
 
 def _write_text(path: Path, content: str) -> None:
