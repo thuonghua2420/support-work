@@ -9,11 +9,11 @@ from .processor import process_root
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="AutoCompare CSV before/after tool")
+    parser = argparse.ArgumentParser(description="Công cụ AutoCompare CSV trước/sau")
     parser.add_argument(
         "root",
         nargs="?",
-        help="Optional root folder. If omitted, the GUI is opened.",
+        help="Thư mục gốc tùy chọn. Nếu bỏ trống, hệ thống sẽ mở giao diện GUI.",
     )
     args = parser.parse_args()
 

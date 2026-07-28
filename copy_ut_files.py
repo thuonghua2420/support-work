@@ -14,7 +14,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 
 # =========================
-# Folder name configuration
+# Cấu hình tên folder
 # =========================
 ROOT_FOLDER_PREFIX = "UT"
 
@@ -27,17 +27,17 @@ TARGET_OUTPUT_SYSTEM_FOLDER_NAME = "\u73fe\u5728\u306e\u30b7\u30b9\u30c6\u30e0\u
 
 
 # =================
-# Log configuration
+# Cấu hình log
 # =================
 LOG_FOLDER_NAME = "copy_logs"
 LOG_FILE_PREFIX = "copy_compare_log"
 
-# 0 means no limit. Set this to a positive number if the log becomes too large.
+# 0 nghĩa là không giới hạn. Đặt số dương nếu file log trở nên quá lớn.
 MAX_DIFF_DETAILS_PER_CSV = 0
 
 
 # ======================
-# CSV read configuration
+# Cấu hình đọc CSV
 # ======================
 CSV_ENCODINGS = (
     "utf-8-sig",
@@ -112,7 +112,7 @@ def read_csv_rows(path: Path) -> Tuple[List[List[str]], str]:
         except LookupError as error:
             last_error = error
 
-    raise UnicodeError(f"Cannot read CSV with configured encodings: {path}. Last error: {last_error}")
+    raise UnicodeError(f"Không thể đọc CSV bằng các encoding đã cấu hình: {path}. Lỗi cuối: {last_error}")
 
 
 def read_text(path: Path, encoding: str) -> str:
@@ -180,7 +180,7 @@ def read_csv_raw_records(path: Path, encoding: str) -> List[List[str]]:
 
 def format_cell(value: Optional[str]) -> str:
     if value is None:
-        return "<MISSING>"
+        return "<THIẾU>"
     return repr(value)
 
 
@@ -197,7 +197,7 @@ def log_raw_csv_field_differences(
         source_raw_rows = read_csv_raw_records(source_file, source_encoding)
         target_raw_rows = read_csv_raw_records(target_file, target_encoding)
     except Exception as error:
-        logger.add(f"[CSV RAW COMPARE ERROR] Cannot compare raw CSV fields: {error}")
+        logger.add(f"[LỖI SO SÁNH RAW CSV] Không thể so sánh field raw CSV: {error}")
         return
 
     max_rows = max(len(source_raw_rows), len(target_raw_rows))
@@ -217,13 +217,13 @@ def log_raw_csv_field_differences(
         display_row = row_index + 1
 
         if source_raw_row is None:
-            logger.add(f"[ROW FORMAT DIFFERENT] Row {display_row}: raw row exists only in target.")
+            logger.add(f"[FORMAT DÒNG KHÁC NHAU] Dòng {display_row}: dòng raw chỉ tồn tại ở đích.")
             if not target_raw_row:
                 diff_count += 1
                 if limit and diff_count > limit:
                     limit_reached = True
                     break
-                logger.add(f"[COLUMN FORMAT DIFF] Row {display_row}: source_raw=<MISSING> | target_raw=[]")
+                logger.add(f"[FORMAT CỘT KHÁC NHAU] Dòng {display_row}: raw_nguồn=<THIẾU> | raw_đích=[]")
             else:
                 for col_index, target_raw_value in enumerate(target_raw_row):
                     diff_count += 1
@@ -238,11 +238,11 @@ def log_raw_csv_field_differences(
                     )
                     display_col = col_index + 1
                     logger.add(
-                        f"[COLUMN FORMAT DIFF] Row {display_row}, Column {display_col}: "
-                        f"source_raw=<MISSING> | "
-                        f"target_raw={format_cell(target_raw_value)} | "
-                        f"source_value=<MISSING> | "
-                        f"target_value={format_cell(target_value)}"
+                        f"[FORMAT CỘT KHÁC NHAU] Dòng {display_row}, Cột {display_col}: "
+                        f"raw_nguồn=<THIẾU> | "
+                        f"raw_đích={format_cell(target_raw_value)} | "
+                        f"value_nguồn=<THIẾU> | "
+                        f"value_đích={format_cell(target_value)}"
                     )
 
             if limit_reached:
@@ -250,13 +250,13 @@ def log_raw_csv_field_differences(
             continue
 
         if target_raw_row is None:
-            logger.add(f"[ROW FORMAT DIFFERENT] Row {display_row}: raw row exists only in source.")
+            logger.add(f"[FORMAT DÒNG KHÁC NHAU] Dòng {display_row}: dòng raw chỉ tồn tại ở nguồn.")
             if not source_raw_row:
                 diff_count += 1
                 if limit and diff_count > limit:
                     limit_reached = True
                     break
-                logger.add(f"[COLUMN FORMAT DIFF] Row {display_row}: source_raw=[] | target_raw=<MISSING>")
+                logger.add(f"[FORMAT CỘT KHÁC NHAU] Dòng {display_row}: raw_nguồn=[] | raw_đích=<THIẾU>")
             else:
                 for col_index, source_raw_value in enumerate(source_raw_row):
                     diff_count += 1
@@ -271,18 +271,18 @@ def log_raw_csv_field_differences(
                     )
                     display_col = col_index + 1
                     logger.add(
-                        f"[COLUMN FORMAT DIFF] Row {display_row}, Column {display_col}: "
-                        f"source_raw={format_cell(source_raw_value)} | "
-                        f"target_raw=<MISSING> | "
-                        f"source_value={format_cell(source_value)} | "
-                        f"target_value=<MISSING>"
+                        f"[FORMAT CỘT KHÁC NHAU] Dòng {display_row}, Cột {display_col}: "
+                        f"raw_nguồn={format_cell(source_raw_value)} | "
+                        f"raw_đích=<THIẾU> | "
+                        f"value_nguồn={format_cell(source_value)} | "
+                        f"value_đích=<THIẾU>"
                     )
 
             if limit_reached:
                 break
             continue
 
-        logger.add(f"[ROW FORMAT DIFFERENT] Row {display_row}")
+        logger.add(f"[FORMAT DÒNG KHÁC NHAU] Dòng {display_row}")
         max_cols = max(len(source_raw_row), len(target_raw_row))
         for col_index in range(max_cols):
             source_raw_value = source_raw_row[col_index] if col_index < len(source_raw_row) else None
@@ -309,19 +309,19 @@ def log_raw_csv_field_differences(
 
             display_col = col_index + 1
             logger.add(
-                f"[COLUMN FORMAT DIFF] Row {display_row}, Column {display_col}: "
-                f"source_raw={format_cell(source_raw_value)} | "
-                f"target_raw={format_cell(target_raw_value)} | "
-                f"source_value={format_cell(source_value)} | "
-                f"target_value={format_cell(target_value)}"
+                f"[FORMAT CỘT KHÁC NHAU] Dòng {display_row}, Cột {display_col}: "
+                f"raw_nguồn={format_cell(source_raw_value)} | "
+                f"raw_đích={format_cell(target_raw_value)} | "
+                f"value_nguồn={format_cell(source_value)} | "
+                f"value_đích={format_cell(target_value)}"
             )
 
         if limit_reached:
             break
 
-    logger.add(f"[CSV RAW DIFFERENT] Same rows: {same_row_count}, different columns: {diff_count}")
+    logger.add(f"[RAW CSV KHÁC NHAU] Dòng giống nhau: {same_row_count}, cột khác nhau: {diff_count}")
     if limit_reached:
-        logger.add(f"[CSV RAW DIFFERENT] Diff detail limit reached: {MAX_DIFF_DETAILS_PER_CSV}")
+        logger.add(f"[RAW CSV KHÁC NHAU] Đã đạt giới hạn chi tiết sai khác: {MAX_DIFF_DETAILS_PER_CSV}")
 
 
 def compare_csv_files(source_file: Path, target_file: Path, logger: Logger) -> bool:
@@ -329,7 +329,7 @@ def compare_csv_files(source_file: Path, target_file: Path, logger: Logger) -> b
         source_rows, source_encoding = read_csv_rows(source_file)
         target_rows, target_encoding = read_csv_rows(target_file)
     except Exception as error:
-        logger.add(f"[CSV COMPARE ERROR] Cannot compare CSV before overwrite: {error}")
+        logger.add(f"[LỖI SO SÁNH CSV] Không thể so sánh CSV trước khi ghi đè: {error}")
         return True
 
     if source_rows == target_rows:
@@ -337,15 +337,15 @@ def compare_csv_files(source_file: Path, target_file: Path, logger: Logger) -> b
             if filecmp.cmp(source_file, target_file, shallow=False):
                 return False
         except OSError as error:
-            logger.add(f"[CSV RAW COMPARE ERROR] Could not compare raw files: {error}")
+            logger.add(f"[LỖI SO SÁNH RAW CSV] Không thể so sánh file raw: {error}")
 
-        logger.add(f"[CSV FORMAT DIFFERENT] Parsed CSV values are same, but raw file content differs.")
-        logger.add(f"[CSV COMPARE] Source: {source_file}")
-        logger.add(f"[CSV COMPARE] Target: {target_file}")
-        logger.add(f"Source encoding: {source_encoding}")
-        logger.add(f"Target encoding: {target_encoding}")
-        logger.add(f"Source rows: {len(source_rows)}")
-        logger.add(f"Target rows: {len(target_rows)}")
+        logger.add("[FORMAT CSV KHÁC NHAU] Giá trị CSV sau khi parse giống nhau, nhưng nội dung raw của file khác nhau.")
+        logger.add(f"[SO SÁNH CSV] Nguồn: {source_file}")
+        logger.add(f"[SO SÁNH CSV] Đích: {target_file}")
+        logger.add(f"Encoding nguồn: {source_encoding}")
+        logger.add(f"Encoding đích: {target_encoding}")
+        logger.add(f"Số dòng nguồn: {len(source_rows)}")
+        logger.add(f"Số dòng đích: {len(target_rows)}")
         log_raw_csv_field_differences(
             source_file,
             target_file,
@@ -357,12 +357,12 @@ def compare_csv_files(source_file: Path, target_file: Path, logger: Logger) -> b
         )
         return True
 
-    logger.add(f"[CSV COMPARE] Source: {source_file}")
-    logger.add(f"[CSV COMPARE] Target: {target_file}")
-    logger.add(f"Source encoding: {source_encoding}")
-    logger.add(f"Target encoding: {target_encoding}")
-    logger.add(f"Source rows: {len(source_rows)}")
-    logger.add(f"Target rows: {len(target_rows)}")
+    logger.add(f"[SO SÁNH CSV] Nguồn: {source_file}")
+    logger.add(f"[SO SÁNH CSV] Đích: {target_file}")
+    logger.add(f"Encoding nguồn: {source_encoding}")
+    logger.add(f"Encoding đích: {target_encoding}")
+    logger.add(f"Số dòng nguồn: {len(source_rows)}")
+    logger.add(f"Số dòng đích: {len(target_rows)}")
 
     max_rows = max(len(source_rows), len(target_rows))
     diff_count = 0
@@ -380,13 +380,13 @@ def compare_csv_files(source_file: Path, target_file: Path, logger: Logger) -> b
             continue
 
         if source_row is None:
-            logger.add(f"[ROW DIFFERENT] Row {display_row}: row exists only in target.")
+            logger.add(f"[DÒNG KHÁC NHAU] Dòng {display_row}: dòng chỉ tồn tại ở đích.")
             if not target_row:
                 diff_count += 1
                 if limit and diff_count > limit:
                     limit_reached = True
                     break
-                logger.add(f"[COLUMN DIFF] Row {display_row}: source=<MISSING> | target=[]")
+                logger.add(f"[CỘT KHÁC NHAU] Dòng {display_row}: nguồn=<THIẾU> | đích=[]")
             else:
                 for col_index, target_value in enumerate(target_row):
                     diff_count += 1
@@ -396,8 +396,8 @@ def compare_csv_files(source_file: Path, target_file: Path, logger: Logger) -> b
 
                     display_col = col_index + 1
                     logger.add(
-                        f"[COLUMN DIFF] Row {display_row}, Column {display_col}: "
-                        f"source=<MISSING> | target={format_cell(target_value)}"
+                        f"[CỘT KHÁC NHAU] Dòng {display_row}, Cột {display_col}: "
+                        f"nguồn=<THIẾU> | đích={format_cell(target_value)}"
                     )
 
             if limit_reached:
@@ -405,13 +405,13 @@ def compare_csv_files(source_file: Path, target_file: Path, logger: Logger) -> b
             continue
 
         if target_row is None:
-            logger.add(f"[ROW DIFFERENT] Row {display_row}: row exists only in source.")
+            logger.add(f"[DÒNG KHÁC NHAU] Dòng {display_row}: dòng chỉ tồn tại ở nguồn.")
             if not source_row:
                 diff_count += 1
                 if limit and diff_count > limit:
                     limit_reached = True
                     break
-                logger.add(f"[COLUMN DIFF] Row {display_row}: source=[] | target=<MISSING>")
+                logger.add(f"[CỘT KHÁC NHAU] Dòng {display_row}: nguồn=[] | đích=<THIẾU>")
             else:
                 for col_index, source_value in enumerate(source_row):
                     diff_count += 1
@@ -421,15 +421,15 @@ def compare_csv_files(source_file: Path, target_file: Path, logger: Logger) -> b
 
                     display_col = col_index + 1
                     logger.add(
-                        f"[COLUMN DIFF] Row {display_row}, Column {display_col}: "
-                        f"source={format_cell(source_value)} | target=<MISSING>"
+                        f"[CỘT KHÁC NHAU] Dòng {display_row}, Cột {display_col}: "
+                        f"nguồn={format_cell(source_value)} | đích=<THIẾU>"
                     )
 
             if limit_reached:
                 break
             continue
 
-        logger.add(f"[ROW DIFFERENT] Row {display_row}")
+        logger.add(f"[DÒNG KHÁC NHAU] Dòng {display_row}")
         max_cols = max(len(source_row), len(target_row))
         for col_index in range(max_cols):
             source_value = source_row[col_index] if col_index < len(source_row) else None
@@ -445,16 +445,16 @@ def compare_csv_files(source_file: Path, target_file: Path, logger: Logger) -> b
 
             display_col = col_index + 1
             logger.add(
-                f"[COLUMN DIFF] Row {display_row}, Column {display_col}: "
-                f"source={format_cell(source_value)} | target={format_cell(target_value)}"
+                f"[CỘT KHÁC NHAU] Dòng {display_row}, Cột {display_col}: "
+                f"nguồn={format_cell(source_value)} | đích={format_cell(target_value)}"
             )
 
         if limit_reached:
             break
 
-    logger.add(f"[CSV DIFFERENT] Same rows: {same_row_count}, difference entries: {diff_count}")
+    logger.add(f"[CSV KHÁC NHAU] Dòng giống nhau: {same_row_count}, mục sai khác: {diff_count}")
     if limit_reached:
-        logger.add(f"[CSV DIFFERENT] Diff detail limit reached: {MAX_DIFF_DETAILS_PER_CSV}")
+        logger.add(f"[CSV KHÁC NHAU] Đã đạt giới hạn chi tiết sai khác: {MAX_DIFF_DETAILS_PER_CSV}")
     return True
 
 
@@ -462,12 +462,12 @@ def copy_file_with_log(source_file: Path, target_file: Path, logger: Logger) -> 
     target_file.parent.mkdir(parents=True, exist_ok=True)
 
     if not target_file.exists():
-        logger.add(f"[NEW FILE] Copy new file: {source_file} -> {target_file}")
+        logger.add(f"[FILE MỚI] Sao chép file mới: {source_file} -> {target_file}")
         shutil.copy2(source_file, target_file)
         return
 
     if target_file.is_dir():
-        logger.add(f"[SKIP] Target path is a directory, cannot overwrite with file: {target_file}")
+        logger.add(f"[BỎ QUA] Đường dẫn đích là folder, không thể ghi đè bằng file: {target_file}")
         return
 
     should_log_overwrite = True
@@ -479,12 +479,12 @@ def copy_file_with_log(source_file: Path, target_file: Path, logger: Logger) -> 
             if filecmp.cmp(source_file, target_file, shallow=False):
                 should_log_overwrite = False
             else:
-                logger.add(f"[OVERWRITE NON-CSV] Existing file differs and will be overwritten: {target_file}")
+                logger.add(f"[GHI ĐÈ FILE KHÔNG PHẢI CSV] File hiện có khác nhau và sẽ được ghi đè: {target_file}")
         except OSError as error:
-            logger.add(f"[OVERWRITE NON-CSV] Could not compare non-CSV file: {target_file}. Error: {error}")
+            logger.add(f"[GHI ĐÈ FILE KHÔNG PHẢI CSV] Không thể so sánh file không phải CSV: {target_file}. Lỗi: {error}")
 
     if should_log_overwrite:
-        logger.add(f"[OVERWRITE] Copy overwrite: {source_file} -> {target_file}")
+        logger.add(f"[GHI ĐÈ] Sao chép ghi đè: {source_file} -> {target_file}")
     shutil.copy2(source_file, target_file)
 
 
@@ -500,7 +500,7 @@ def ensure_target_structure(target_root: Path, logger: Logger) -> Tuple[Path, Pa
     target_output_system_dir = target_root / TARGET_OUTPUT_FOLDER_NAME / TARGET_OUTPUT_SYSTEM_FOLDER_NAME
 
     if not target_root.exists():
-        logger.add(f"[CREATE FOLDER] Target root does not exist. Create: {target_root}")
+        logger.add(f"[TẠO FOLDER] Root đích chưa tồn tại. Tạo mới: {target_root}")
 
     target_input_dir.mkdir(parents=True, exist_ok=True)
     target_output_system_dir.mkdir(parents=True, exist_ok=True)
@@ -510,9 +510,9 @@ def ensure_target_structure(target_root: Path, logger: Logger) -> Tuple[Path, Pa
 
 def validate_base_path(path: Path, label: str) -> None:
     if not path.exists():
-        raise FileNotFoundError(f"{label} does not exist: {path}")
+        raise FileNotFoundError(f"{label} không tồn tại: {path}")
     if not path.is_dir():
-        raise NotADirectoryError(f"{label} is not a directory: {path}")
+        raise NotADirectoryError(f"{label} không phải là folder: {path}")
 
 
 def run(path1: Path, path2: Path) -> Path:
@@ -526,25 +526,25 @@ def run(path1: Path, path2: Path) -> Path:
     log_path = Path(__file__).resolve().parent / LOG_FOLDER_NAME / f"{LOG_FILE_PREFIX}_{timestamp}.txt"
     logger = Logger(log_path)
 
-    logger.add(f"Started at: {datetime.now().isoformat(timespec='seconds')}")
-    logger.add(f"Path1: {path1}")
-    logger.add(f"Path2: {path2}")
-    logger.add(f"Root folder prefix: {ROOT_FOLDER_PREFIX}")
-    logger.add(f"Source input folder: {SOURCE_INPUT_FOLDER_NAME}")
-    logger.add(f"Source output folder: {SOURCE_OUTPUT_FOLDER_NAME}")
-    logger.add(f"Target input folder: {TARGET_INPUT_FOLDER_NAME}")
-    logger.add(f"Target output folder: {TARGET_OUTPUT_FOLDER_NAME}/{TARGET_OUTPUT_SYSTEM_FOLDER_NAME}")
+    logger.add(f"Bắt đầu lúc: {datetime.now().isoformat(timespec='seconds')}")
+    logger.add(f"Đường dẫn nguồn 1: {path1}")
+    logger.add(f"Đường dẫn đích 2: {path2}")
+    logger.add(f"Prefix folder root: {ROOT_FOLDER_PREFIX}")
+    logger.add(f"Folder input nguồn: {SOURCE_INPUT_FOLDER_NAME}")
+    logger.add(f"Folder output nguồn: {SOURCE_OUTPUT_FOLDER_NAME}")
+    logger.add(f"Folder input đích: {TARGET_INPUT_FOLDER_NAME}")
+    logger.add(f"Folder output đích: {TARGET_OUTPUT_FOLDER_NAME}/{TARGET_OUTPUT_SYSTEM_FOLDER_NAME}")
 
     root_folders = list(iter_root_folders(path1))
     if not root_folders:
         logger.add("")
-        logger.add("[WARNING] No root folders found in Path1.")
+        logger.add("[CẢNH BÁO] Không tìm thấy folder root trong đường dẫn nguồn 1.")
 
     for source_root in root_folders:
         target_root = path2 / source_root.name
-        logger.section(f"Mapping root folder: {source_root.name}")
-        logger.add(f"Source root: {source_root}")
-        logger.add(f"Target root: {target_root}")
+        logger.section(f"Xử lý folder root: {source_root.name}")
+        logger.add(f"Root nguồn: {source_root}")
+        logger.add(f"Root đích: {target_root}")
 
         target_input_dir, target_output_system_dir = ensure_target_structure(target_root, logger)
 
@@ -552,19 +552,19 @@ def run(path1: Path, path2: Path) -> Path:
         source_output_dir = find_child_dir(source_root, SOURCE_OUTPUT_FOLDER_NAME)
 
         if source_input_dir is None:
-            logger.add(f"[SKIP] Source input folder not found: {source_root / SOURCE_INPUT_FOLDER_NAME}")
+            logger.add(f"[BỎ QUA] Không tìm thấy folder input nguồn: {source_root / SOURCE_INPUT_FOLDER_NAME}")
         else:
-            logger.add(f"[COPY INPUT] {source_input_dir} -> {target_input_dir}")
+            logger.add(f"[SAO CHÉP INPUT] {source_input_dir} -> {target_input_dir}")
             copy_tree_contents(source_input_dir, target_input_dir, logger)
 
         if source_output_dir is None:
-            logger.add(f"[SKIP] Source output folder not found: {source_root / SOURCE_OUTPUT_FOLDER_NAME}")
+            logger.add(f"[BỎ QUA] Không tìm thấy folder output nguồn: {source_root / SOURCE_OUTPUT_FOLDER_NAME}")
         else:
-            logger.add(f"[COPY OUTPUT] {source_output_dir} -> {target_output_system_dir}")
+            logger.add(f"[SAO CHÉP OUTPUT] {source_output_dir} -> {target_output_system_dir}")
             copy_tree_contents(source_output_dir, target_output_system_dir, logger)
 
     logger.add("")
-    logger.add(f"Finished at: {datetime.now().isoformat(timespec='seconds')}")
+    logger.add(f"Kết thúc lúc: {datetime.now().isoformat(timespec='seconds')}")
     logger.write()
     return log_path
 
@@ -572,39 +572,39 @@ def run(path1: Path, path2: Path) -> Path:
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            f"Copy files from Path1 UT*/{SOURCE_INPUT_FOLDER_NAME} "
-            f"to Path2 UT*/{TARGET_INPUT_FOLDER_NAME} and "
-            f"from Path1 UT*/{SOURCE_OUTPUT_FOLDER_NAME} "
-            f"to Path2 UT*/{TARGET_OUTPUT_FOLDER_NAME}/{TARGET_OUTPUT_SYSTEM_FOLDER_NAME}."
+            f"Sao chép file từ đường dẫn nguồn 1 UT*/{SOURCE_INPUT_FOLDER_NAME} "
+            f"sang đường dẫn đích 2 UT*/{TARGET_INPUT_FOLDER_NAME} và "
+            f"từ đường dẫn nguồn 1 UT*/{SOURCE_OUTPUT_FOLDER_NAME} "
+            f"sang đường dẫn đích 2 UT*/{TARGET_OUTPUT_FOLDER_NAME}/{TARGET_OUTPUT_SYSTEM_FOLDER_NAME}."
         )
     )
-    parser.add_argument("path1", nargs="?", help="Source base path containing UT folders.")
-    parser.add_argument("path2", nargs="?", help="Target base path containing/mirroring UT folders.")
+    parser.add_argument("path1", nargs="?", help="Đường dẫn nguồn chứa các folder UT.")
+    parser.add_argument("path2", nargs="?", help="Đường dẫn đích chứa hoặc sao chép cấu trúc các folder UT.")
     return parser.parse_args(argv)
 
 
 def prompt_for_path(label: str) -> Path:
     while True:
-        value = input(f"Nhap {label}: ").strip().strip('"')
+        value = input(f"Nhập {label}: ").strip().strip('"')
         if value:
             return Path(value)
-        print(f"{label} khong duoc de trong.")
+        print(f"{label} không được để trống.")
 
 
 def main(argv: Sequence[str]) -> int:
     args = parse_args(argv)
 
-    path1 = Path(args.path1) if args.path1 else prompt_for_path("Path1")
-    path2 = Path(args.path2) if args.path2 else prompt_for_path("Path2")
+    path1 = Path(args.path1) if args.path1 else prompt_for_path("đường dẫn nguồn 1")
+    path2 = Path(args.path2) if args.path2 else prompt_for_path("đường dẫn đích 2")
 
     try:
         log_path = run(path1, path2)
     except Exception as error:
-        print(f"ERROR: {error}", file=sys.stderr)
+        print(f"LỖI: {error}", file=sys.stderr)
         return 1
 
-    print("Hoan thanh copy.")
-    print(f"Log file: {log_path}")
+    print("Hoàn tất copy.")
+    print(f"File log: {log_path}")
     return 0
 
 

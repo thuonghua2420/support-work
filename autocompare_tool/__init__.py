@@ -1,4 +1,4 @@
-"""AutoCompare Tool package."""
+"""Package của công cụ AutoCompare."""
 
 from __future__ import annotations
 
@@ -11,4 +11,4 @@ def __getattr__(name: str):
 
         return {"ProcessSummary": ProcessSummary, "process_root": process_root}[name]
 
-    raise AttributeError(f"module 'autocompare_tool' has no attribute {name!r}")
+    raise AttributeError(f"module 'autocompare_tool' không có attribute {name!r}")

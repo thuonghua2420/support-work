@@ -6,8 +6,10 @@ from pathlib import Path
 
 try:
     from openpyxl import load_workbook
+    from autocompare_tool.fixme_replacements import apply_fixme_replacements
     from autocompare_tool.processor import process_root
 except ImportError:  # pragma: no cover
+    apply_fixme_replacements = None
     load_workbook = None
     process_root = None
 
@@ -16,6 +18,7 @@ from autocompare_tool.constants import (
     AFTER_NEW_DIR,
     BEFORE_CURRENT_DIR,
     BEFORE_NEW_DIR,
+    COMPARE_AFTER_AFTER_FILE,
     COMPARE_CURRENT_FILE,
     COMPARE_DIR,
     COMPARE_NEW_FILE,
@@ -58,8 +61,11 @@ class ProcessorAndExcelTests(unittest.TestCase):
 
             compare_new = output_dir / COMPARE_DIR / COMPARE_NEW_FILE
             compare_current = output_dir / COMPARE_DIR / COMPARE_CURRENT_FILE
+            compare_after_after = output_dir / COMPARE_DIR / COMPARE_AFTER_AFTER_FILE
             self.assertTrue(compare_new.exists())
             self.assertTrue(compare_current.exists())
+            self.assertTrue(compare_after_after.exists())
+            self.assertGreater(len(summary.fixme_entries), 0)
 
             workbook = load_workbook(compare_new)
             self.assertIn("table", workbook.sheetnames)
@@ -72,6 +78,44 @@ class ProcessorAndExcelTests(unittest.TestCase):
             self.assertEqual(worksheet["B1"].value, 2)
             self.assertEqual(worksheet["F4"].value, "after")
             self.assertEqual(worksheet["H4"].value, "FIXME")
+
+    def test_process_root_respects_selected_compare_workflows_and_applies_notes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            case = root / "UT01-001"
+            input_dir = case / INPUT_DIR
+            output_dir = case / OUTPUT_DIR
+            before_new = output_dir / BEFORE_NEW_DIR
+            before_current = output_dir / BEFORE_CURRENT_DIR
+            after_new = output_dir / AFTER_NEW_DIR
+            after_current = output_dir / AFTER_CURRENT_DIR
+
+            for folder in (input_dir, before_new, before_current, after_new, after_current):
+                folder.mkdir(parents=True)
+
+            _write_text(input_dir / "table.csv", "id,name\n1,before\n")
+            _write_text(after_new / "table.csv", "id,name\n1,after\n")
+            _write_text(after_current / "table.csv", "id,name\n1,before\n")
+            stale_compare_dir = output_dir / COMPARE_DIR
+            stale_compare_dir.mkdir()
+            _write_text(stale_compare_dir / COMPARE_CURRENT_FILE, "stale")
+            _write_text(stale_compare_dir / COMPARE_AFTER_AFTER_FILE, "stale")
+
+            summary = process_root(root, selected_workflow_keys={"htm_before_after"})
+
+            compare_new = output_dir / COMPARE_DIR / COMPARE_NEW_FILE
+            compare_current = output_dir / COMPARE_DIR / COMPARE_CURRENT_FILE
+            compare_after_after = output_dir / COMPARE_DIR / COMPARE_AFTER_AFTER_FILE
+            self.assertTrue(compare_new.exists())
+            self.assertFalse(compare_current.exists())
+            self.assertFalse(compare_after_after.exists())
+            self.assertEqual(len(summary.fixme_entries), 1)
+
+            result = apply_fixme_replacements(summary.fixme_entries, {0: "KNOWN_DIFF"})
+            self.assertEqual(result.cell_count, 1)
+
+            workbook = load_workbook(compare_new)
+            self.assertEqual(workbook["table"]["F4"].value, "KNOWN_DIFF")
 
 
 def _write_text(path: Path, content: str) -> None:

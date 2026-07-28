@@ -1,61 +1,77 @@
-# Python AutoCompare Tool
+# Công Cụ Python AutoCompare
 
-Tool nay copy CSV tu `Input` vao cac folder `before...`, sau do compare cac cap `before/after` va tao Excel trong `Output\Compare`.
+Tool này sao chép CSV từ `Input` vào các folder `before...`, sau đó so sánh các cặp `before/after` và tạo Excel trong `Output\Compare`.
 
-## Cach chay
+## Cách Chạy
 
-1. Cai Python 3.10 tro len va bat tuy chon `Add Python to PATH`.
+1. Cài Python 3.10 trở lên và bật tùy chọn `Add Python to PATH`.
 2. Double-click `run.bat`.
-3. Chon folder cha chua cac folder `UT*`, vi du `D:\project\autocompare`.
-4. Bam `Run Compare`.
+3. Dùng thanh `Menu chính` bên trái để chọn chức năng cần chạy.
 
-`run.bat` se tu tao `.venv`, cai `openpyxl`, va mo GUI.
+Menu hiện có:
 
-## Copy UT Files
+- `So sánh`: chọn folder cha chứa các folder `UT*`, chọn checkbox so sánh, bấm `Chạy so sánh`, và review/apply ghi chú FIXME.
+- `Sao chép file UT`: sao chép CSV từ nguồn sang đích theo luồng xử lý UT.
+- `Kết nối SQL Server`: kiểm tra đăng nhập DB và chuẩn hóa CSV theo metadata SQL Server.
 
-GUI co them khu vuc `Copy UT Files` gom 2 path:
+`run.bat` sẽ tự tạo `.venv`, cài `openpyxl`, và mở GUI.
 
-- `Source Path1`: folder nguon chua cac folder `UT*`.
-- `Target Path2`: folder dich de tao/mirror cac folder `UT*`.
+## File Config
 
-Bam `Run Copy UT Files` de chay logic trong `copy_ut_files.py`.
+Những giá trị dùng để thay đổi cấu trúc folder/output nằm trong `autocompare_config.ini`.
 
-Logic copy hien co:
+File này có comment cho từng config:
 
-- Copy tu `UT*/input` cua source sang `UT*/入力` cua target.
-- Copy tu `UT*/output` cua source sang `UT*/出力/現在のシステム以降` cua target.
-- Neu target da co file CSV, tool compare value/raw format va ghi chi tiet vao log truoc khi overwrite.
-- Log duoc tao trong folder `copy_logs` canh `copy_ut_files.py`.
+- `[folders]`: tên folder `Input`, `Output`, `Compare`, các folder before/after của HTM và HTC.
+- `[workbooks]`: tên 3 file Excel output.
+- `[excel_headers]`: các header/text trong file compare Excel, bao gồm `FIXME`.
+- `[compare_workflows]`: checkbox nào được chọn mặc định khi mở GUI.
 
-## Chuc nang 2: SQL Server CSV normalize
+## Sao Chép File UT
 
-GUI co them khu vuc `SQL Server`:
+Menu `Sao chép file UT` gồm 2 path:
 
-- Driver: mac dinh `ODBC Driver 18 for SQL Server`.
-- Server, Database.
-- Windows Authentication hoac User/Password.
-- Schema: mac dinh `dbo`.
+- `Đường dẫn nguồn 1`: folder nguồn chứa các folder `UT*`.
+- `Đường dẫn đích 2`: folder đích để tạo hoặc sao chép cấu trúc các folder `UT*`.
 
-May chay tool can co Microsoft ODBC Driver for SQL Server, vi `pyodbc` se dung driver nay de connect.
+Bấm `Chạy sao chép file UT` để chạy logic trong `copy_ut_files.py`.
 
-Quy trinh:
+Logic sao chép hiện có:
 
-1. Nhap thong tin DB.
-2. Bam `Test DB Login`.
-3. Sau khi login thanh cong, bam `Normalize CSV`.
+- Sao chép từ `UT*/input` của nguồn sang `UT*/入力` của đích.
+- Sao chép từ `UT*/output` của nguồn sang `UT*/出力/現在のシステム以降` của đích.
+- Nếu đích đã có file CSV, tool so sánh value/raw format và ghi chi tiết vào log trước khi ghi đè.
+- Log được tạo trong folder `copy_logs` cạnh `copy_ut_files.py`.
 
-Tool se duyet tat ca CSV trong folder dang chon, bao gom ca CSV trong folder con ben duoi. Moi CSV duoc map voi table that trong DB theo ten file khong gom `.csv`.
+## Chuẩn Hóa CSV SQL Server
+
+Menu `Kết nối SQL Server`:
+
+- Driver: mặc định `ODBC Driver 18 for SQL Server`.
+- Máy chủ, cơ sở dữ liệu.
+- Xác thực Windows hoặc người dùng/mật khẩu.
+- Schema: mặc định `dbo`.
+
+Máy chạy tool cần có Microsoft ODBC Driver for SQL Server, vì `pyodbc` sẽ dùng driver này để kết nối.
+
+Quy trình:
+
+1. Nhập thông tin DB.
+2. Bấm `Kiểm tra đăng nhập DB`.
+3. Sau khi login thành công, bấm `Chuẩn hóa CSV`.
+
+Tool sẽ duyệt tất cả CSV trong folder đang chọn, bao gồm cả CSV trong folder con bên dưới. Mỗi CSV được map với table thật trong DB theo tên file không gồm `.csv`.
 
 ```text
 customers.csv -> <schema>.customers
 orders.csv    -> <schema>.orders
 ```
 
-Neu khong tim thay table tuong ung trong DB, CSV do se duoc skip va tool tiep tuc xu ly cac file con lai.
+Nếu không tìm thấy table tương ứng trong DB, CSV đó sẽ được bỏ qua và tool tiếp tục xử lý các file còn lại.
 
-Tool chi doc metadata column order va datatype tu SQL Server, sau do reorder/normalize CSV tai cho theo thu tu column trong DB.
+Tool chỉ đọc metadata column order và datatype từ SQL Server, sau đó reorder/normalize CSV tại chỗ theo thứ tự column trong DB.
 
-Tool khong `TRUNCATE`, khong `INSERT`, va khong overwrite value qua datatype/constraint/trigger cua SQL Server.
+Tool không `TRUNCATE`, không `INSERT`, và không ghi đè value thông qua datatype/constraint/trigger của SQL Server.
 
 Format export:
 
@@ -66,21 +82,21 @@ Format export:
 - Quote always strings
 - NULL string: blank
 - Empty string: `""`
-- Column `datetime`, `datetime2`, `smalldatetime`: output `yyyy-MM-dd HH:mm:ss.fff`
-- Column `decimal`, `numeric`, `money`, `smallmoney`: output 4 so sau dau cham, vi du `3456.0` -> `3456.0000`
+- Cột `datetime`, `datetime2`, `smalldatetime`: output `yyyy-MM-dd HH:mm:ss.fff`
+- Cột `decimal`, `numeric`, `money`, `smallmoney`: output 4 số sau dấu chấm, ví dụ `3456.0` -> `3456.0000`
 
-Vi du:
+Ví dụ:
 
 ```csv
 id,empty_value,null_value
 "1","",
 ```
 
-Trong dong data tren, `empty_value` la empty string, `null_value` la NULL.
+Trong dòng data trên, `empty_value` là empty string, `null_value` là NULL.
 
-Luu y: CSV column phai ton tai trong table DB tuong ung. Neu CSV co column khong co trong DB, tool se bao loi va khong overwrite file do.
+Lưu ý: cột CSV phải tồn tại trong table DB tương ứng. Nếu CSV có cột không có trong DB, tool sẽ báo lỗi và không ghi đè file đó.
 
-## Cau truc folder du kien
+## Cấu Trúc Folder Dự Kiến
 
 ```text
 Root
@@ -96,28 +112,55 @@ Root
       Compare
 ```
 
-## Ket qua
+## Kết Quả
 
-Moi `UT*` tao 2 file:
+Mỗi `UT*` có thể tạo tối đa 3 file, tùy theo checkbox đã chọn:
 
 - `Output\Compare\Compare新_Before_After.xlsx`
 - `Output\Compare\Compare現行_Before_After.xlsx`
+- `Output\Compare\Compare現行_vs_新_After_After.xlsx`
 
-Danh sach sheet lay theo cac file CSV trong folder `after...`. Ten sheet la ten file khong gom `.csv`. Record duoc map bang cot dau tien cua moi CSV.
+Với compare before/after, danh sách sheet lấy theo các file CSV trong folder bên phải/after. Với compare after/after của 2 hệ thống, danh sách sheet lấy theo tập hợp file CSV của cả 2 folder after. Tên sheet là tên file không gồm `.csv`. Record được map bằng cột đầu tiên của mỗi CSV.
 
-## Quy tac xu ly
+Nếu một checkbox không được chọn, workbook output tương ứng trong `Output\Compare` sẽ bị xóa nếu đang tồn tại từ lần chạy trước.
 
-- Moi lan run se xoa CSV cu trong 2 folder `before...`, roi copy lai toan bo CSV tu `Input`.
-- File CSV chi co trong `before...` se bi xoa khoi folder `before...` sau buoc copy, vi folder `after...` la nguon uu tien.
-- Record chi co trong `after` se de trong cot before.
-- Record chi co trong `before` se de trong cot after.
-- Neu key trung nhau, tool dung key + thu tu xuat hien de map deterministic.
-- Cac cot metadata giong source mau se bi bo qua: `ValidationErrors`, `HasErrors`, `TargetProperties`, `DataState`.
+## Kiểm Tra FIXME
 
-## Chay test
+Sau khi `Chạy so sánh`, GUI sẽ hiển thị toàn bộ dòng sai khác đang có `FIXME` theo dạng table:
 
-Sau khi dependency da duoc cai:
+```text
+Tên folder UT -> Tên file Excel -> Tên sheet -> Tên cột -> Giá trị bên trái -> Giá trị bên phải -> STT record -> Combobox ghi chú
+```
+
+Để thêm ghi chú cho combobox:
+
+1. Bấm `Thêm giá trị combobox`.
+2. Nhập `Ghi chú` và `Ý nghĩa`.
+3. Bấm `Lưu ghi chú`.
+
+Có thể chọn ghi chú trong danh sách bên dưới để cập nhật hoặc xóa. Sau khi chọn ghi chú cho các dòng sai khác, bấm `Áp dụng ghi chú đã chọn` để thay thế các cell `FIXME` tương ứng trong file Excel.
+
+Danh sách ghi chú được lưu trong `fixme_notes.json` sau khi người dùng bấm `Lưu ghi chú`.
+
+## Quy Tắc Xử Lý
+
+- Mỗi lần chạy sẽ xóa CSV cũ trong 2 folder `before...`, rồi sao chép lại toàn bộ CSV từ `Input`.
+- File CSV chỉ có trong `before...` sẽ bị xóa khỏi folder `before...` sau bước sao chép, vì folder `after...` là nguồn ưu tiên.
+- Record chỉ có trong `after` sẽ để trống cột before.
+- Record chỉ có trong `before` sẽ để trống cột after.
+- Nếu key trùng nhau, tool dùng key + thứ tự xuất hiện để map deterministic.
+- Các cột metadata giống nguồn mẫu sẽ bị bỏ qua: `ValidationErrors`, `HasErrors`, `TargetProperties`, `DataState`.
+- Compare after/after của 2 hệ thống dùng folder after HTC làm bên trái và after HTM làm bên phải.
+
+## Chạy Test
+
+Sau khi các thư viện phụ thuộc đã được cài:
 
 ```bat
 .venv\Scripts\python.exe -m unittest discover -s tests
 ```
+
+## Tài Liệu Quản Lý Dự Án
+
+- `AGENTS.md`: hướng dẫn nhanh cho coding agent.
+- `.agents/`: project memory gồm context, architecture, conventions, roadmap, và decisions.

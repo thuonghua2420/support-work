@@ -164,9 +164,9 @@ def process_sqlserver_roundtrip(
     logger = log or (lambda message: None)
 
     if not root.exists():
-        raise FileNotFoundError(f"Root folder does not exist: {root}")
+        raise FileNotFoundError(f"Thư mục gốc không tồn tại: {root}")
     if not root.is_dir():
-        raise NotADirectoryError(f"Root path is not a folder: {root}")
+        raise NotADirectoryError(f"Đường dẫn gốc không phải là thư mục: {root}")
 
     summary = DatabaseRoundtripSummary(root_path=root)
 
@@ -178,7 +178,7 @@ def process_sqlserver_roundtrip(
     finally:
         connection.close()
 
-    logger("DB CSV normalization done.")
+    logger("Chuẩn hóa CSV theo DB hoàn tất.")
     return summary
 
 
@@ -189,11 +189,11 @@ def _process_csv_folder(
     log: Logger,
 ) -> CaseRoundtripResult:
     result = CaseRoundtripResult(case_path=folder)
-    log(f"[{folder.name}] Scan {folder}")
+    log(f"[{folder.name}] Quét {folder}")
 
     csv_files = sorted(folder.rglob("*.csv"), key=lambda path: str(path).lower())
     if not csv_files:
-        log(f"[{folder.name}] No CSV files found.")
+        log(f"[{folder.name}] Không tìm thấy file CSV.")
         return result
 
     for csv_path in csv_files:
@@ -201,7 +201,7 @@ def _process_csv_folder(
         try:
             table = read_dbeaver_csv(csv_path)
             if not table.headers:
-                log(f"[{folder.name}] {relative_csv_path} -> skipped empty CSV")
+                log(f"[{folder.name}] {relative_csv_path} -> bỏ qua CSV rỗng")
                 continue
 
             table_name = csv_path.stem
@@ -214,13 +214,13 @@ def _process_csv_folder(
             )
             log(
                 f"[{folder.name}] {relative_csv_path} -> "
-                f"{table_name} normalized ({len(table.rows)} row(s))"
+                f"{table_name} đã chuẩn hóa ({len(table.rows)} dòng)"
             )
         except TableNotFoundError:
-            log(f"[{folder.name}] {relative_csv_path} -> skipped table not found: {settings.schema}.{csv_path.stem}")
+            log(f"[{folder.name}] {relative_csv_path} -> bỏ qua vì không tìm thấy table: {settings.schema}.{csv_path.stem}")
         except Exception as exc:
             connection.rollback()
-            message = f"[{folder.name}] ERROR {csv_path}: {exc}"
+            message = f"[{folder.name}] LỖI {csv_path}: {exc}"
             result.errors.append(message)
             log(message)
 
@@ -231,7 +231,7 @@ def _connect(settings: DatabaseSettings):
     try:
         import pyodbc
     except ImportError as exc:
-        raise RuntimeError("pyodbc is not installed. Run run.bat to install dependencies.") from exc
+        raise RuntimeError("Chưa cài pyodbc. Hãy chạy run.bat để cài các thư viện phụ thuộc.") from exc
 
     parts = [
         f"DRIVER={_brace_value(settings.driver)}",
@@ -301,13 +301,13 @@ def _get_table_columns(connection, schema: str, table_name: str) -> list[TableCo
         for row in cursor.fetchall()
     ]
     if not columns:
-        raise TableNotFoundError(f"Table not found: {schema}.{table_name}")
+        raise TableNotFoundError(f"Không tìm thấy table: {schema}.{table_name}")
     return columns
 
 
 def _build_column_mapping(headers: list[str], columns: list[TableColumn]) -> ColumnMapping:
     if len(headers) != len(set(headers)):
-        raise ValueError("CSV has duplicate column headers.")
+        raise ValueError("CSV có header cột bị trùng.")
 
     db_by_exact = {column.name: column for column in columns}
     db_by_lower: dict[str, list[TableColumn]] = {}
@@ -328,7 +328,7 @@ def _build_column_mapping(headers: list[str], columns: list[TableColumn]) -> Col
         csv_index_by_db_name[column.name] = index
 
     if missing_headers:
-        raise ValueError("CSV column(s) not found in DB table: " + ", ".join(missing_headers))
+        raise ValueError("Cột CSV không tồn tại trong table DB: " + ", ".join(missing_headers))
 
     export_columns = [column for column in columns if column.name in csv_index_by_db_name]
 
