@@ -11,7 +11,23 @@ Tool nay copy CSV tu `Input` vao cac folder `before...`, sau do compare cac cap 
 
 `run.bat` se tu tao `.venv`, cai `openpyxl`, va mo GUI.
 
-## Chuc nang 2: SQL Server column-order normalize
+## Copy UT Files
+
+GUI co them khu vuc `Copy UT Files` gom 2 path:
+
+- `Source Path1`: folder nguon chua cac folder `UT*`.
+- `Target Path2`: folder dich de tao/mirror cac folder `UT*`.
+
+Bam `Run Copy UT Files` de chay logic trong `copy_ut_files.py`.
+
+Logic copy hien co:
+
+- Copy tu `UT*/input` cua source sang `UT*/入力` cua target.
+- Copy tu `UT*/output` cua source sang `UT*/出力/現在のシステム以降` cua target.
+- Neu target da co file CSV, tool compare value/raw format va ghi chi tiet vao log truoc khi overwrite.
+- Log duoc tao trong folder `copy_logs` canh `copy_ut_files.py`.
+
+## Chuc nang 2: SQL Server CSV normalize
 
 GUI co them khu vuc `SQL Server`:
 
@@ -26,24 +42,20 @@ Quy trinh:
 
 1. Nhap thong tin DB.
 2. Bam `Test DB Login`.
-3. Sau khi login thanh cong, bam `Normalize after新 CSV`.
+3. Sau khi login thanh cong, bam `Normalize CSV`.
 
-Tool se duyet tat ca CSV trong moi folder:
-
-```text
-UT*/Output/after新システム出力データ
-```
-
-Bao gom ca CSV trong folder con ben duoi. Moi CSV duoc map voi table that trong DB theo ten file khong gom `.csv`.
+Tool se duyet tat ca CSV trong folder dang chon, bao gom ca CSV trong folder con ben duoi. Moi CSV duoc map voi table that trong DB theo ten file khong gom `.csv`.
 
 ```text
 customers.csv -> <schema>.customers
 orders.csv    -> <schema>.orders
 ```
 
-Tool chi doc metadata column order tu SQL Server, sau do reorder CSV tai cho theo thu tu column trong DB.
+Neu khong tim thay table tuong ung trong DB, CSV do se duoc skip va tool tiep tuc xu ly cac file con lai.
 
-Tool khong `TRUNCATE`, khong `INSERT`, va khong overwrite value qua datatype/constraint/trigger cua SQL Server. Cach nay giu nguyen value trong CSV 100% va chi thay doi thu tu column.
+Tool chi doc metadata column order va datatype tu SQL Server, sau do reorder/normalize CSV tai cho theo thu tu column trong DB.
+
+Tool khong `TRUNCATE`, khong `INSERT`, va khong overwrite value qua datatype/constraint/trigger cua SQL Server.
 
 Format export:
 
@@ -54,6 +66,8 @@ Format export:
 - Quote always strings
 - NULL string: blank
 - Empty string: `""`
+- Column `datetime`, `datetime2`, `smalldatetime`: output `yyyy-MM-dd HH:mm:ss.fff`
+- Column `decimal`, `numeric`, `money`, `smallmoney`: output 4 so sau dau cham, vi du `3456.0` -> `3456.0000`
 
 Vi du:
 

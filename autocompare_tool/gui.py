@@ -12,6 +12,7 @@ from .db_roundtrip import (
     process_sqlserver_roundtrip,
     test_sqlserver_connection,
 )
+from .copy_ut import run_copy_ut_files
 from .processor import process_root
 
 
@@ -19,10 +20,12 @@ class AutoCompareApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("AutoCompare Tool")
-        self.geometry("920x680")
-        self.minsize(840, 620)
+        self.geometry("980x760")
+        self.minsize(900, 700)
 
         self.root_path = tk.StringVar(value=str(Path.cwd()))
+        self.copy_source_path = tk.StringVar()
+        self.copy_target_path = tk.StringVar()
         self.db_driver = tk.StringVar(value="ODBC Driver 18 for SQL Server")
         self.db_server = tk.StringVar()
         self.db_database = tk.StringVar()
@@ -41,7 +44,7 @@ class AutoCompareApp(tk.Tk):
 
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(3, weight=1)
+        self.rowconfigure(4, weight=1)
 
         path_frame = ttk.Frame(self, padding=(12, 12, 12, 6))
         path_frame.grid(row=0, column=0, sticky="ew")
@@ -52,19 +55,23 @@ class AutoCompareApp(tk.Tk):
         path_entry.grid(row=0, column=1, sticky="ew", padx=(0, 8))
         ttk.Button(path_frame, text="Browse", command=self._browse).grid(row=0, column=2)
 
+        copy_frame = ttk.LabelFrame(self, text="Copy UT Files", padding=(12, 8, 12, 8))
+        self._build_copy_ui(copy_frame)
+        copy_frame.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
+
         db_frame = ttk.LabelFrame(self, text="SQL Server", padding=(12, 8, 12, 8))
         self._build_db_ui(db_frame)
-        db_frame.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
+        db_frame.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
 
         action_frame = ttk.Frame(self, padding=(12, 0, 12, 8))
-        action_frame.grid(row=2, column=0, sticky="ew")
+        action_frame.grid(row=3, column=0, sticky="ew")
         self.compare_button = ttk.Button(action_frame, text="Run Compare", command=self._run_compare)
         self.compare_button.pack(side="left")
         self.test_db_button = ttk.Button(action_frame, text="Test DB Login", command=self._test_db_login)
         self.test_db_button.pack(side="left", padx=(8, 0))
         self.db_roundtrip_button = ttk.Button(
             action_frame,
-            text="Normalize after新 CSV",
+            text="Normalize CSV",
             command=self._run_db_roundtrip,
             state="disabled",
         )
@@ -73,7 +80,33 @@ class AutoCompareApp(tk.Tk):
         self.status_label.pack(side="left", padx=(12, 0))
 
         self.log_text = scrolledtext.ScrolledText(self, wrap="word", state="disabled")
-        self.log_text.grid(row=3, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        self.log_text.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 12))
+
+    def _build_copy_ui(self, copy_frame: ttk.LabelFrame) -> None:
+        copy_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(copy_frame, text="Source Path1").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
+        ttk.Entry(copy_frame, textvariable=self.copy_source_path).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(0, 8),
+            pady=2,
+        )
+        ttk.Button(copy_frame, text="Browse", command=self._browse_copy_source).grid(row=0, column=2, pady=2)
+
+        ttk.Label(copy_frame, text="Target Path2").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
+        ttk.Entry(copy_frame, textvariable=self.copy_target_path).grid(
+            row=1,
+            column=1,
+            sticky="ew",
+            padx=(0, 8),
+            pady=2,
+        )
+        ttk.Button(copy_frame, text="Browse", command=self._browse_copy_target).grid(row=1, column=2, pady=2)
+
+        self.copy_button = ttk.Button(copy_frame, text="Run Copy UT Files", command=self._run_copy_ut_files)
+        self.copy_button.grid(row=2, column=1, sticky="w", pady=(6, 0))
 
     def _build_db_ui(self, db_frame: ttk.LabelFrame) -> None:
         for column in (1, 3):
@@ -120,6 +153,16 @@ class AutoCompareApp(tk.Tk):
         if folder:
             self.root_path.set(folder)
 
+    def _browse_copy_source(self) -> None:
+        folder = filedialog.askdirectory(initialdir=self.copy_source_path.get() or str(Path.cwd()))
+        if folder:
+            self.copy_source_path.set(folder)
+
+    def _browse_copy_target(self) -> None:
+        folder = filedialog.askdirectory(initialdir=self.copy_target_path.get() or str(Path.cwd()))
+        if folder:
+            self.copy_target_path.set(folder)
+
     def _run_compare(self) -> None:
         if self.worker and self.worker.is_alive():
             return
@@ -134,6 +177,26 @@ class AutoCompareApp(tk.Tk):
         self.status_label.configure(text="Running...")
 
         self.worker = threading.Thread(target=self._run_compare_worker, args=(root,), daemon=True)
+        self.worker.start()
+
+    def _run_copy_ut_files(self) -> None:
+        if self.worker and self.worker.is_alive():
+            return
+
+        source = self.copy_source_path.get().strip()
+        target = self.copy_target_path.get().strip()
+        if not source:
+            messagebox.showerror("AutoCompare Tool", "Please select Source Path1.")
+            return
+        if not target:
+            messagebox.showerror("AutoCompare Tool", "Please select Target Path2.")
+            return
+
+        self._clear_log()
+        self._set_actions_busy(True)
+        self.status_label.configure(text="Copying UT files...")
+
+        self.worker = threading.Thread(target=self._copy_ut_worker, args=(source, target), daemon=True)
         self.worker.start()
 
     def _test_db_login(self) -> None:
@@ -198,6 +261,18 @@ class AutoCompareApp(tk.Tk):
         finally:
             self.log_queue.put("__ENABLE_ACTIONS__")
 
+    def _copy_ut_worker(self, source: str, target: str) -> None:
+        try:
+            log_path = run_copy_ut_files(source, target, log=self._log_from_worker)
+            self.log_queue.put("__STATUS__:Copy completed")
+            self.log_queue.put(f"__MESSAGE_INFO__:Copy completed. Log file: {log_path}")
+        except Exception as exc:
+            self._log_from_worker(f"ERROR: {exc}")
+            self.log_queue.put("__STATUS__:Copy failed")
+            self.log_queue.put(f"__MESSAGE_ERROR__:{exc}")
+        finally:
+            self.log_queue.put("__ENABLE_ACTIONS__")
+
     def _test_db_worker(self, settings: DatabaseSettings) -> None:
         try:
             test_sqlserver_connection(settings)
@@ -218,10 +293,10 @@ class AutoCompareApp(tk.Tk):
             summary = process_sqlserver_roundtrip(root, settings, log=self._log_from_worker)
             if summary.errors:
                 self._log_from_worker("")
-                self._log_from_worker("DB column-order normalization finished with errors.")
+                self._log_from_worker("DB CSV normalization finished with errors.")
                 self.log_queue.put("__STATUS__:Finished with errors")
                 self.log_queue.put(
-                    "__MESSAGE_ERROR__:DB column-order normalization finished with errors. Please check the log."
+                    "__MESSAGE_ERROR__:DB CSV normalization finished with errors. Please check the log."
                 )
             else:
                 self._log_from_worker("")
@@ -299,6 +374,7 @@ class AutoCompareApp(tk.Tk):
     def _set_actions_busy(self, busy: bool) -> None:
         state = "disabled" if busy else "normal"
         self.compare_button.configure(state=state)
+        self.copy_button.configure(state=state)
         self.test_db_button.configure(state=state)
         if busy:
             self.db_roundtrip_button.configure(state="disabled")

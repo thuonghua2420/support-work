@@ -1,16 +1,60 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, datetime, time
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Callable
 
-from .constants import AFTER_NEW_DIR, OUTPUT_DIR
 from .dbeaver_csv import DbeaverCsv, read_dbeaver_csv, write_dbeaver_csv
-from .processor import discover_test_cases
 
 Logger = Callable[[str], None]
 
 ODBC_DRIVER_DEFAULT = "ODBC Driver 18 for SQL Server"
+FOUR_DECIMAL_QUANT = Decimal("0.0001")
+
+DATETIME_TYPE_NAMES = {"datetime", "datetime2", "smalldatetime"}
+DATETIMEOFFSET_TYPE_NAMES = {"datetimeoffset"}
+TIME_TYPE_NAMES = {"time"}
+FOUR_DECIMAL_TYPE_NAMES = {"decimal", "numeric", "money", "smallmoney"}
+
+DATETIME_PARSE_FORMATS = (
+    "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y/%m/%d %H:%M:%S.%f",
+    "%Y/%m/%d %H:%M:%S",
+    "%Y/%m/%d %H:%M",
+    "%m/%d/%Y %H:%M:%S.%f",
+    "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%Y %H:%M",
+    "%m/%d/%Y %I:%M:%S.%f %p",
+    "%m/%d/%Y %I:%M:%S %p",
+    "%m/%d/%Y %I:%M %p",
+    "%d/%m/%Y %H:%M:%S.%f",
+    "%d/%m/%Y %H:%M:%S",
+    "%d/%m/%Y %H:%M",
+    "%d/%m/%Y %I:%M:%S.%f %p",
+    "%d/%m/%Y %I:%M:%S %p",
+    "%d/%m/%Y %I:%M %p",
+    "%Y-%m-%d",
+    "%Y/%m/%d",
+    "%m/%d/%Y",
+    "%d/%m/%Y",
+)
+
+TIME_PARSE_FORMATS = (
+    "%H:%M:%S.%f",
+    "%H:%M:%S",
+    "%H:%M",
+    "%I:%M:%S.%f %p",
+    "%I:%M:%S %p",
+    "%I:%M %p",
+)
+
+
+class TableNotFoundError(LookupError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -35,6 +79,7 @@ class TableColumn:
     generated_always_type: int
     type_name: str
     is_primary_key: bool
+    system_type_name: str = ""
 
     @property
     def insertable(self) -> bool:
@@ -43,6 +88,22 @@ class TableColumn:
             and self.generated_always_type == 0
             and self.type_name.lower() not in {"timestamp", "rowversion"}
         )
+
+    @property
+    def normalized_type_name(self) -> str:
+        return (self.system_type_name or self.type_name).lower()
+
+    @property
+    def is_datetime_export(self) -> bool:
+        return self.normalized_type_name in DATETIME_TYPE_NAMES | DATETIMEOFFSET_TYPE_NAMES
+
+    @property
+    def is_time_export(self) -> bool:
+        return self.normalized_type_name in TIME_TYPE_NAMES
+
+    @property
+    def is_four_decimal_export(self) -> bool:
+        return self.normalized_type_name in FOUR_DECIMAL_TYPE_NAMES
 
 
 @dataclass(frozen=True)
@@ -108,52 +169,39 @@ def process_sqlserver_roundtrip(
         raise NotADirectoryError(f"Root path is not a folder: {root}")
 
     summary = DatabaseRoundtripSummary(root_path=root)
-    test_cases = discover_test_cases(root)
-    if not test_cases:
-        message = f"No UT* test case folders found under: {root}"
-        summary.errors.append(message)
-        logger(message)
-        return summary
 
     connection = _connect(settings)
     try:
-        for case_path in test_cases:
-            case_result = _process_case(connection, settings, case_path, logger)
-            summary.cases.append(case_result)
-            summary.errors.extend(case_result.errors)
+        result = _process_csv_folder(connection, settings, root, logger)
+        summary.cases.append(result)
+        summary.errors.extend(result.errors)
     finally:
         connection.close()
 
-    logger("DB column-order normalization done.")
+    logger("DB CSV normalization done.")
     return summary
 
 
-def _process_case(
+def _process_csv_folder(
     connection,
     settings: DatabaseSettings,
-    case_path: Path,
+    folder: Path,
     log: Logger,
 ) -> CaseRoundtripResult:
-    result = CaseRoundtripResult(case_path=case_path)
-    after_new_dir = case_path / OUTPUT_DIR / AFTER_NEW_DIR
-    log(f"[{case_path.name}] Scan {after_new_dir}")
+    result = CaseRoundtripResult(case_path=folder)
+    log(f"[{folder.name}] Scan {folder}")
 
-    if not after_new_dir.exists() or not after_new_dir.is_dir():
-        message = f"[{case_path.name}] Missing folder: {after_new_dir}"
-        result.errors.append(message)
-        log(message)
-        return result
-
-    csv_files = sorted(after_new_dir.rglob("*.csv"), key=lambda path: str(path).lower())
+    csv_files = sorted(folder.rglob("*.csv"), key=lambda path: str(path).lower())
     if not csv_files:
-        log(f"[{case_path.name}] No CSV files found.")
+        log(f"[{folder.name}] No CSV files found.")
         return result
 
     for csv_path in csv_files:
+        relative_csv_path = _relative_to(csv_path, folder)
         try:
             table = read_dbeaver_csv(csv_path)
             if not table.headers:
-                log(f"[{case_path.name}] {csv_path.relative_to(after_new_dir)} -> skipped empty CSV")
+                log(f"[{folder.name}] {relative_csv_path} -> skipped empty CSV")
                 continue
 
             table_name = csv_path.stem
@@ -165,12 +213,14 @@ def _process_case(
                 CsvRoundtripResult(csv_path=csv_path, table_name=table_name, row_count=len(table.rows))
             )
             log(
-                f"[{case_path.name}] {csv_path.relative_to(after_new_dir)} -> "
-                f"{table_name} column order normalized ({len(table.rows)} row(s))"
+                f"[{folder.name}] {relative_csv_path} -> "
+                f"{table_name} normalized ({len(table.rows)} row(s))"
             )
+        except TableNotFoundError:
+            log(f"[{folder.name}] {relative_csv_path} -> skipped table not found: {settings.schema}.{csv_path.stem}")
         except Exception as exc:
             connection.rollback()
-            message = f"[{case_path.name}] ERROR {csv_path}: {exc}"
+            message = f"[{folder.name}] ERROR {csv_path}: {exc}"
             result.errors.append(message)
             log(message)
 
@@ -215,6 +265,7 @@ def _get_table_columns(connection, schema: str, table_name: str) -> list[TableCo
             c.is_computed,
             c.generated_always_type,
             ty.name AS type_name,
+            TYPE_NAME(c.system_type_id) AS system_type_name,
             CASE WHEN pk.column_id IS NULL THEN CONVERT(bit, 0) ELSE CONVERT(bit, 1) END AS is_primary_key
         FROM sys.schemas s
         INNER JOIN sys.tables tb ON tb.schema_id = s.schema_id
@@ -245,11 +296,12 @@ def _get_table_columns(connection, schema: str, table_name: str) -> list[TableCo
             generated_always_type=int(row.generated_always_type),
             type_name=row.type_name,
             is_primary_key=bool(row.is_primary_key),
+            system_type_name=row.system_type_name,
         )
         for row in cursor.fetchall()
     ]
     if not columns:
-        raise ValueError(f"Table not found: {schema}.{table_name}")
+        raise TableNotFoundError(f"Table not found: {schema}.{table_name}")
     return columns
 
 
@@ -290,10 +342,114 @@ def _reorder_csv_by_db_columns(table: DbeaverCsv, columns: list[TableColumn]) ->
     mapping = _build_column_mapping(table.headers, columns)
     ordered_headers = [column.name for column in mapping.export_columns]
     ordered_rows = [
-        [row[mapping.csv_index_by_db_name[column.name]] for column in mapping.export_columns]
+        [
+            _format_output_value(row[mapping.csv_index_by_db_name[column.name]], column)
+            for column in mapping.export_columns
+        ]
         for row in table.rows
     ]
     return ordered_headers, ordered_rows
+
+
+def _format_output_value(value: str | None, column: TableColumn) -> str | None:
+    if value is None or value == "":
+        return value
+    if column.is_datetime_export:
+        return _format_datetime_value(value, include_offset=column.normalized_type_name in DATETIMEOFFSET_TYPE_NAMES)
+    if column.is_time_export:
+        return _format_time_value(value)
+    if column.is_four_decimal_export:
+        return _format_four_decimal_value(value)
+    return value
+
+
+def _format_datetime_value(value: str, include_offset: bool = False) -> str:
+    parsed = _parse_datetime(value)
+    if parsed is None:
+        return value
+
+    formatted = f"{parsed:%Y-%m-%d %H:%M:%S}.{parsed.microsecond // 1000:03d}"
+    if include_offset and parsed.tzinfo is not None:
+        offset = parsed.strftime("%z")
+        if offset:
+            formatted = f"{formatted} {offset[:3]}:{offset[3:]}"
+    return formatted
+
+
+def _format_time_value(value: str) -> str:
+    parsed = _parse_time(value)
+    if parsed is None:
+        return value
+    return f"{parsed:%H:%M:%S}.{parsed.microsecond // 1000:03d}"
+
+
+def _format_four_decimal_value(value: str) -> str:
+    stripped = value.strip()
+    if not stripped:
+        return value
+
+    try:
+        number = Decimal(stripped)
+    except InvalidOperation:
+        return value
+
+    if not number.is_finite():
+        return value
+    try:
+        return format(number.quantize(FOUR_DECIMAL_QUANT, rounding=ROUND_HALF_UP), "f")
+    except InvalidOperation:
+        return value
+
+
+def _parse_datetime(value: str) -> datetime | None:
+    stripped = value.strip()
+    if not stripped:
+        return None
+
+    iso_value = stripped[:-1] + "+00:00" if stripped.endswith("Z") else stripped
+    try:
+        return datetime.fromisoformat(iso_value)
+    except ValueError:
+        pass
+
+    for date_format in DATETIME_PARSE_FORMATS:
+        try:
+            parsed = datetime.strptime(stripped, date_format)
+            if isinstance(parsed, datetime):
+                return parsed
+        except ValueError:
+            continue
+
+    try:
+        parsed_date = date.fromisoformat(stripped)
+        return datetime.combine(parsed_date, time())
+    except ValueError:
+        return None
+
+
+def _parse_time(value: str) -> time | None:
+    stripped = value.strip()
+    if not stripped:
+        return None
+
+    try:
+        return time.fromisoformat(stripped)
+    except ValueError:
+        pass
+
+    for time_format in TIME_PARSE_FORMATS:
+        try:
+            return datetime.strptime(stripped, time_format).time()
+        except ValueError:
+            continue
+    return None
+
+
+def _relative_to(path: Path, folder: Path) -> Path:
+    try:
+        return path.relative_to(folder)
+    except ValueError:
+        return path
 
 
 def _quote_identifier(value: str) -> str:
