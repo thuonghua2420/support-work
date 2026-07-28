@@ -2,13 +2,13 @@
 
 ## Purpose
 
-AutoCompare Tool helps verify CSV-based UT output by copying expected input data, comparing before/after output folders, and normalizing CSV files against SQL Server table metadata.
+AutoCompare Tool helps verify CSV-based UT output by copying expected input data, comparing before/after output folders, and moving CSV data to or from connected databases.
 
 The project is currently a local Windows desktop tool. It may grow into a larger test-data and comparison platform, so new changes should keep business logic modular and documented.
 
 ## Users
 
-Primary users are developers or testers working with UT folders and SQL Server-backed CSV exports. They need repeatable, visible output and clear logs when files cannot be processed.
+Primary users are developers or testers working with UT folders and database-backed CSV exports. They need repeatable, visible output and clear logs when files cannot be processed.
 
 ## Current Workflows
 
@@ -16,8 +16,9 @@ The GUI is organized by a left-side `Main Menu`:
 
 - `Compare`: compare workflows and FIXME review.
 - `Compare CSV Folders`: ad-hoc compare for two user-selected CSV folders.
+- `File Utilities`: simple bulk file/folder operations.
 - `Copy UT Files`: source/target copy workflow.
-- `SQL Server`: DB login and CSV normalize.
+- `Database`: DB connection, CSV normalize, CSV import, and DB export.
 
 ### Run Compare
 
@@ -77,6 +78,27 @@ Displayed fields:
 
 Users can add/update/delete combobox note values and meanings. Applying notes writes selected note text back to the matching workbook `FIXME` cells.
 
+### File Utilities
+
+Input:
+
+- A shared root folder for folder-based operations.
+- A separate Excel file path for sheet rename.
+
+Behavior:
+
+- Rename files/folders by exact name.
+- Rename files/folders whose names contain a text fragment.
+- Delete files/folders whose names contain a text fragment.
+- Rename Excel sheets whose names contain a text fragment.
+- Move files whose names contain a text fragment into a target folder beside each file.
+- Find or delete empty folders under the selected root.
+
+Important rule:
+
+- Destructive operations are confirmed in the GUI before execution.
+- Empty-folder deletion does not delete the selected root folder itself.
+
 ### Copy UT Files
 
 Input:
@@ -90,31 +112,39 @@ Behavior:
 - `autocompare_tool/copy_ut.py` is a package wrapper for GUI integration.
 - Existing target CSV files are compared/logged before overwrite.
 
-### SQL Server CSV Normalize
+### Database CSV
 
 Input:
 
-- A selected folder.
-- SQL Server connection settings and schema.
+- A selected CSV folder.
+- Database connection settings, database type, and schema.
+- Optional export table list.
+- Keep-identity checkbox for import.
 
 Behavior:
 
 - Recursively scans every `*.csv` under the selected folder.
-- Maps each CSV file to a DB table by file stem.
-- Skips CSV files whose table does not exist in the DB.
-- Reads DB column order and datatype metadata.
-- Reorders CSV columns to DB order.
-- Normalizes output values for known DB types.
+- Maps each CSV file to a database table by file stem.
+- Skips CSV files whose table does not exist in the connected database.
+- Reads column order, datatype, identity, generated/computed, scale, and primary-key metadata.
+- Normalize rewrites CSV in place to database column order and known output formats.
+- Import inserts CSV rows into matching tables.
+- Export writes one CSV per selected table, or all tables in the current schema when no table list is provided.
 
 Current output formatting:
 
 - `datetime`, `datetime2`, `smalldatetime`: `yyyy-MM-dd HH:mm:ss.fff`.
 - `decimal`, `numeric`, `money`, `smallmoney`: exactly 4 digits after the decimal point.
-- Data cells are always quoted unless they are `NULL`.
+- Exported `NULL` is an unquoted blank cell.
+- Exported empty string is `""`.
+- Exported string columns are quoted.
+- Exported numeric columns are not quoted.
 
 Important rule:
 
-- This workflow currently does not insert, update, truncate, or export rows from SQL Server. It reads metadata only and rewrites CSV files in place.
+- Import does not truncate tables.
+- Import skips computed/generated/rowversion columns.
+- Identity columns are included only when users choose to keep identity values and the adapter can support that database behavior.
 
 ## Domain Terms
 
@@ -129,8 +159,10 @@ Important rule:
 
 - Python 3.10+.
 - Windows-oriented startup via `run.bat`.
-- Dependencies: `openpyxl`, `pyodbc`.
-- SQL Server normalize requires a Microsoft ODBC Driver for SQL Server.
+- Dependencies: `openpyxl`, `pyodbc`, `mysql-connector-python`, `psycopg`, `oracledb`.
+- SQL Server connections require a Microsoft ODBC Driver for SQL Server.
 - CSV readers support `utf-8-sig`, `utf-8`, and `cp932`.
 - Some docs/constants may display Japanese names as mojibake depending on console encoding.
 - Runtime note values are stored in `fixme_notes.json` when users save notes in the GUI.
+- File utilities live in `autocompare_tool/file_utilities.py` and should stay UI-independent.
+- Database import/export logic lives in `autocompare_tool/database_io.py` and should stay UI-independent.

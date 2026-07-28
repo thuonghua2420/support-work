@@ -49,6 +49,30 @@ def write_dbeaver_csv(path: Path, headers: list[str], rows: list[list[str | None
             file.write("\r\n")
 
 
+def write_typed_dbeaver_csv(
+    path: Path,
+    headers: list[str],
+    rows: list[list[str | None]],
+    quote_columns: list[bool],
+) -> None:
+    if len(headers) != len(quote_columns):
+        raise ValueError("Số lượng header và cấu hình quote column không khớp.")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as file:
+        if not headers:
+            return
+        file.write(",".join(_format_header(header) for header in headers))
+        file.write("\r\n")
+        for row in rows:
+            cells: list[str] = []
+            for index, value in enumerate(row):
+                should_quote = quote_columns[index] if index < len(quote_columns) else True
+                cells.append(_format_typed_data_cell(value, should_quote))
+            file.write(",".join(cells))
+            file.write("\r\n")
+
+
 def _read_text(path: Path) -> str:
     last_error: UnicodeDecodeError | None = None
     for encoding in ("utf-8-sig", "utf-8", "cp932"):
@@ -151,6 +175,16 @@ def _format_data_cell(value: str | None) -> str:
     if value is None:
         return ""
     return _quote(value)
+
+
+def _format_typed_data_cell(value: str | None, should_quote: bool) -> str:
+    if value is None:
+        return ""
+    if value == "":
+        return '""'
+    if should_quote or any(char in value for char in [",", '"', "\r", "\n"]):
+        return _quote(value)
+    return value
 
 
 def _quote(value: str) -> str:

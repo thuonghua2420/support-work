@@ -37,24 +37,30 @@
 - Use `dbeaver_csv.py`.
 - Preserve `NULL` versus empty string.
 - Write with CRLF line endings.
-- Quote all non-null data cells.
+- Existing normalize writer quotes all non-null data cells.
+- Typed DB export writer leaves numeric cells unquoted and quotes string cells.
 - Keep headers unquoted unless quoting is required by CSV syntax.
 
-## DB Normalize Rules
+## DB CSV Rules
 
-- Use SQL Server metadata only.
-- Do not write to DB unless a future task explicitly changes the workflow.
+- Use `database_io.py` for multi-database connection, metadata, normalize, import, and export workflows.
+- Supported built-in adapters: SQL Server, MySQL, PostgreSQL, Oracle.
+- Do not build SQL in `gui.py`; keep dialect behavior inside adapters.
+- Real DB writes must be triggered only from an explicit user action and confirmation.
 - Scan all CSV files recursively under the selected folder.
 - Map table name from CSV file stem.
 - Skip missing tables; do not mark them as errors.
 - CSV headers must map to DB columns; unknown CSV columns are errors.
 - Reorder output columns by DB column order.
-- Normalize values based on DB type:
+- Normalize CSV values based on DB type:
   - `datetime`, `datetime2`, `smalldatetime` -> `yyyy-MM-dd HH:mm:ss.fff`.
   - `datetimeoffset` -> `yyyy-MM-dd HH:mm:ss.fff +/-HH:MM`.
   - `time` -> `HH:mm:ss.fff`.
   - `decimal`, `numeric`, `money`, `smallmoney` -> four decimal places.
 - If a value cannot be parsed/formatted, preserve the original value.
+- Import skips computed/generated/rowversion columns because DBs own those values.
+- Import identity values only when the user selects the keep-identity option and the adapter/database supports it.
+- Export `NULL` as an unquoted blank cell, empty strings as `""`, string columns quoted, and numeric columns unquoted.
 
 ## Excel Rules
 

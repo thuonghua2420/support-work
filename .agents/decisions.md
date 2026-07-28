@@ -2,6 +2,45 @@
 
 Use this file for lightweight architecture decisions. Add newest entries at the top.
 
+## 2026-07-28 - Multi-Database CSV Import Export
+
+Decision:
+
+- Add `autocompare_tool/database_io.py` as the new multi-database adapter layer.
+- Rename the GUI database page from SQL Server-specific wording to a generic database page.
+- Support SQL Server, MySQL, PostgreSQL, and Oracle adapters first.
+- Add CSV normalize, import, and export actions behind a successful connection check.
+- Keep identity preservation as an explicit import checkbox.
+
+Reason:
+
+- CSV-to-DB behavior now needs database-specific metadata and SQL dialect handling.
+- Identity, computed/generated, and rowversion-style columns have different constraints per database.
+- Keeping SQL construction out of the GUI gives the project a cleaner path for future databases.
+
+Consequence:
+
+- DB writes are now part of the product surface and must keep explicit confirmation in the GUI.
+- Future database support should extend `database_io.py` adapters and focused tests.
+- `db_roundtrip.py` remains as legacy SQL Server normalize behavior but new GUI behavior should use `database_io.py`.
+
+## 2026-07-28 - File Utilities Menu
+
+Decision:
+
+- Add a left-menu `File Utilities` page for simple bulk filesystem tasks.
+- Implement logic in `autocompare_tool/file_utilities.py`.
+- Keep delete confirmations in `gui.py`.
+
+Reason:
+
+- Users need operational cleanup tools near compare workflows without mixing this logic into compare modules.
+
+Consequence:
+
+- Future utility tasks should be added to `file_utilities.py` first, then exposed through the file utilities page.
+- Destructive tasks must continue to require explicit GUI confirmation.
+
 ## 2026-07-28 - Ad-Hoc CSV Folder Compare
 
 Decision:

@@ -7,14 +7,14 @@ This is not a promise list. It is a parking lot for useful next steps as the pro
 - Restore local Python environment and make tests easy to run.
 - Add `.gitignore` cleanup strategy for future generated artifacts.
 - Add tests for `copy_ut_files.py` behavior before moving it into the package.
-- Add CLI subcommands for `compare`, `copy-ut`, and `normalize-csv`.
-- Add a dry-run mode for SQL CSV normalize.
+- Add CLI subcommands for `compare`, `copy-ut`, `normalize-csv`, `import-csv`, and `export-csv`.
+- Add a dry-run mode for DB CSV normalize/import/export.
 - Add a summary report for skipped files, processed files, and errors.
 - Add horizontal scrolling or a richer grid widget for large FIXME review tables.
 
 ## Medium-Term
 
-- Split `db_roundtrip.py` into metadata lookup, CSV transform, and orchestration modules.
+- Retire or wrap `db_roundtrip.py` once `database_io.py` covers all legacy SQL Server normalize behavior.
 - Convert legacy copy logic into package modules with tests.
 - Add a structured logging layer that can write GUI logs and file logs consistently.
 - Add integration tests using fake filesystem trees and fake DB metadata.
@@ -27,7 +27,7 @@ This is not a promise list. It is a parking lot for useful next steps as the pro
 - Compare report filters for inserted/deleted/changed-only rows.
 - Batch normalization presets.
 - Non-GUI automation mode for CI or nightly UT verification.
-- Optional real DB import/export workflow, gated behind explicit confirmation and backups.
+- Backup/rollback helpers for real DB import/export workflows.
 
 ## Risks To Watch
 

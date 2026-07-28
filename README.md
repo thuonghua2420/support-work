@@ -12,10 +12,11 @@ Menu hiện có:
 
 - `So sánh`: chọn folder cha chứa các folder `UT*`, chọn checkbox so sánh, bấm `Chạy so sánh`, và review/apply ghi chú FIXME.
 - `So sánh 2 folder CSV`: chọn 2 folder CSV bất kỳ và tạo 1 file Excel so sánh.
+- `Tiện ích file`: đổi tên, xóa, di chuyển file/folder và kiểm tra folder trống.
 - `Sao chép file UT`: sao chép CSV từ nguồn sang đích theo luồng xử lý UT.
-- `Kết nối SQL Server`: kiểm tra đăng nhập DB và chuẩn hóa CSV theo metadata SQL Server.
+- `Cơ sở dữ liệu`: kiểm tra kết nối CSDL, chuẩn hóa CSV, nhập CSV vào CSDL và xuất CSDL ra CSV.
 
-`run.bat` sẽ tự tạo `.venv`, cài `openpyxl`, và mở GUI.
+`run.bat` sẽ tự tạo `.venv`, cài các thư viện trong `requirements.txt`, và mở GUI.
 
 ## File Config
 
@@ -54,58 +55,87 @@ Menu `So sánh 2 folder CSV` gồm 3 path:
 
 Bấm `Chạy so sánh folder CSV` để tạo workbook so sánh. Luồng này dùng cùng logic compare hiện tại và quét đệ quy toàn bộ file CSV ở cả 2 folder; file chỉ tồn tại ở một bên vẫn được đưa vào workbook xuất ra.
 
-## Chuẩn Hóa CSV SQL Server
+## Tiện Ích File
 
-Menu `Kết nối SQL Server`:
+Menu `Tiện ích file` dùng chung `Folder thao tác` cho các thao tác theo folder và có các tab:
 
-- Driver: mặc định `ODBC Driver 18 for SQL Server`.
-- Máy chủ, cơ sở dữ liệu.
-- Xác thực Windows hoặc người dùng/mật khẩu.
-- Schema: mặc định `dbo`.
+- `Đổi tên`: đổi tên file/folder theo tên chính xác, hoặc thay thế text trong tên file/folder.
+- `Xóa`: xóa file/folder khi tên có chứa text đã nhập.
+- `Sheet Excel`: đổi tên sheet trong một file Excel khi tên sheet có chứa text đã nhập.
+- `Di chuyển`: di chuyển file có tên chứa text vào folder đích cùng cấp với file, theo logic của `movefile.py`.
+- `Folder trống`: kiểm tra folder trống hoặc xóa toàn bộ folder trống bên dưới `Folder thao tác`.
 
-Máy chạy tool cần có Microsoft ODBC Driver for SQL Server, vì `pyodbc` sẽ dùng driver này để kết nối.
+Các thao tác xóa sẽ hỏi xác nhận trước khi chạy.
 
-Quy trình:
+## Cơ Sở Dữ Liệu
 
-1. Nhập thông tin DB.
-2. Bấm `Kiểm tra đăng nhập DB`.
-3. Sau khi login thành công, bấm `Chuẩn hóa CSV`.
+Menu `Cơ sở dữ liệu` có 2 vùng:
 
-Tool sẽ duyệt tất cả CSV trong folder đang chọn, bao gồm cả CSV trong folder con bên dưới. Mỗi CSV được map với table thật trong DB theo tên file không gồm `.csv`.
+- `Thông tin kết nối CSDL`: chọn loại CSDL và nhập thông tin kết nối.
+- `Nhập/Xuất CSV`: chọn `Folder CSV`, chạy chuẩn hóa, nhập CSV vào CSDL hoặc xuất CSDL ra CSV.
+
+Các loại CSDL đang có adapter sẵn:
+
+- SQL Server qua `pyodbc`.
+- MySQL qua `mysql-connector-python`.
+- PostgreSQL qua `psycopg`.
+- Oracle qua `oracledb`.
+
+Với SQL Server, máy chạy tool vẫn cần Microsoft ODBC Driver for SQL Server.
+
+Quy trình cơ bản:
+
+1. Chọn `Loại CSDL` và nhập thông tin kết nối.
+2. Bấm `Kiểm tra kết nối CSDL`.
+3. Sau khi kết nối thành công, chọn `Chuẩn hóa CSV`, `Nhập CSV vào CSDL` hoặc `Xuất CSDL ra CSV`.
+
+Tool duyệt tất cả CSV trong `Folder CSV`, bao gồm cả CSV trong folder con bên dưới. Mỗi CSV được map với table thật trong CSDL theo tên file không gồm `.csv`.
 
 ```text
 customers.csv -> <schema>.customers
 orders.csv    -> <schema>.orders
 ```
 
-Nếu không tìm thấy table tương ứng trong DB, CSV đó sẽ được bỏ qua và tool tiếp tục xử lý các file còn lại.
+Nếu không tìm thấy table tương ứng trong CSDL, CSV đó sẽ được bỏ qua và tool tiếp tục xử lý các file còn lại.
 
-Tool chỉ đọc metadata column order và datatype từ SQL Server, sau đó reorder/normalize CSV tại chỗ theo thứ tự column trong DB.
+### Chuẩn Hóa CSV
 
-Tool không `TRUNCATE`, không `INSERT`, và không ghi đè value thông qua datatype/constraint/trigger của SQL Server.
+Tool đọc metadata column order và datatype từ CSDL, sau đó reorder/normalize CSV tại chỗ theo thứ tự column trong table.
 
-Format export:
+### Nhập CSV Vào CSDL
+
+- CSV header phải tồn tại trong table tương ứng. Nếu CSV có cột không có trong CSDL, file đó sẽ báo lỗi.
+- Column computed/generated/rowversion sẽ được bỏ qua khi nhập vì giá trị do CSDL tự sinh.
+- Checkbox `Giữ nguyên giá trị identity khi nhập` quyết định có insert giá trị identity từ CSV hay để CSDL tự sinh.
+- SQL Server sẽ bật/tắt `IDENTITY_INSERT` theo từng table khi cần giữ identity.
+- PostgreSQL sẽ dùng `OVERRIDING SYSTEM VALUE` khi cần giữ identity.
+- Oracle `GENERATED ALWAYS AS IDENTITY` không cho insert trực tiếp, nên column đó sẽ bị bỏ qua và ghi log.
+- Tool không tự `TRUNCATE` table trước khi nhập.
+
+### Xuất CSDL Ra CSV
+
+Nếu `Bảng xuất` bỏ trống, tool xuất tất cả table trong schema hiện tại. Có thể nhập danh sách table, phân tách bằng dấu phẩy, chấm phẩy hoặc xuống dòng.
+
+Format CSV:
 
 - Delimiter: `,`
 - Header: top, label, as-is
 - Quote character: `"`
 - Escape quote: double quote
-- Quote always strings
-- NULL string: blank
-- Empty string: `""`
-- Cột `datetime`, `datetime2`, `smalldatetime`: output `yyyy-MM-dd HH:mm:ss.fff`
-- Cột `decimal`, `numeric`, `money`, `smallmoney`: output 4 số sau dấu chấm, ví dụ `3456.0` -> `3456.0000`
+- Giá trị `NULL`: ô trống không quote, ví dụ `,,`
+- Empty string: `""`, ví dụ `,"",`
+- Cột kiểu chuỗi: luôn được bọc bởi `"`
+- Cột kiểu số: không quote; column có scale thập phân sẽ giữ số lẻ theo metadata CSDL
+- Cột datetime/time: output có millisecond `.fff`
 
 Ví dụ:
 
 ```csv
-id,empty_value,null_value
-"1","",
+id,amount,empty_value,null_value,text
+1,3456.0000,"",,"Alice"
 ```
 
 Trong dòng data trên, `empty_value` là empty string, `null_value` là NULL.
-
-Lưu ý: cột CSV phải tồn tại trong table DB tương ứng. Nếu CSV có cột không có trong DB, tool sẽ báo lỗi và không ghi đè file đó.
 
 ## Cấu Trúc Folder Dự Kiến
 

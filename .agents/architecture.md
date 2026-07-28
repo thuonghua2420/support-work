@@ -11,8 +11,10 @@ run.bat
       -> app_config.py      -> autocompare_config.ini
       -> processor.py       -> excel_writer.py -> compare.py -> csv_table.py
       -> folder_compare.py  -> excel_writer.py -> compare.py -> csv_table.py
+      -> file_utilities.py
       -> fixme_notes.py     -> fixme_notes.json
       -> fixme_replacements.py
+      -> database_io.py     -> dbeaver_csv.py
       -> db_roundtrip.py    -> dbeaver_csv.py
       -> copy_ut.py         -> copy_ut_files.py
 ```
@@ -31,6 +33,8 @@ Owns:
 - Compare workflow checkboxes.
 - FIXME review table and note management UI.
 - Ad-hoc two-folder CSV compare page.
+- File utilities page and destructive-action confirmations.
+- Database page for connection inputs and CSV import/export action orchestration.
 
 Avoid:
 
@@ -61,6 +65,21 @@ Owns:
 - Validation for two user-selected CSV folders.
 - Ad-hoc compare workbook generation outside the `UT*` root workflow.
 - Passing `include_left_only_files=True` and `recursive=True` so all CSV files under both selected folders are represented.
+
+### `autocompare_tool/file_utilities.py`
+
+Owns:
+
+- Bulk rename/delete/move helpers for files and folders.
+- Excel sheet rename by contained text.
+- Empty-folder detection and deletion.
+
+Rules:
+
+- Scan below the selected folder, not the selected folder itself.
+- Sort deepest paths first before renaming/deleting folders.
+- Avoid overwrites by generating unique target names.
+- Keep destructive confirmation in GUI, not in this module.
 
 ### `autocompare_tool/compare.py`
 
@@ -109,7 +128,32 @@ Semantics:
 - Unquoted blank data cell -> `None`.
 - Quoted blank data cell -> `""`.
 - Written data strings are always quoted.
+- Typed export can leave numeric values unquoted while still quoting string columns.
 - Written `None` values are blank.
+
+### `autocompare_tool/database_io.py`
+
+Owns:
+
+- Database adapter layer for SQL Server, MySQL, PostgreSQL, and Oracle.
+- Connection validation and DB test query dispatch.
+- Metadata lookup for table columns, identity columns, generated/computed columns, primary keys, and numeric scale.
+- CSV normalize/import/export workflows for the GUI database page.
+- Import rules for skipping computed/generated/rowversion columns and optionally preserving identity values.
+- Typed DBeaver-style CSV export.
+
+Important functions:
+
+- `test_database_connection`
+- `normalize_csv_folder`
+- `import_csv_folder`
+- `export_csv_folder`
+
+Rules:
+
+- Adapter methods own SQL dialect differences.
+- GUI must not build SQL statements directly.
+- Real DB writes require explicit GUI confirmation before invoking this module.
 
 ### `autocompare_tool/db_roundtrip.py`
 
@@ -123,8 +167,7 @@ Owns:
 
 Non-goals until requested:
 
-- Truncate/insert/update database rows.
-- Full DB export.
+- New GUI behavior; use `database_io.py` for multi-database workflows.
 - Schema migration.
 
 ### `autocompare_tool/app_config.py`
@@ -179,18 +222,19 @@ Root folder
   -> return mismatch items for GUI FIXME review
 ```
 
-### SQL Normalize Flow
+### Database CSV Flow
 
 ```text
-Selected folder
-  -> recursive CSV scan
+Selected folder + connected database
+  -> adapter validates DB settings and connects
+  -> recursive CSV scan for normalize/import
   -> read DBeaver CSV
-  -> lookup SQL table metadata by file stem
+  -> lookup table metadata by file stem
   -> skip if table missing
   -> validate CSV headers exist in table
-  -> reorder to DB column order
-  -> format datetime/decimal values
-  -> rewrite CSV in place
+  -> normalize: reorder to DB column order, format datetime/decimal values, rewrite CSV in place
+  -> import: skip computed/generated/rowversion columns, apply identity option, insert rows
+  -> export: select table rows, format values by metadata, write typed DBeaver CSV
 ```
 
 ### Folder Compare Flow
@@ -202,8 +246,17 @@ Left CSV folder + right CSV folder + output workbook
   -> return mismatch items for GUI FIXME review
 ```
 
+### File Utilities Flow
+
+```text
+Selected folder or Excel file
+  -> validate path and user input
+  -> run utility worker
+  -> log per-item changes and summary
+```
+
 ## Extension Points
 
 - Add CLI subcommands for compare/copy/normalize once GUI behavior stabilizes.
-- Add a DB adapter layer if non-SQL Server databases become required.
+- Add more database adapters by extending `database_io.py`.
 - Move copy workflow into `autocompare_tool` after adding focused tests.

@@ -10,7 +10,8 @@ Main capabilities:
 
 - Copy UT CSV files from a source tree into a target tree.
 - Compare before/after CSV folders and generate Excel workbooks.
-- Normalize CSV files using SQL Server table metadata.
+- Normalize CSV files using database table metadata.
+- Import CSV files into connected databases and export database tables back to CSV.
 
 The GUI is Tkinter. Business logic lives in `autocompare_tool`.
 
@@ -37,7 +38,7 @@ If `.venv` is broken or Python is unavailable, report that clearly instead of gu
 
 ## Guardrails
 
-- Do not turn DB normalize into destructive DB writes unless the user explicitly asks for it.
+- DB import is a real database write and must stay behind explicit GUI confirmation.
 - Preserve DBeaver-style CSV semantics: blank unquoted data cell is `NULL`, quoted empty string is `""`.
 - Keep Tkinter code as orchestration only; put rules and transformations in non-GUI modules.
 - Keep GUI features page-based under the left-side Main Menu.
@@ -56,7 +57,8 @@ If `.venv` is broken or Python is unavailable, report that clearly instead of gu
 - `autocompare_tool/excel_writer.py`: Excel workbook rendering.
 - `autocompare_tool/fixme_notes.py`: note combobox persistence.
 - `autocompare_tool/fixme_replacements.py`: apply selected notes to workbook FIXME cells.
-- `autocompare_tool/db_roundtrip.py`: SQL Server metadata lookup and CSV normalize.
+- `autocompare_tool/database_io.py`: multi-database metadata lookup plus CSV normalize/import/export.
+- `autocompare_tool/db_roundtrip.py`: legacy SQL Server metadata lookup and CSV normalize.
 - `autocompare_tool/dbeaver_csv.py`: DBeaver-compatible CSV parser/writer.
 - `copy_ut_files.py`: legacy copy workflow implementation.
 - `autocompare_tool/copy_ut.py`: package wrapper around `copy_ut_files.py`.

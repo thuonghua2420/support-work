@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from autocompare_tool.dbeaver_csv import read_dbeaver_csv, write_dbeaver_csv
+from autocompare_tool.dbeaver_csv import read_dbeaver_csv, write_dbeaver_csv, write_typed_dbeaver_csv
 
 
 class DbeaverCsvTests(unittest.TestCase):
@@ -27,6 +27,22 @@ class DbeaverCsvTests(unittest.TestCase):
             self.assertEqual(
                 path.read_text(encoding="utf-8"),
                 'id,empty_value,null_value,text\r\n"1","",,"a""b"\r\n',
+            )
+
+    def test_write_typed_csv_keeps_numbers_unquoted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "sample.csv"
+
+            write_typed_dbeaver_csv(
+                path,
+                ["id", "amount", "empty_value", "null_value", "text"],
+                [["1", "3456.0000", "", None, 'a"b']],
+                [False, False, True, True, True],
+            )
+
+            self.assertEqual(
+                path.read_text(encoding="utf-8"),
+                'id,amount,empty_value,null_value,text\r\n1,3456.0000,"",,"a""b"\r\n',
             )
 
 

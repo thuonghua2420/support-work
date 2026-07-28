@@ -77,7 +77,7 @@ class DbReorderTests(unittest.TestCase):
 
             self.assertEqual(result.csv_results, [])
             self.assertEqual(result.errors, [])
-            self.assertIn("skipped table not found: dbo.missing_table", messages[-1])
+            self.assertIn("bỏ qua vì không tìm thấy table: dbo.missing_table", messages[-1])
 
 
 class FakeConnection:
