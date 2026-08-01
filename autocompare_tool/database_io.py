@@ -185,6 +185,13 @@ class CsvDbResult:
     skipped_columns: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class DatabaseSyncResult:
+    table_name: str
+    row_count: int
+    skipped_columns: tuple[str, ...] = ()
+
+
 @dataclass
 class DatabaseCsvSummary:
     action_name: str
@@ -200,6 +207,26 @@ class DatabaseCsvSummary:
     @property
     def row_count(self) -> int:
         return sum(result.row_count for result in self.csv_results)
+
+    @property
+    def error_count(self) -> int:
+        return len(self.errors)
+
+
+@dataclass
+class DatabaseSyncSummary:
+    action_name: str = "Đồng bộ dữ liệu giữa 2 CSDL"
+    table_results: list[DatabaseSyncResult] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+
+    @property
+    def table_count(self) -> int:
+        return len(self.table_results)
+
+    @property
+    def row_count(self) -> int:
+        return sum(result.row_count for result in self.table_results)
 
     @property
     def error_count(self) -> int:
@@ -242,6 +269,9 @@ class DatabaseAdapter:
     def qualified_table(self, metadata: TableMetadata) -> str:
         return f"{self.quote_identifier(metadata.schema)}.{self.quote_identifier(metadata.name)}"
 
+    def list_databases(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
+        return [settings.database] if settings.database else []
+
     def list_tables(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
         raise NotImplementedError
 
@@ -263,6 +293,9 @@ class DatabaseAdapter:
         column_sql = ", ".join(self.quote_identifier(column.name) for column in columns)
         placeholder_sql = ", ".join(self.placeholder(index) for index, _column in enumerate(columns))
         return f"INSERT INTO {self.qualified_table(metadata)} ({column_sql}) VALUES ({placeholder_sql})"
+
+    def truncate_table(self, cursor, metadata: TableMetadata) -> None:
+        self.execute(cursor, f"TRUNCATE TABLE {self.qualified_table(metadata)}")
 
     def before_import(
         self,
@@ -315,6 +348,19 @@ class SqlServerAdapter(DatabaseAdapter):
 
     def default_schema(self, settings: DatabaseConnectionSettings) -> str:
         return settings.schema.strip() or "dbo"
+
+    def list_databases(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
+        cursor = connection.cursor()
+        self.execute(
+            cursor,
+            """
+            SELECT name
+            FROM sys.databases
+            WHERE state = 0
+            ORDER BY name
+            """,
+        )
+        return [str(row[0]) for row in cursor.fetchall()]
 
     def list_tables(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
         schema = self.schema_name(settings)
@@ -442,7 +488,7 @@ class MySqlAdapter(DatabaseAdapter):
         return mysql.connector.connect(
             host=settings.host,
             port=int(settings.port or DEFAULT_PORTS[DATABASE_MYSQL]),
-            database=settings.database,
+            database=settings.database or None,
             user=settings.username,
             password=settings.password,
             autocommit=False,
@@ -456,6 +502,18 @@ class MySqlAdapter(DatabaseAdapter):
 
     def default_schema(self, settings: DatabaseConnectionSettings) -> str:
         return settings.schema.strip() or settings.database
+
+    def list_databases(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
+        cursor = connection.cursor()
+        self.execute(
+            cursor,
+            """
+            SELECT schema_name
+            FROM information_schema.schemata
+            ORDER BY schema_name
+            """,
+        )
+        return [str(row[0]) for row in cursor.fetchall()]
 
     def list_tables(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
         schema = self.schema_name(settings)
@@ -556,6 +614,19 @@ class PostgreSqlAdapter(DatabaseAdapter):
 
     def placeholder(self, index: int) -> str:
         return "%s"
+
+    def list_databases(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
+        cursor = connection.cursor()
+        self.execute(
+            cursor,
+            """
+            SELECT datname
+            FROM pg_database
+            WHERE datallowconn = true
+            ORDER BY datname
+            """,
+        )
+        return [str(row[0]) for row in cursor.fetchall()]
 
     def list_tables(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
         schema = self.schema_name(settings)
@@ -845,6 +916,26 @@ def test_database_connection(settings: DatabaseConnectionSettings) -> None:
         connection.close()
 
 
+def list_database_names(settings: DatabaseConnectionSettings) -> list[str]:
+    settings = validate_database_listing_settings(settings)
+    adapter = get_adapter(settings.normalized_type)
+    connection = adapter.connect(settings)
+    try:
+        return adapter.list_databases(connection, settings)
+    finally:
+        connection.close()
+
+
+def list_database_tables(settings: DatabaseConnectionSettings) -> list[str]:
+    settings = validate_connection_settings(settings)
+    adapter = get_adapter(settings.normalized_type)
+    connection = adapter.connect(settings)
+    try:
+        return adapter.list_tables(connection, settings)
+    finally:
+        connection.close()
+
+
 def normalize_csv_folder(
     root_path: str | Path,
     settings: DatabaseConnectionSettings,
@@ -918,6 +1009,104 @@ def export_csv_folder(
 
     _log_summary(summary, logger)
     return summary
+
+
+def sync_database_tables(
+    source_settings: DatabaseConnectionSettings,
+    target_settings: DatabaseConnectionSettings,
+    table_names: Iterable[str] | str | None = None,
+    record_limit: int | str | None = None,
+    keep_identity: bool = True,
+    truncate_before_sync: bool = False,
+    log: Logger | None = None,
+) -> DatabaseSyncSummary:
+    source_settings = validate_connection_settings(source_settings)
+    target_settings = validate_connection_settings(target_settings)
+    source_adapter = get_adapter(source_settings.normalized_type)
+    target_adapter = get_adapter(target_settings.normalized_type)
+    requested_tables = _parse_table_names(table_names)
+    limit = _parse_record_limit(record_limit)
+    logger = log or (lambda message: None)
+    summary = DatabaseSyncSummary()
+
+    source_connection = source_adapter.connect(source_settings)
+    target_connection = target_adapter.connect(target_settings)
+    try:
+        tables = requested_tables or source_adapter.list_tables(source_connection, source_settings)
+        if not tables:
+            message = "Không tìm thấy table để đồng bộ."
+            summary.skipped.append(message)
+            logger(message)
+            return summary
+
+        for raw_table_name in tables:
+            _sync_one_table(
+                source_connection,
+                target_connection,
+                source_adapter,
+                target_adapter,
+                source_settings,
+                target_settings,
+                raw_table_name,
+                limit,
+                keep_identity,
+                truncate_before_sync,
+                summary,
+                logger,
+            )
+    finally:
+        source_connection.close()
+        target_connection.close()
+
+    _log_sync_summary(summary, logger)
+    return summary
+
+
+def validate_database_listing_settings(settings: DatabaseConnectionSettings) -> DatabaseConnectionSettings:
+    database_type = normalize_database_type(settings.database_type)
+    host = settings.host.strip()
+    database = settings.database.strip()
+    schema = settings.schema.strip()
+    username = settings.username.strip()
+
+    if database_type in {DATABASE_SQLSERVER, DATABASE_MYSQL, DATABASE_POSTGRESQL} and not host:
+        raise ValueError("Vui lòng nhập máy chủ CSDL.")
+    if database_type == DATABASE_SQLSERVER:
+        if not settings.driver.strip():
+            raise ValueError("Vui lòng nhập ODBC driver cho SQL Server.")
+        if not settings.trusted_connection and not username:
+            raise ValueError("Vui lòng nhập người dùng CSDL.")
+        database = database or "master"
+        schema = schema or "dbo"
+    elif database_type == DATABASE_POSTGRESQL:
+        if not username:
+            raise ValueError("Vui lòng nhập người dùng CSDL.")
+        database = database or "postgres"
+        schema = schema or "public"
+    elif database_type == DATABASE_MYSQL:
+        if not username:
+            raise ValueError("Vui lòng nhập người dùng CSDL.")
+        schema = schema or database
+    elif database_type == DATABASE_ORACLE:
+        if not username:
+            raise ValueError("Vui lòng nhập người dùng CSDL.")
+        if not database:
+            raise ValueError("Oracle cần tên service/DSN để kết nối.")
+        schema = schema or username.upper()
+
+    return DatabaseConnectionSettings(
+        database_type=database_type,
+        host=host,
+        database=database,
+        schema=schema,
+        port=settings.port.strip() or default_port(database_type),
+        username=username,
+        password=settings.password,
+        trusted_connection=settings.trusted_connection,
+        driver=settings.driver.strip(),
+        trust_server_certificate=settings.trust_server_certificate,
+        encrypt=settings.encrypt,
+    )
 
 
 def validate_connection_settings(settings: DatabaseConnectionSettings) -> DatabaseConnectionSettings:
@@ -1126,6 +1315,146 @@ def _export_one_table(
         logger(f"{metadata.schema}.{metadata.name} -> đã xuất {len(rows)} dòng: {output_file}")
     except Exception as exc:
         _record_error(summary, logger, output / f"{raw_table_name}.csv", exc)
+
+
+def _sync_one_table(
+    source_connection,
+    target_connection,
+    source_adapter: DatabaseAdapter,
+    target_adapter: DatabaseAdapter,
+    source_settings: DatabaseConnectionSettings,
+    target_settings: DatabaseConnectionSettings,
+    raw_table_name: str,
+    record_limit: int | None,
+    keep_identity: bool,
+    truncate_before_sync: bool,
+    summary: DatabaseSyncSummary,
+    logger: Logger,
+) -> None:
+    schema, table_name = _split_table_name(raw_table_name)
+    try:
+        source_metadata = source_adapter.get_table(source_connection, source_settings, table_name, schema=schema)
+        target_metadata = target_adapter.get_table(target_connection, target_settings, table_name, schema=schema)
+        source_columns, target_columns, skipped_columns = _build_sync_columns(
+            source_metadata,
+            target_metadata,
+            target_adapter,
+            keep_identity,
+        )
+        if not target_columns:
+            message = f"{raw_table_name} -> bỏ qua vì không có column nào có thể đồng bộ"
+            summary.skipped.append(message)
+            logger(message)
+            return
+
+        source_cursor = source_connection.cursor()
+        source_sql = _build_sync_select_sql(source_adapter, source_metadata, source_columns)
+        source_adapter.execute(source_cursor, source_sql)
+        rows = source_cursor.fetchmany(record_limit) if record_limit is not None else source_cursor.fetchall()
+        insert_rows = [tuple(row[index] for index, _column in enumerate(source_columns)) for row in rows]
+
+        target_cursor = target_connection.cursor()
+        insert_sql = target_adapter.insert_sql(target_metadata, target_columns, keep_identity)
+        try:
+            if truncate_before_sync:
+                target_adapter.truncate_table(target_cursor, target_metadata)
+                logger(f"{raw_table_name} -> đã truncate dữ liệu đích trước khi đồng bộ")
+            target_adapter.before_import(target_cursor, target_metadata, target_columns, keep_identity)
+            sync_error: Exception | None = None
+            try:
+                if insert_rows:
+                    target_adapter.executemany(target_cursor, insert_sql, insert_rows)
+            except Exception as exc:
+                sync_error = exc
+            try:
+                target_adapter.after_import(target_cursor, target_metadata, target_columns, keep_identity)
+            except Exception as cleanup_exc:
+                if sync_error is None:
+                    raise
+                logger(f"{raw_table_name} -> lỗi khi dọn trạng thái identity: {cleanup_exc}")
+            if sync_error is not None:
+                raise sync_error
+            target_connection.commit()
+        except Exception:
+            target_connection.rollback()
+            raise
+
+        if skipped_columns:
+            logger(f"{raw_table_name} -> bỏ qua column không insert: {', '.join(skipped_columns)}")
+        summary.table_results.append(
+            DatabaseSyncResult(
+                table_name=target_metadata.name,
+                row_count=len(insert_rows),
+                skipped_columns=tuple(skipped_columns),
+            )
+        )
+        logger(f"{raw_table_name} -> đã đồng bộ {len(insert_rows)} dòng vào {target_metadata.schema}.{target_metadata.name}")
+    except Exception as exc:
+        message = f"LỖI {raw_table_name}: {exc}"
+        summary.errors.append(message)
+        logger(message)
+
+
+def _build_sync_columns(
+    source_metadata: TableMetadata,
+    target_metadata: TableMetadata,
+    target_adapter: DatabaseAdapter,
+    keep_identity: bool,
+) -> tuple[list[DatabaseColumn], list[DatabaseColumn], tuple[str, ...]]:
+    source_by_exact = {column.name: column for column in source_metadata.columns}
+    source_by_lower: dict[str, list[DatabaseColumn]] = {}
+    for column in source_metadata.columns:
+        source_by_lower.setdefault(column.name.lower(), []).append(column)
+
+    target_by_lower = {column.name.lower() for column in target_metadata.columns}
+    missing_in_target = [
+        column.name
+        for column in source_metadata.columns
+        if not _skip_insert_reason(column, target_adapter, keep_identity) and column.name.lower() not in target_by_lower
+    ]
+
+    source_columns: list[DatabaseColumn] = []
+    target_columns: list[DatabaseColumn] = []
+    skipped_columns: list[str] = []
+    missing_in_source: list[str] = []
+
+    for target_column in target_metadata.columns:
+        skip_reason = _skip_insert_reason(target_column, target_adapter, keep_identity)
+        if skip_reason:
+            skipped_columns.append(f"{target_column.name} ({skip_reason})")
+            continue
+
+        source_column = source_by_exact.get(target_column.name)
+        if source_column is None:
+            candidates = source_by_lower.get(target_column.name.lower(), [])
+            if len(candidates) == 1:
+                source_column = candidates[0]
+        if source_column is None:
+            missing_in_source.append(target_column.name)
+            continue
+
+        source_columns.append(source_column)
+        target_columns.append(target_column)
+
+    if missing_in_source or missing_in_target:
+        detail_parts: list[str] = []
+        if missing_in_source:
+            detail_parts.append("thiếu ở nguồn: " + ", ".join(missing_in_source))
+        if missing_in_target:
+            detail_parts.append("thiếu ở đích: " + ", ".join(missing_in_target))
+        raise ValueError("DDL/column giữa nguồn và đích không khớp (" + "; ".join(detail_parts) + ")")
+
+    return source_columns, target_columns, tuple(skipped_columns)
+
+
+def _build_sync_select_sql(adapter: DatabaseAdapter, metadata: TableMetadata, columns: list[DatabaseColumn]) -> str:
+    column_sql = ", ".join(adapter.quote_identifier(column.name) for column in columns)
+    sql = f"SELECT {column_sql} FROM {adapter.qualified_table(metadata)}"
+    primary_key_columns = [column for column in metadata.columns if column.is_primary_key]
+    if primary_key_columns:
+        order_sql = ", ".join(adapter.quote_identifier(column.name) for column in primary_key_columns)
+        sql = f"{sql} ORDER BY {order_sql}"
+    return sql
 
 
 def _build_column_mapping(headers: list[str], columns: list[DatabaseColumn]) -> CsvColumnMapping:
@@ -1360,6 +1689,26 @@ def _parse_table_names(table_names: Iterable[str] | str | None) -> list[str]:
     return [name.strip() for name in table_names if name.strip()]
 
 
+def _parse_record_limit(record_limit: int | str | None) -> int | None:
+    if record_limit is None:
+        return None
+    if isinstance(record_limit, int):
+        if record_limit <= 0:
+            raise ValueError("Số record đồng bộ phải lớn hơn 0.")
+        return record_limit
+
+    stripped = record_limit.strip()
+    if not stripped:
+        return None
+    try:
+        limit = int(stripped)
+    except ValueError as exc:
+        raise ValueError("Số record đồng bộ phải là số nguyên lớn hơn 0.") from exc
+    if limit <= 0:
+        raise ValueError("Số record đồng bộ phải lớn hơn 0.")
+    return limit
+
+
 def _split_table_name(raw_table_name: str) -> tuple[str | None, str]:
     parts = [part.strip().strip('"[]`') for part in raw_table_name.split(".") if part.strip()]
     if len(parts) >= 2:
@@ -1401,6 +1750,14 @@ def _log_summary(summary: DatabaseCsvSummary, logger: Logger) -> None:
     logger(
         f"{summary.action_name} hoàn tất. "
         f"Xử lý {summary.csv_count} file CSV, {summary.row_count} dòng, "
+        f"bỏ qua {len(summary.skipped)} mục, lỗi {summary.error_count} mục."
+    )
+
+
+def _log_sync_summary(summary: DatabaseSyncSummary, logger: Logger) -> None:
+    logger(
+        f"{summary.action_name} hoàn tất. "
+        f"Xử lý {summary.table_count} table, {summary.row_count} dòng, "
         f"bỏ qua {len(summary.skipped)} mục, lỗi {summary.error_count} mục."
     )
 

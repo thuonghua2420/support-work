@@ -12,15 +12,20 @@ from autocompare_tool.database_io import (
     DatabaseColumn,
     DatabaseConnectionSettings,
     DatabaseCsvSummary,
+    DatabaseSyncSummary,
     OracleAdapter,
     PostgreSqlAdapter,
     SqlServerAdapter,
     TableMetadata,
     _build_export_select_sql,
     _build_import_mapping,
+    _build_sync_columns,
+    _build_sync_select_sql,
     _format_csv_value,
     _format_db_value,
     _import_one_csv,
+    _parse_record_limit,
+    _sync_one_table,
     _sqlserver_type_name,
     normalize_database_type,
     validate_connection_settings,
@@ -123,6 +128,104 @@ class DatabaseIoTests(unittest.TestCase):
 
         self.assertEqual(sql, "SELECT [id], [name] FROM [dbo].[orders] ORDER BY [id]")
 
+    def test_sync_select_orders_by_primary_key_even_when_identity_is_skipped(self) -> None:
+        adapter = SqlServerAdapter()
+        metadata = TableMetadata(
+            schema="dbo",
+            name="orders",
+            columns=[
+                _column("id", is_identity=True, is_primary_key=True),
+                _column("name", data_type="nvarchar"),
+            ],
+        )
+
+        sql = _build_sync_select_sql(adapter, metadata, [_column("name", data_type="nvarchar")])
+
+        self.assertEqual(sql, "SELECT [name] FROM [dbo].[orders] ORDER BY [id]")
+
+    def test_build_sync_columns_skips_non_insertable_target_columns(self) -> None:
+        source_metadata = TableMetadata(
+            schema="dbo",
+            name="customers",
+            columns=[
+                _column("id", is_identity=True),
+                _column("name", data_type="nvarchar"),
+                _column("total", data_type="numeric", is_computed=True),
+                _column("rv", data_type="rowversion"),
+            ],
+        )
+        target_metadata = TableMetadata(
+            schema="dbo",
+            name="customers",
+            columns=[
+                _column("id", is_identity=True),
+                _column("name", data_type="nvarchar"),
+                _column("total", data_type="numeric", is_computed=True),
+                _column("rv", data_type="rowversion"),
+            ],
+        )
+
+        source_columns, target_columns, skipped = _build_sync_columns(
+            source_metadata,
+            target_metadata,
+            SqlServerAdapter(),
+            keep_identity=False,
+        )
+
+        self.assertEqual([column.name for column in source_columns], ["name"])
+        self.assertEqual([column.name for column in target_columns], ["name"])
+        self.assertEqual(
+            skipped,
+            (
+                "id (identity được CSDL tự sinh)",
+                "total (computed/generated)",
+                "rv (rowversion/timestamp)",
+            ),
+        )
+
+    def test_parse_record_limit_treats_blank_as_all_records(self) -> None:
+        self.assertIsNone(_parse_record_limit(""))
+        self.assertIsNone(_parse_record_limit(None))
+        self.assertEqual(_parse_record_limit("25"), 25)
+        with self.assertRaises(ValueError):
+            _parse_record_limit("0")
+
+    def test_sync_one_table_truncates_target_before_insert_when_enabled(self) -> None:
+        metadata = TableMetadata(
+            schema="dbo",
+            name="customers",
+            columns=[
+                _column("id", is_identity=True),
+                _column("name", data_type="nvarchar"),
+            ],
+        )
+        source_adapter = SyncRecordingAdapter(metadata)
+        target_adapter = SyncRecordingAdapter(metadata)
+        source_connection = SyncConnection([(1, "Alice")])
+        target_connection = SyncConnection([])
+        summary = DatabaseSyncSummary()
+
+        _sync_one_table(
+            source_connection,
+            target_connection,
+            source_adapter,
+            target_adapter,
+            DatabaseConnectionSettings(database_type="sqlserver", host=".", database="source", schema="dbo"),
+            DatabaseConnectionSettings(database_type="sqlserver", host=".", database="target", schema="dbo"),
+            "customers",
+            None,
+            True,
+            True,
+            summary,
+            lambda _message: None,
+        )
+
+        self.assertEqual(target_adapter.calls[0], ("truncate", "customers"))
+        self.assertEqual(target_adapter.calls[1][0], "before")
+        self.assertEqual(target_adapter.calls[2], ("executemany", [(1, "Alice")]))
+        self.assertTrue(target_connection.committed)
+        self.assertEqual(summary.table_count, 1)
+
     def test_formats_db_and_csv_values_by_metadata(self) -> None:
         amount = _column("amount", data_type="numeric", numeric_scale=4)
         created_at = _column("created_at", data_type="datetime")
@@ -217,6 +320,57 @@ class FailingIdentityAdapter(DatabaseAdapter):
 
     def after_import(self, _cursor, _metadata, _columns, _keep_identity: bool) -> None:
         self.calls.append("after")
+
+
+class SyncConnection:
+    def __init__(self, rows: list[tuple[object, ...]]) -> None:
+        self.rows = rows
+        self.committed = False
+        self.rolled_back = False
+
+    def cursor(self) -> "SyncCursor":
+        return SyncCursor(self.rows)
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def rollback(self) -> None:
+        self.rolled_back = True
+
+
+class SyncCursor:
+    def __init__(self, rows: list[tuple[object, ...]]) -> None:
+        self.rows = rows
+
+    def execute(self, *_args: object) -> None:
+        return None
+
+    def fetchall(self) -> list[tuple[object, ...]]:
+        return self.rows
+
+    def fetchmany(self, size: int) -> list[tuple[object, ...]]:
+        return self.rows[:size]
+
+
+class SyncRecordingAdapter(DatabaseAdapter):
+    def __init__(self, metadata: TableMetadata) -> None:
+        self.metadata = metadata
+        self.calls: list[tuple[str, object]] = []
+
+    def get_table(self, _connection, _settings, _table_name: str, schema: str | None = None) -> TableMetadata:
+        return self.metadata
+
+    def truncate_table(self, _cursor, metadata: TableMetadata) -> None:
+        self.calls.append(("truncate", metadata.name))
+
+    def before_import(self, _cursor, _metadata, columns: list[DatabaseColumn], _keep_identity: bool) -> None:
+        self.calls.append(("before", [column.name for column in columns]))
+
+    def executemany(self, _cursor, _sql: str, rows) -> None:
+        self.calls.append(("executemany", [tuple(row) for row in rows]))
+
+    def after_import(self, _cursor, _metadata, columns: list[DatabaseColumn], _keep_identity: bool) -> None:
+        self.calls.append(("after", [column.name for column in columns]))
 
 
 if __name__ == "__main__":

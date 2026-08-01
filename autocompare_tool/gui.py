@@ -11,13 +11,17 @@ from .copy_ut import run_copy_ut_files
 from .database_io import (
     DatabaseConnectionSettings,
     DatabaseCsvSummary,
+    DatabaseSyncSummary,
     database_type_options,
     default_port,
     default_schema,
     export_csv_folder,
     get_available_sqlserver_drivers,
     import_csv_folder,
+    list_database_names,
+    list_database_tables,
     normalize_csv_folder,
+    sync_database_tables,
     test_database_connection,
     validate_connection_settings,
 )
@@ -38,6 +42,13 @@ from .fixme_replacements import apply_fixme_replacements
 from .processor import process_root
 
 APP_TITLE = "Công cụ AutoCompare"
+NAV_ITEMS = (
+    ("compare", "So sánh"),
+    ("folder_compare", "So sánh 2 folder CSV"),
+    ("file_tools", "Tiện ích file"),
+    ("copy", "Sao chép file UT"),
+    ("sql", "Cơ sở dữ liệu"),
+)
 
 
 class AutoCompareApp(tk.Tk):
@@ -90,6 +101,19 @@ class AutoCompareApp(tk.Tk):
         self.db_keep_identity = tk.BooleanVar(value=False)
         self.db_export_tables = tk.StringVar()
         self.db_verified = False
+        self.sync_db_vars = {
+            "source": self._create_sync_db_vars(),
+            "target": self._create_sync_db_vars(),
+        }
+        self.sync_db_widgets: dict[str, dict[str, object]] = {"source": {}, "target": {}}
+        self.sync_source_tables: list[str] = []
+        self.sync_filtered_tables: list[str] = []
+        self.sync_selected_tables: list[str] = []
+        self.sync_table_filter = tk.StringVar()
+        self.sync_all_tables = tk.BooleanVar(value=False)
+        self.sync_record_limit = tk.StringVar()
+        self.sync_keep_identity = tk.BooleanVar(value=True)
+        self.sync_truncate_before_sync = tk.BooleanVar(value=False)
 
         self.note_store = FixmeNoteStore()
         self.fixme_notes: list[FixmeNote] = self.note_store.load()
@@ -103,37 +127,68 @@ class AutoCompareApp(tk.Tk):
         self.pages: dict[str, ttk.Frame] = {}
         self.utility_buttons: list[ttk.Button] = []
         self.db_action_buttons: list[ttk.Button] = []
+        self.sync_control_buttons: list[ttk.Button] = []
 
         self.log_queue: queue.Queue[object] = queue.Queue()
         self.worker: threading.Thread | None = None
 
+        self._configure_styles()
         self._build_ui()
         self._bind_db_change_handlers()
         self.after(100, self._drain_log_queue)
 
+    def _create_sync_db_vars(self) -> dict[str, tk.Variable]:
+        return {
+            "type": tk.StringVar(value="SQL Server"),
+            "driver": tk.StringVar(value="ODBC Driver 18 for SQL Server"),
+            "server": tk.StringVar(),
+            "port": tk.StringVar(value=default_port("SQL Server")),
+            "database": tk.StringVar(),
+            "schema": tk.StringVar(value=default_schema("SQL Server") or "dbo"),
+            "trusted": tk.BooleanVar(value=True),
+            "username": tk.StringVar(),
+            "password": tk.StringVar(),
+            "verified": tk.BooleanVar(value=False),
+        }
+
+    def _configure_styles(self) -> None:
+        style = ttk.Style(self)
+        style.configure("MenuPanel.TLabelframe", borderwidth=2, relief="ridge")
+        style.configure("MenuPanel.TLabelframe.Label", font=("", 9, "bold"))
+        style.configure("MenuTag.Toolbutton", anchor="w", borderwidth=2, padding=(10, 7), relief="raised")
+        style.map(
+            "MenuTag.Toolbutton",
+            background=[("selected", "#dbeafe"), ("active", "#eff6ff")],
+            relief=[("pressed", "sunken"), ("selected", "sunken"), ("active", "raised")],
+        )
+        style.configure("TagNotebook.TNotebook", borderwidth=2)
+        style.configure("TagNotebook.TNotebook.Tab", borderwidth=1, padding=(14, 6))
+        style.map(
+            "TagNotebook.TNotebook.Tab",
+            background=[("selected", "#e0f2fe"), ("active", "#f0f9ff")],
+        )
+        style.configure(
+            "FixmeHeader.TLabel",
+            background="#eef4fb",
+            borderwidth=1,
+            font=("", 9, "bold"),
+            padding=(6, 4),
+            relief="solid",
+        )
+
     def _build_ui(self) -> None:
         self.columnconfigure(1, weight=1)
+        self.columnconfigure(0, weight=0)
         self.rowconfigure(0, weight=1)
 
-        sidebar = ttk.Frame(self, padding=(10, 12, 8, 12))
-        sidebar.grid(row=0, column=0, sticky="ns")
-        ttk.Label(sidebar, text="Menu chính").pack(anchor="w", pady=(0, 8))
-        for page_key, label in (
-            ("compare", "So sánh"),
-            ("folder_compare", "So sánh 2 folder CSV"),
-            ("file_tools", "Tiện ích file"),
-            ("copy", "Sao chép file UT"),
-            ("sql", "Cơ sở dữ liệu"),
-        ):
-            ttk.Radiobutton(
-                sidebar,
-                text=label,
-                value=page_key,
-                variable=self.current_page,
-                command=lambda key=page_key: self._show_page(key),
-                style="Toolbutton",
-                width=20,
-            ).pack(fill="x", pady=2)
+        sidebar = ttk.LabelFrame(
+            self,
+            text="Menu chính",
+            padding=(8, 8, 8, 8),
+            style="MenuPanel.TLabelframe",
+        )
+        sidebar.grid(row=0, column=0, sticky="ns", padx=(2, 8), pady=(4, 4))
+        self._build_navigation_tags(sidebar, "MenuTag.Toolbutton", width=22)
 
         main_frame = ttk.Frame(self)
         main_frame.grid(row=0, column=1, sticky="nsew")
@@ -161,6 +216,19 @@ class AutoCompareApp(tk.Tk):
         self.log_text.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 12))
 
         self._show_page("compare")
+
+    def _build_navigation_tags(self, parent: ttk.Widget, style_name: str, width: int) -> None:
+        for index, (page_key, label) in enumerate(NAV_ITEMS, start=1):
+            tag_text = f"{index}. {label}"
+            ttk.Radiobutton(
+                parent,
+                text=tag_text,
+                value=page_key,
+                variable=self.current_page,
+                command=lambda key=page_key: self._show_page(key),
+                style=style_name,
+                width=width,
+            ).pack(fill="x", pady=4)
 
     def _build_compare_page(self) -> None:
         page = self._create_page("compare")
@@ -203,7 +271,7 @@ class AutoCompareApp(tk.Tk):
 
         self._build_utility_root_selector(page, row=0)
 
-        notebook = ttk.Notebook(page)
+        notebook = ttk.Notebook(page, style="TagNotebook.TNotebook")
         notebook.grid(row=1, column=0, sticky="nsew")
         page.columnconfigure(0, weight=1)
 
@@ -227,14 +295,29 @@ class AutoCompareApp(tk.Tk):
 
     def _build_sql_page(self) -> None:
         page = self._create_page("sql")
+        page.rowconfigure(0, weight=1)
 
-        db_frame = ttk.LabelFrame(page, text="Thông tin kết nối CSDL", padding=(12, 8, 12, 8))
+        notebook = ttk.Notebook(page, style="TagNotebook.TNotebook")
+        notebook.grid(row=0, column=0, sticky="nsew")
+
+        csv_tab = ttk.Frame(notebook, padding=(8, 8, 8, 8))
+        csv_tab.columnconfigure(0, weight=1)
+        sync_tab = ttk.Frame(notebook, padding=(8, 8, 8, 8))
+        sync_tab.columnconfigure(0, weight=1)
+        sync_tab.rowconfigure(2, weight=1)
+
+        notebook.add(csv_tab, text="Nhập/Xuất CSV")
+        notebook.add(sync_tab, text="Đồng bộ 2 CSDL")
+
+        db_frame = ttk.LabelFrame(csv_tab, text="Thông tin kết nối CSDL", padding=(12, 8, 12, 8))
         self._build_db_ui(db_frame)
         db_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
 
-        csv_frame = ttk.LabelFrame(page, text="Nhập/Xuất CSV", padding=(12, 8, 12, 8))
+        csv_frame = ttk.LabelFrame(csv_tab, text="Nhập/Xuất CSV", padding=(12, 8, 12, 8))
         self._build_db_csv_ui(csv_frame)
         csv_frame.grid(row=1, column=0, sticky="ew")
+
+        self._build_db_sync_ui(sync_tab)
 
     def _create_page(self, key: str) -> ttk.Frame:
         page = ttk.Frame(self.page_container)
@@ -350,7 +433,7 @@ class AutoCompareApp(tk.Tk):
 
         self.folder_compare_button = ttk.Button(
             compare_frame,
-            text="Chạy so sánh folder CSV",
+            text="Compare folder CSV",
             command=self._run_folder_compare,
         )
         self.folder_compare_button.grid(row=3, column=1, sticky="w", pady=(6, 0))
@@ -361,63 +444,67 @@ class AutoCompareApp(tk.Tk):
         exact_frame = ttk.LabelFrame(parent, text="Đổi tên theo tên chính xác", padding=(12, 8, 12, 8))
         exact_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         exact_frame.columnconfigure(1, weight=1)
-        exact_frame.columnconfigure(3, weight=1)
+        exact_frame.columnconfigure(2, minsize=190)
 
         ttk.Label(exact_frame, text="Tên cũ").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(exact_frame, textvariable=self.rename_exact_old_name).grid(
             row=0,
             column=1,
             sticky="ew",
-            padx=(0, 12),
+            padx=(0, 8),
             pady=2,
         )
-        ttk.Label(exact_frame, text="Tên mới").grid(row=0, column=2, sticky="w", padx=(0, 8), pady=2)
+        ttk.Label(exact_frame, text="Tên mới").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(exact_frame, textvariable=self.rename_exact_new_name).grid(
-            row=0,
-            column=3,
+            row=1,
+            column=1,
             sticky="ew",
-            padx=(0, 12),
+            padx=(0, 8),
             pady=2,
         )
+        action_frame = ttk.Frame(exact_frame)
+        action_frame.grid(row=0, column=2, rowspan=2, sticky="nsw", padx=(12, 0))
         self._build_file_folder_checks(
-            exact_frame,
-            row=1,
+            action_frame,
+            row=0,
             file_var=self.rename_exact_include_files,
             folder_var=self.rename_exact_include_folders,
         )
-        button = ttk.Button(exact_frame, text="Chạy đổi tên chính xác", command=self._run_rename_exact)
-        button.grid(row=2, column=1, sticky="w", pady=(6, 0))
+        button = ttk.Button(action_frame, text="Chạy đổi tên chính xác", command=self._run_rename_exact)
+        button.grid(row=1, column=0, sticky="ew", pady=(8, 2))
         self.utility_buttons.append(button)
 
         contains_frame = ttk.LabelFrame(parent, text="Đổi tên khi tên chứa text", padding=(12, 8, 12, 8))
         contains_frame.grid(row=1, column=0, sticky="ew")
         contains_frame.columnconfigure(1, weight=1)
-        contains_frame.columnconfigure(3, weight=1)
+        contains_frame.columnconfigure(2, minsize=190)
 
         ttk.Label(contains_frame, text="Text cần tìm").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(contains_frame, textvariable=self.rename_contains_text).grid(
             row=0,
             column=1,
             sticky="ew",
-            padx=(0, 12),
+            padx=(0, 8),
             pady=2,
         )
-        ttk.Label(contains_frame, text="Text thay thế").grid(row=0, column=2, sticky="w", padx=(0, 8), pady=2)
+        ttk.Label(contains_frame, text="Text thay thế").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(contains_frame, textvariable=self.rename_contains_replacement).grid(
-            row=0,
-            column=3,
+            row=1,
+            column=1,
             sticky="ew",
-            padx=(0, 12),
+            padx=(0, 8),
             pady=2,
         )
+        action_frame = ttk.Frame(contains_frame)
+        action_frame.grid(row=0, column=2, rowspan=2, sticky="nsw", padx=(12, 0))
         self._build_file_folder_checks(
-            contains_frame,
-            row=1,
+            action_frame,
+            row=0,
             file_var=self.rename_contains_include_files,
             folder_var=self.rename_contains_include_folders,
         )
-        button = ttk.Button(contains_frame, text="Chạy đổi tên chứa text", command=self._run_rename_contains)
-        button.grid(row=2, column=1, sticky="w", pady=(6, 0))
+        button = ttk.Button(action_frame, text="Chạy đổi tên chứa text", command=self._run_rename_contains)
+        button.grid(row=1, column=0, sticky="ew", pady=(8, 2))
         self.utility_buttons.append(button)
 
     def _build_delete_tools_ui(self, parent: ttk.Frame) -> None:
@@ -426,23 +513,26 @@ class AutoCompareApp(tk.Tk):
         delete_frame = ttk.LabelFrame(parent, text="Xóa khi tên chứa text", padding=(12, 8, 12, 8))
         delete_frame.grid(row=0, column=0, sticky="ew")
         delete_frame.columnconfigure(1, weight=1)
+        delete_frame.columnconfigure(2, minsize=190)
 
         ttk.Label(delete_frame, text="Text cần tìm").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(delete_frame, textvariable=self.delete_contains_text).grid(
             row=0,
             column=1,
             sticky="ew",
-            padx=(0, 12),
+            padx=(0, 8),
             pady=2,
         )
+        action_frame = ttk.Frame(delete_frame)
+        action_frame.grid(row=0, column=2, rowspan=2, sticky="nsw", padx=(12, 0))
         self._build_file_folder_checks(
-            delete_frame,
-            row=1,
+            action_frame,
+            row=0,
             file_var=self.delete_contains_include_files,
             folder_var=self.delete_contains_include_folders,
         )
-        button = ttk.Button(delete_frame, text="Chạy xóa chứa text", command=self._run_delete_contains)
-        button.grid(row=2, column=1, sticky="w", pady=(6, 0))
+        button = ttk.Button(action_frame, text="Chạy xóa chứa text", command=self._run_delete_contains)
+        button.grid(row=1, column=0, sticky="ew", pady=(8, 2))
         self.utility_buttons.append(button)
 
     def _build_sheet_tools_ui(self, parent: ttk.Frame) -> None:
@@ -451,38 +541,38 @@ class AutoCompareApp(tk.Tk):
         sheet_frame = ttk.LabelFrame(parent, text="Đổi tên sheet Excel khi tên chứa text", padding=(12, 8, 12, 8))
         sheet_frame.grid(row=0, column=0, sticky="ew")
         sheet_frame.columnconfigure(1, weight=1)
-        sheet_frame.columnconfigure(3, weight=1)
+        sheet_frame.columnconfigure(2, minsize=90)
+        sheet_frame.columnconfigure(3, minsize=170)
 
         ttk.Label(sheet_frame, text="File Excel").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(sheet_frame, textvariable=self.sheet_excel_path).grid(
             row=0,
             column=1,
-            columnspan=3,
             sticky="ew",
             padx=(0, 8),
             pady=2,
         )
-        ttk.Button(sheet_frame, text="Chọn...", command=self._browse_sheet_excel).grid(row=0, column=4, pady=2)
+        ttk.Button(sheet_frame, text="Chọn...", command=self._browse_sheet_excel).grid(row=0, column=2, pady=2)
 
         ttk.Label(sheet_frame, text="Text cần tìm").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(sheet_frame, textvariable=self.sheet_contains_text).grid(
             row=1,
             column=1,
             sticky="ew",
-            padx=(0, 12),
+            padx=(0, 8),
             pady=2,
         )
-        ttk.Label(sheet_frame, text="Text thay thế").grid(row=1, column=2, sticky="w", padx=(0, 8), pady=2)
+        ttk.Label(sheet_frame, text="Text thay thế").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(sheet_frame, textvariable=self.sheet_replacement_text).grid(
-            row=1,
-            column=3,
+            row=2,
+            column=1,
             sticky="ew",
-            padx=(0, 12),
+            padx=(0, 8),
             pady=2,
         )
 
         button = ttk.Button(sheet_frame, text="Chạy đổi tên sheet", command=self._run_rename_sheets)
-        button.grid(row=2, column=1, sticky="w", pady=(6, 0))
+        button.grid(row=1, column=3, rowspan=2, sticky="ew", padx=(12, 0), pady=(8, 2))
         self.utility_buttons.append(button)
 
     def _build_move_tools_ui(self, parent: ttk.Frame) -> None:
@@ -491,27 +581,27 @@ class AutoCompareApp(tk.Tk):
         move_frame = ttk.LabelFrame(parent, text="Di chuyển file khi tên chứa text", padding=(12, 8, 12, 8))
         move_frame.grid(row=0, column=0, sticky="ew")
         move_frame.columnconfigure(1, weight=1)
-        move_frame.columnconfigure(3, weight=1)
+        move_frame.columnconfigure(2, minsize=190)
 
         ttk.Label(move_frame, text="Text cần tìm").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(move_frame, textvariable=self.move_contains_text).grid(
             row=0,
             column=1,
             sticky="ew",
-            padx=(0, 12),
+            padx=(0, 8),
             pady=2,
         )
-        ttk.Label(move_frame, text="Folder đích").grid(row=0, column=2, sticky="w", padx=(0, 8), pady=2)
+        ttk.Label(move_frame, text="Folder đích").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(move_frame, textvariable=self.move_target_folder_name).grid(
-            row=0,
-            column=3,
+            row=1,
+            column=1,
             sticky="ew",
-            padx=(0, 12),
+            padx=(0, 8),
             pady=2,
         )
 
         button = ttk.Button(move_frame, text="Chạy di chuyển file", command=self._run_move_files)
-        button.grid(row=1, column=1, sticky="w", pady=(6, 0))
+        button.grid(row=0, column=2, rowspan=2, sticky="ew", padx=(12, 0), pady=(8, 2))
         self.utility_buttons.append(button)
 
     def _build_empty_folder_tools_ui(self, parent: ttk.Frame) -> None:
@@ -536,7 +626,7 @@ class AutoCompareApp(tk.Tk):
         folder_var: tk.BooleanVar,
     ) -> None:
         option_frame = ttk.Frame(parent)
-        option_frame.grid(row=row, column=1, columnspan=3, sticky="w", pady=(4, 0))
+        option_frame.grid(row=row, column=0, sticky="w", pady=(4, 0))
         ttk.Checkbutton(option_frame, text="File", variable=file_var).pack(side="left", padx=(0, 12))
         ttk.Checkbutton(option_frame, text="Folder", variable=folder_var).pack(side="left")
 
@@ -546,8 +636,8 @@ class AutoCompareApp(tk.Tk):
 
         action_row = ttk.Frame(fixme_frame)
         action_row.grid(row=0, column=0, sticky="ew")
-        ttk.Button(action_row, text="Thêm giá trị combobox", command=self._show_note_editor).pack(side="left")
-        ttk.Button(action_row, text="Áp dụng ghi chú đã chọn", command=self._apply_fixme_notes).pack(side="left", padx=(8, 0))
+        ttk.Button(action_row, text="Add note", command=self._show_note_editor).pack(side="left")
+        ttk.Button(action_row, text="Apply selected notes", command=self._apply_fixme_notes).pack(side="left", padx=(8, 0))
         self.fixme_count_label = ttk.Label(action_row, text="Số FIXME: 0")
         self.fixme_count_label.pack(side="left", padx=(12, 0))
 
@@ -630,13 +720,13 @@ class AutoCompareApp(tk.Tk):
         )
         self.db_type_box.grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=2)
 
-        ttk.Label(db_frame, text="Máy chủ").grid(row=0, column=2, sticky="w", padx=(0, 8), pady=2)
+        ttk.Label(db_frame, text="Server").grid(row=0, column=2, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(db_frame, textvariable=self.db_server).grid(row=0, column=3, sticky="ew", pady=2)
 
         ttk.Label(db_frame, text="Port").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(db_frame, textvariable=self.db_port).grid(row=1, column=1, sticky="ew", padx=(0, 12), pady=2)
 
-        ttk.Label(db_frame, text="CSDL/Tên dịch vụ").grid(row=1, column=2, sticky="w", padx=(0, 8), pady=2)
+        ttk.Label(db_frame, text="Database").grid(row=1, column=2, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(db_frame, textvariable=self.db_database).grid(row=1, column=3, sticky="ew", pady=2)
 
         self.db_driver_label = ttk.Label(db_frame, text="Driver ODBC")
@@ -647,23 +737,23 @@ class AutoCompareApp(tk.Tk):
         ttk.Label(db_frame, text="Schema").grid(row=2, column=2, sticky="w", padx=(0, 8), pady=2)
         ttk.Entry(db_frame, textvariable=self.db_schema).grid(row=2, column=3, sticky="ew", pady=2)
 
-        ttk.Label(db_frame, text="Người dùng").grid(row=3, column=0, sticky="w", padx=(0, 8), pady=2)
+        ttk.Label(db_frame, text="User").grid(row=3, column=0, sticky="w", padx=(0, 8), pady=2)
         self.user_entry = ttk.Entry(db_frame, textvariable=self.db_username)
         self.user_entry.grid(row=3, column=1, sticky="ew", padx=(0, 12), pady=2)
 
-        ttk.Label(db_frame, text="Mật khẩu").grid(row=3, column=2, sticky="w", padx=(0, 8), pady=2)
+        ttk.Label(db_frame, text="Password").grid(row=3, column=2, sticky="w", padx=(0, 8), pady=2)
         self.password_entry = ttk.Entry(db_frame, textvariable=self.db_password, show="*")
         self.password_entry.grid(row=3, column=3, sticky="ew", pady=2)
 
         self.trusted_check = ttk.Checkbutton(
             db_frame,
-            text="Xác thực Windows",
+            text="Windows Authentication",
             variable=self.db_trusted,
             command=self._sync_auth_fields,
         )
         self.trusted_check.grid(row=4, column=0, sticky="w", padx=(0, 8), pady=2)
 
-        self.test_db_button = ttk.Button(db_frame, text="Kiểm tra kết nối CSDL", command=self._test_db_login)
+        self.test_db_button = ttk.Button(db_frame, text="Test Database Connection", command=self._test_db_login)
         self.test_db_button.grid(row=4, column=1, sticky="w", pady=(6, 0))
 
         self._sync_db_type_fields()
@@ -736,6 +826,243 @@ class AutoCompareApp(tk.Tk):
         self.db_export_button.pack(side="left", padx=(8, 0))
         self.db_action_buttons.append(self.db_export_button)
 
+    def _build_db_sync_ui(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=1)
+
+        guide_frame = ttk.LabelFrame(parent, text="Ghi chú sử dụng", padding=(12, 8, 12, 8))
+        guide_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        guide_text = (
+            "Đồng bộ sẽ sao chép dữ liệu từ CSDL nguồn sang CSDL đích. Hai bên cần cùng DDL/cùng column; "
+            "computed/generated/rowversion sẽ tự bỏ qua khi insert. Nếu bật truncate, dữ liệu table đích sẽ bị xóa sạch "
+            "trước khi insert dữ liệu nguồn."
+        )
+        ttk.Label(guide_frame, text=guide_text, wraplength=980, justify="left").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            guide_frame,
+            text="Bấm Tải CSDL để lấy danh sách database từ connection, chọn database/schema rồi bấm Test kết nối cho từng bên.",
+            wraplength=980,
+            justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(
+            guide_frame,
+            text="Sau khi test nguồn thành công, danh sách table của database nguồn sẽ được tải xuống ô chọn table.",
+            wraplength=980,
+            justify="left",
+        ).grid(row=2, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(
+            guide_frame,
+            text="Muốn dữ liệu 2 bên giống nhau đầy đủ: bật truncate trước khi đồng bộ và bỏ trống ô số record.",
+            wraplength=980,
+            justify="left",
+        ).grid(row=3, column=0, sticky="w", pady=(4, 0))
+
+        connection_frame = ttk.Frame(parent)
+        connection_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        connection_frame.columnconfigure(0, weight=1)
+        connection_frame.columnconfigure(1, weight=1)
+
+        source_frame = ttk.LabelFrame(connection_frame, text="CSDL nguồn", padding=(12, 8, 12, 8))
+        source_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        target_frame = ttk.LabelFrame(connection_frame, text="CSDL đích", padding=(12, 8, 12, 8))
+        target_frame.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        self._build_sync_connection_ui(source_frame, "source")
+        self._build_sync_connection_ui(target_frame, "target")
+
+        table_frame = ttk.LabelFrame(parent, text="Table và số record đồng bộ", padding=(12, 8, 12, 8))
+        table_frame.grid(row=2, column=0, sticky="nsew")
+        table_frame.columnconfigure(1, weight=1)
+        table_frame.rowconfigure(3, weight=1)
+
+        ttk.Checkbutton(
+            table_frame,
+            text="Chọn toàn bộ table trong database nguồn",
+            variable=self.sync_all_tables,
+            command=self._on_sync_all_tables_changed,
+        ).grid(row=0, column=1, sticky="w", pady=(0, 4))
+
+        ttk.Label(table_frame, text="Table nguồn").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
+        self.sync_table_combo = ttk.Combobox(
+            table_frame,
+            textvariable=self.sync_table_filter,
+            values=[],
+            state="normal",
+            postcommand=self._refresh_sync_table_combo_values,
+        )
+        self.sync_table_combo.grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=2)
+        self.sync_table_combo.bind("<KeyRelease>", lambda _event: self._refresh_sync_table_combo_values())
+        self.sync_table_combo.bind("<<ComboboxSelected>>", lambda _event: self._add_sync_table_from_combo())
+        self.sync_add_table_button = ttk.Button(table_frame, text="Thêm table", command=self._add_sync_table_from_combo)
+        self.sync_add_table_button.grid(row=1, column=2, sticky="ew", pady=2)
+        self.sync_control_buttons.append(self.sync_add_table_button)
+        self.sync_add_filtered_button = ttk.Button(
+            table_frame,
+            text="Thêm kết quả lọc",
+            command=self._add_filtered_sync_tables,
+        )
+        self.sync_add_filtered_button.grid(row=2, column=2, sticky="ew", pady=(0, 4))
+        self.sync_control_buttons.append(self.sync_add_filtered_button)
+
+        ttk.Label(
+            table_frame,
+            text="Gõ text để search trong combobox, chọn table rồi bấm Thêm table; bấm Thêm kết quả lọc để thêm nhiều table cùng lúc.",
+            wraplength=980,
+            justify="left",
+        ).grid(row=2, column=1, sticky="w", pady=(0, 4))
+
+        ttk.Label(table_frame, text="Table đã chọn").grid(row=3, column=0, sticky="nw", padx=(0, 8), pady=2)
+        selected_frame = ttk.Frame(table_frame)
+        selected_frame.grid(row=3, column=1, sticky="nsew", padx=(0, 8), pady=2)
+        selected_frame.columnconfigure(0, weight=1)
+        selected_frame.rowconfigure(0, weight=1)
+        self.sync_selected_table_listbox = tk.Listbox(
+            selected_frame,
+            selectmode="extended",
+            exportselection=False,
+            height=5,
+        )
+        self.sync_selected_table_listbox.grid(row=0, column=0, sticky="nsew")
+        selected_scrollbar = ttk.Scrollbar(
+            selected_frame,
+            orient="vertical",
+            command=self.sync_selected_table_listbox.yview,
+        )
+        selected_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.sync_selected_table_listbox.configure(yscrollcommand=selected_scrollbar.set)
+
+        selected_buttons = ttk.Frame(table_frame)
+        selected_buttons.grid(row=3, column=2, sticky="new", pady=2)
+        self.sync_remove_table_button = ttk.Button(
+            selected_buttons,
+            text="Xóa table chọn",
+            command=self._remove_selected_sync_tables,
+        )
+        self.sync_remove_table_button.pack(fill="x")
+        self.sync_control_buttons.append(self.sync_remove_table_button)
+        self.sync_clear_tables_button = ttk.Button(
+            selected_buttons,
+            text="Xóa danh sách",
+            command=self._clear_sync_tables,
+        )
+        self.sync_clear_tables_button.pack(fill="x", pady=(6, 0))
+        self.sync_control_buttons.append(self.sync_clear_tables_button)
+
+        ttk.Label(table_frame, text="Số record đồng bộ").grid(row=4, column=0, sticky="w", padx=(0, 8), pady=2)
+        ttk.Entry(table_frame, textvariable=self.sync_record_limit, width=18).grid(row=4, column=1, sticky="w", pady=2)
+        ttk.Label(table_frame, text="Bỏ trống để đồng bộ toàn bộ data trong table và làm 2 bên giống nhau đầy đủ.").grid(
+            row=5,
+            column=1,
+            columnspan=2,
+            sticky="w",
+            pady=(0, 4),
+        )
+
+        ttk.Checkbutton(
+            table_frame,
+            text="Giữ nguyên giá trị identity khi đồng bộ",
+            variable=self.sync_keep_identity,
+        ).grid(row=6, column=1, sticky="w", pady=2)
+
+        ttk.Checkbutton(
+            table_frame,
+            text="Truncate dữ liệu CSDL đích trước khi đồng bộ",
+            variable=self.sync_truncate_before_sync,
+        ).grid(row=7, column=1, sticky="w", pady=2)
+        ttk.Label(
+            table_frame,
+            text=(
+                "Khi bật option này, toàn bộ dữ liệu của các table đích đã chọn sẽ bị xóa sạch trước khi insert dữ liệu nguồn. "
+                "Nếu table có foreign key/ràng buộc không cho truncate, database sẽ báo lỗi."
+            ),
+            wraplength=980,
+            justify="left",
+        ).grid(row=8, column=1, columnspan=2, sticky="w", pady=(0, 4))
+
+        self.sync_run_button = ttk.Button(
+            table_frame,
+            text="Chạy đồng bộ dữ liệu",
+            command=self._run_db_sync,
+            state="disabled",
+        )
+        self.sync_run_button.grid(row=9, column=1, sticky="w", pady=(8, 0))
+        self.sync_control_buttons.append(self.sync_run_button)
+
+        self._refresh_sync_button_state()
+
+    def _build_sync_connection_ui(self, parent: ttk.LabelFrame, role: str) -> None:
+        parent.columnconfigure(1, weight=1)
+        vars_by_name = self.sync_db_vars[role]
+        widgets = self.sync_db_widgets[role]
+        drivers = get_available_sqlserver_drivers()
+        driver_var = vars_by_name["driver"]
+        if drivers and driver_var.get() not in drivers:
+            driver_var.set(drivers[-1])
+
+        ttk.Label(parent, text="Loại CSDL").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=2)
+        type_box = ttk.Combobox(
+            parent,
+            textvariable=vars_by_name["type"],
+            values=database_type_options(),
+            state="readonly",
+        )
+        type_box.grid(row=0, column=1, columnspan=2, sticky="ew", pady=2)
+        widgets["type_box"] = type_box
+
+        ttk.Label(parent, text="Máy chủ").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
+        ttk.Entry(parent, textvariable=vars_by_name["server"]).grid(
+            row=1,
+            column=1,
+            columnspan=2,
+            sticky="ew",
+            pady=2,
+        )
+
+        ttk.Label(parent, text="Cổng").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=2)
+        ttk.Entry(parent, textvariable=vars_by_name["port"]).grid(row=2, column=1, columnspan=2, sticky="ew", pady=2)
+
+        ttk.Label(parent, text="CSDL").grid(row=3, column=0, sticky="w", padx=(0, 8), pady=2)
+        database_box = ttk.Combobox(parent, textvariable=vars_by_name["database"], values=[], state="normal")
+        database_box.grid(row=3, column=1, sticky="ew", padx=(0, 8), pady=2)
+        widgets["database_box"] = database_box
+        load_button = ttk.Button(parent, text="Tải CSDL", command=lambda key=role: self._load_sync_databases(key))
+        load_button.grid(row=3, column=2, sticky="ew", pady=2)
+        widgets["load_button"] = load_button
+        self.sync_control_buttons.append(load_button)
+
+        ttk.Label(parent, text="Schema").grid(row=4, column=0, sticky="w", padx=(0, 8), pady=2)
+        ttk.Entry(parent, textvariable=vars_by_name["schema"]).grid(row=4, column=1, columnspan=2, sticky="ew", pady=2)
+
+        driver_label = ttk.Label(parent, text="Driver ODBC")
+        driver_label.grid(row=5, column=0, sticky="w", padx=(0, 8), pady=2)
+        driver_box = ttk.Combobox(parent, textvariable=vars_by_name["driver"], values=drivers, state="normal")
+        driver_box.grid(row=5, column=1, columnspan=2, sticky="ew", pady=2)
+        widgets["driver_box"] = driver_box
+
+        ttk.Label(parent, text="Người dùng").grid(row=6, column=0, sticky="w", padx=(0, 8), pady=2)
+        user_entry = ttk.Entry(parent, textvariable=vars_by_name["username"])
+        user_entry.grid(row=6, column=1, columnspan=2, sticky="ew", pady=2)
+        widgets["user_entry"] = user_entry
+
+        ttk.Label(parent, text="Mật khẩu").grid(row=7, column=0, sticky="w", padx=(0, 8), pady=2)
+        password_entry = ttk.Entry(parent, textvariable=vars_by_name["password"], show="*")
+        password_entry.grid(row=7, column=1, columnspan=2, sticky="ew", pady=2)
+        widgets["password_entry"] = password_entry
+
+        trusted_check = ttk.Checkbutton(
+            parent,
+            text="Xác thực Windows",
+            variable=vars_by_name["trusted"],
+            command=lambda key=role: self._sync_sync_auth_fields(key),
+        )
+        trusted_check.grid(row=8, column=0, columnspan=2, sticky="w", pady=2)
+        widgets["trusted_check"] = trusted_check
+
+        test_button = ttk.Button(parent, text="Test kết nối", command=lambda key=role: self._test_sync_db_login(key))
+        test_button.grid(row=8, column=2, sticky="ew", pady=(6, 0))
+        widgets["test_button"] = test_button
+        self.sync_control_buttons.append(test_button)
+
+        self._sync_sync_db_type_fields(role)
+
     def _browse(self) -> None:
         folder = filedialog.askdirectory(initialdir=self.root_path.get() or str(Path.cwd()))
         if folder:
@@ -745,6 +1072,91 @@ class AutoCompareApp(tk.Tk):
         folder = filedialog.askdirectory(initialdir=self.db_csv_path.get() or str(Path.cwd()))
         if folder:
             self.db_csv_path.set(folder)
+
+    def _load_sync_databases(self, role: str) -> None:
+        if self.worker and self.worker.is_alive():
+            return
+
+        settings = self._get_sync_raw_settings(role)
+        self._clear_log()
+        self._set_actions_busy(True)
+        self.status_label.configure(text=f"Đang tải danh sách CSDL {'nguồn' if role == 'source' else 'đích'}...")
+
+        self.worker = threading.Thread(target=self._load_sync_databases_worker, args=(role, settings), daemon=True)
+        self.worker.start()
+
+    def _test_sync_db_login(self, role: str) -> None:
+        if self.worker and self.worker.is_alive():
+            return
+
+        try:
+            settings = self._get_sync_settings(role)
+        except ValueError as exc:
+            messagebox.showerror(APP_TITLE, str(exc))
+            return
+
+        self._clear_log()
+        self._set_actions_busy(True)
+        self.status_label.configure(text=f"Đang kiểm tra CSDL {'nguồn' if role == 'source' else 'đích'}...")
+
+        self.worker = threading.Thread(target=self._test_sync_db_worker, args=(role, settings), daemon=True)
+        self.worker.start()
+
+    def _run_db_sync(self) -> None:
+        if self.worker and self.worker.is_alive():
+            return
+
+        if not self.sync_db_vars["source"]["verified"].get():
+            messagebox.showerror(APP_TITLE, "Vui lòng test kết nối CSDL nguồn thành công trước.")
+            return
+        if not self.sync_db_vars["target"]["verified"].get():
+            messagebox.showerror(APP_TITLE, "Vui lòng test kết nối CSDL đích thành công trước.")
+            return
+
+        selected_tables = self._selected_sync_tables()
+        if not selected_tables:
+            messagebox.showerror(APP_TITLE, "Vui lòng chọn ít nhất một table hoặc chọn toàn bộ table.")
+            return
+
+        try:
+            source_settings = self._get_sync_settings("source")
+            target_settings = self._get_sync_settings("target")
+        except ValueError as exc:
+            messagebox.showerror(APP_TITLE, str(exc))
+            return
+
+        table_message = "toàn bộ table nguồn" if self.sync_all_tables.get() else f"{len(selected_tables)} table đã chọn"
+        truncate_message = (
+            "\n\nCẢNH BÁO: Option truncate đang bật. Dữ liệu hiện có trong các table đích đã chọn sẽ bị xóa sạch trước khi insert dữ liệu nguồn. Nếu có foreign key/ràng buộc, database có thể không cho truncate."
+            if self.sync_truncate_before_sync.get()
+            else "\n\nOption truncate đang tắt. Công cụ sẽ insert thêm vào dữ liệu hiện có ở CSDL đích."
+        )
+        record_limit = self.sync_record_limit.get().strip()
+        limit_message = (
+            f"\n\nLưu ý: Bạn đang nhập số record đồng bộ = {record_limit}; "
+            "nếu bật truncate thì table đích sẽ chỉ còn số record này sau khi đồng bộ."
+            if record_limit
+            else ""
+        )
+        confirm_message = (
+            f"Bạn chắc chắn muốn đồng bộ {table_message} từ CSDL nguồn sang CSDL đích?\n\n"
+            "Để 2 bên giống nhau, hãy bật option truncate trước khi đồng bộ nếu cần xóa dữ liệu cũ ở CSDL đích."
+            f"{truncate_message}"
+            f"{limit_message}"
+        )
+        if not messagebox.askyesno(APP_TITLE, confirm_message):
+            return
+
+        self._start_database_action(
+            "Đang đồng bộ dữ liệu giữa 2 CSDL...",
+            sync_database_tables,
+            source_settings,
+            target_settings,
+            selected_tables,
+            self.sync_record_limit.get(),
+            self.sync_keep_identity.get(),
+            self.sync_truncate_before_sync.get(),
+        )
 
     def _browse_copy_source(self) -> None:
         folder = filedialog.askdirectory(initialdir=self.copy_source_path.get() or str(Path.cwd()))
@@ -1141,10 +1553,17 @@ class AutoCompareApp(tk.Tk):
 
     def _database_action_worker(self, operation, args: tuple[object, ...]) -> None:
         try:
-            summary: DatabaseCsvSummary = operation(*args, log=self._log_from_worker)
+            summary: DatabaseCsvSummary | DatabaseSyncSummary = operation(*args, log=self._log_from_worker)
             if summary.error_count:
                 self.log_queue.put("__STATUS__:Thao tác CSDL hoàn tất với lỗi")
                 self.log_queue.put("__MESSAGE_ERROR__:Thao tác CSDL hoàn tất với lỗi. Vui lòng kiểm tra log.")
+            elif isinstance(summary, DatabaseSyncSummary):
+                self.log_queue.put("__STATUS__:Đồng bộ dữ liệu CSDL hoàn tất")
+                self.log_queue.put(
+                    "__MESSAGE_INFO__:"
+                    f"{summary.action_name} hoàn tất. "
+                    f"Đã xử lý {summary.table_count} table, {summary.row_count} dòng."
+                )
             else:
                 self.log_queue.put("__STATUS__:Thao tác CSDL hoàn tất")
                 self.log_queue.put(
@@ -1174,6 +1593,40 @@ class AutoCompareApp(tk.Tk):
         finally:
             self.log_queue.put("__ENABLE_ACTIONS__")
 
+    def _load_sync_databases_worker(self, role: str, settings: DatabaseConnectionSettings) -> None:
+        role_label = "nguồn" if role == "source" else "đích"
+        try:
+            database_names = list_database_names(settings)
+            self._log_from_worker(f"CSDL {role_label}: đã tải {len(database_names)} database.")
+            self.log_queue.put(("__SYNC_DATABASES__", role, database_names))
+            self.log_queue.put(f"__STATUS__:Đã tải danh sách CSDL {role_label}")
+            self.log_queue.put(f"__MESSAGE_INFO__:Đã tải danh sách CSDL {role_label}.")
+        except Exception as exc:
+            self._log_from_worker(f"Tải danh sách CSDL {role_label} thất bại: {exc}")
+            self.log_queue.put(f"__STATUS__:Tải danh sách CSDL {role_label} thất bại")
+            self.log_queue.put(f"__MESSAGE_ERROR__:Tải danh sách CSDL {role_label} thất bại: {exc}")
+        finally:
+            self.log_queue.put("__ENABLE_ACTIONS__")
+
+    def _test_sync_db_worker(self, role: str, settings: DatabaseConnectionSettings) -> None:
+        role_label = "nguồn" if role == "source" else "đích"
+        try:
+            test_database_connection(settings)
+            tables = list_database_tables(settings)
+            self._log_from_worker(f"Kết nối CSDL {role_label} thành công. Tải được {len(tables)} table.")
+            self.log_queue.put(("__SYNC_VERIFIED__", role, True))
+            if role == "source":
+                self.log_queue.put(("__SYNC_SOURCE_TABLES__", tables))
+            self.log_queue.put(f"__STATUS__:Kết nối CSDL {role_label} thành công")
+            self.log_queue.put(f"__MESSAGE_INFO__:Kết nối CSDL {role_label} thành công.")
+        except Exception as exc:
+            self._log_from_worker(f"Kết nối CSDL {role_label} thất bại: {exc}")
+            self.log_queue.put(("__SYNC_VERIFIED__", role, False))
+            self.log_queue.put(f"__STATUS__:Kết nối CSDL {role_label} thất bại")
+            self.log_queue.put(f"__MESSAGE_ERROR__:Kết nối CSDL {role_label} thất bại: {exc}")
+        finally:
+            self.log_queue.put("__ENABLE_ACTIONS__")
+
     def _log_from_worker(self, message: str) -> None:
         self.log_queue.put(message)
 
@@ -1183,6 +1636,12 @@ class AutoCompareApp(tk.Tk):
                 message = self.log_queue.get_nowait()
                 if isinstance(message, tuple) and message and message[0] == "__FIXME_ENTRIES__":
                     self._set_fixme_entries(message[1])
+                elif isinstance(message, tuple) and message and message[0] == "__SYNC_DATABASES__":
+                    self._set_sync_database_names(str(message[1]), list(message[2]))
+                elif isinstance(message, tuple) and message and message[0] == "__SYNC_VERIFIED__":
+                    self._set_sync_verified(str(message[1]), bool(message[2]))
+                elif isinstance(message, tuple) and message and message[0] == "__SYNC_SOURCE_TABLES__":
+                    self._set_sync_source_tables(list(message[1]))
                 elif message == "__ENABLE_ACTIONS__":
                     self._set_actions_busy(False)
                 elif isinstance(message, str) and message.startswith("__DB_VERIFIED__:"):
@@ -1227,6 +1686,127 @@ class AutoCompareApp(tk.Tk):
             )
         )
 
+    def _get_sync_raw_settings(self, role: str) -> DatabaseConnectionSettings:
+        vars_by_name = self.sync_db_vars[role]
+        return DatabaseConnectionSettings(
+            database_type=vars_by_name["type"].get(),
+            host=vars_by_name["server"].get(),
+            port=vars_by_name["port"].get(),
+            database=vars_by_name["database"].get(),
+            schema=vars_by_name["schema"].get(),
+            trusted_connection=vars_by_name["trusted"].get(),
+            username=vars_by_name["username"].get(),
+            password=vars_by_name["password"].get(),
+            driver=vars_by_name["driver"].get(),
+        )
+
+    def _get_sync_settings(self, role: str) -> DatabaseConnectionSettings:
+        return validate_connection_settings(self._get_sync_raw_settings(role))
+
+    def _set_sync_database_names(self, role: str, database_names: list[str]) -> None:
+        database_box = self.sync_db_widgets[role].get("database_box")
+        if database_box is not None:
+            database_box.configure(values=database_names)
+        current_database = self.sync_db_vars[role]["database"].get().strip()
+        if not current_database and len(database_names) == 1:
+            self.sync_db_vars[role]["database"].set(database_names[0])
+
+    def _set_sync_verified(self, role: str, verified: bool) -> None:
+        self.sync_db_vars[role]["verified"].set(verified)
+        if not verified and role == "source":
+            self._set_sync_source_tables([])
+        self._refresh_sync_button_state()
+
+    def _set_sync_source_tables(self, tables: list[str]) -> None:
+        self.sync_source_tables = sorted(dict.fromkeys(tables), key=str.casefold)
+        self.sync_selected_tables = [table for table in self.sync_selected_tables if table in self.sync_source_tables]
+        if not self.sync_source_tables:
+            self.sync_all_tables.set(False)
+        self._refresh_sync_selected_table_list()
+        self._refresh_sync_table_combo_values()
+        self._refresh_sync_button_state()
+
+    def _refresh_sync_table_combo_values(self) -> None:
+        if not hasattr(self, "sync_table_combo"):
+            return
+        filter_text = self.sync_table_filter.get().strip().casefold()
+        selected = set(self.sync_selected_tables)
+        values = [table for table in self.sync_source_tables if table not in selected]
+        if filter_text:
+            values = [table for table in values if filter_text in table.casefold()]
+        self.sync_filtered_tables = values
+        self.sync_table_combo.configure(values=values)
+
+    def _add_sync_table_from_combo(self) -> None:
+        if self.sync_all_tables.get():
+            return
+        raw_value = self.sync_table_filter.get().strip()
+        table_name = self._resolve_sync_table_name(raw_value)
+        if table_name is None:
+            messagebox.showerror(APP_TITLE, "Vui lòng chọn table có trong danh sách table nguồn.")
+            return
+        if table_name not in self.sync_selected_tables:
+            self.sync_selected_tables.append(table_name)
+        self.sync_table_filter.set("")
+        self._refresh_sync_selected_table_list()
+        self._refresh_sync_table_combo_values()
+        self._refresh_sync_button_state()
+
+    def _add_filtered_sync_tables(self) -> None:
+        if self.sync_all_tables.get() or not self.sync_filtered_tables:
+            return
+        for table_name in self.sync_filtered_tables:
+            if table_name not in self.sync_selected_tables:
+                self.sync_selected_tables.append(table_name)
+        self.sync_table_filter.set("")
+        self._refresh_sync_selected_table_list()
+        self._refresh_sync_table_combo_values()
+        self._refresh_sync_button_state()
+
+    def _resolve_sync_table_name(self, raw_value: str) -> str | None:
+        if not raw_value:
+            return self.sync_filtered_tables[0] if self.sync_filtered_tables else None
+
+        for table_name in self.sync_source_tables:
+            if table_name == raw_value:
+                return table_name
+        matches = [table_name for table_name in self.sync_source_tables if raw_value.casefold() in table_name.casefold()]
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    def _remove_selected_sync_tables(self) -> None:
+        selected_indexes = list(self.sync_selected_table_listbox.curselection())
+        if not selected_indexes:
+            return
+        for index in reversed(selected_indexes):
+            del self.sync_selected_tables[index]
+        self._refresh_sync_selected_table_list()
+        self._refresh_sync_table_combo_values()
+        self._refresh_sync_button_state()
+
+    def _clear_sync_tables(self) -> None:
+        self.sync_selected_tables = []
+        self._refresh_sync_selected_table_list()
+        self._refresh_sync_table_combo_values()
+        self._refresh_sync_button_state()
+
+    def _refresh_sync_selected_table_list(self) -> None:
+        if not hasattr(self, "sync_selected_table_listbox"):
+            return
+        self.sync_selected_table_listbox.delete(0, "end")
+        for table_name in self.sync_selected_tables:
+            self.sync_selected_table_listbox.insert("end", table_name)
+
+    def _on_sync_all_tables_changed(self) -> None:
+        self._refresh_sync_table_combo_values()
+        self._refresh_sync_button_state()
+
+    def _selected_sync_tables(self) -> list[str]:
+        if self.sync_all_tables.get():
+            return list(self.sync_source_tables)
+        return list(self.sync_selected_tables)
+
     def _set_actions_busy(self, busy: bool) -> None:
         state = "disabled" if busy else "normal"
         self.compare_button.configure(state=state)
@@ -1235,11 +1815,14 @@ class AutoCompareApp(tk.Tk):
         self.test_db_button.configure(state=state)
         for button in self.utility_buttons:
             button.configure(state=state)
+        for button in self.sync_control_buttons:
+            button.configure(state=state)
         if busy:
             for button in self.db_action_buttons:
                 button.configure(state="disabled")
         else:
             self._refresh_db_button_state()
+            self._refresh_sync_button_state()
 
     def _refresh_db_button_state(self) -> None:
         if not self.db_action_buttons:
@@ -1247,6 +1830,37 @@ class AutoCompareApp(tk.Tk):
         state = "normal" if self.db_verified else "disabled"
         for button in self.db_action_buttons:
             button.configure(state=state)
+
+    def _refresh_sync_button_state(self) -> None:
+        if not hasattr(self, "sync_run_button"):
+            return
+
+        for role in ("source", "target"):
+            for key in ("load_button", "test_button"):
+                widget = self.sync_db_widgets[role].get(key)
+                if widget is not None:
+                    widget.configure(state="normal")
+
+        has_source_tables = bool(self.sync_source_tables)
+        use_all_tables = self.sync_all_tables.get()
+        table_pick_state = "normal" if has_source_tables and not use_all_tables else "disabled"
+        self.sync_table_combo.configure(state=table_pick_state)
+        self.sync_add_table_button.configure(state=table_pick_state)
+        filtered_state = "normal" if self.sync_filtered_tables and not use_all_tables else "disabled"
+        self.sync_add_filtered_button.configure(state=filtered_state)
+        list_state = "normal" if not use_all_tables else "disabled"
+        self.sync_selected_table_listbox.configure(state=list_state)
+
+        selected_state = "normal" if self.sync_selected_tables and not use_all_tables else "disabled"
+        self.sync_remove_table_button.configure(state=selected_state)
+        self.sync_clear_tables_button.configure(state=selected_state)
+
+        can_sync = (
+            self.sync_db_vars["source"]["verified"].get()
+            and self.sync_db_vars["target"]["verified"].get()
+            and bool(self._selected_sync_tables())
+        )
+        self.sync_run_button.configure(state="normal" if can_sync else "disabled")
 
     def _mark_db_unverified(self, *_args) -> None:
         self.db_verified = False
@@ -1264,6 +1878,22 @@ class AutoCompareApp(tk.Tk):
             self.db_schema,
         ):
             variable.trace_add("write", self._mark_db_unverified)
+        for role, vars_by_name in self.sync_db_vars.items():
+            vars_by_name["type"].trace_add("write", lambda *_args, key=role: self._on_sync_db_type_changed(key))
+            for variable_name in (
+                "driver",
+                "server",
+                "port",
+                "database",
+                "username",
+                "password",
+                "schema",
+            ):
+                vars_by_name[variable_name].trace_add(
+                    "write",
+                    lambda *_args, key=role: self._mark_sync_db_unverified(key),
+                )
+        self.sync_table_filter.trace_add("write", lambda *_args: self._refresh_sync_table_combo_values())
 
     def _on_db_type_changed(self, *_args) -> None:
         try:
@@ -1280,6 +1910,32 @@ class AutoCompareApp(tk.Tk):
         self._sync_db_type_fields()
         self._mark_db_unverified()
 
+    def _mark_sync_db_unverified(self, role: str) -> None:
+        vars_by_name = self.sync_db_vars[role]
+        if not vars_by_name["verified"].get() and (role != "source" or not self.sync_source_tables):
+            self._refresh_sync_button_state()
+            return
+        vars_by_name["verified"].set(False)
+        if role == "source":
+            self._set_sync_source_tables([])
+        self._refresh_sync_button_state()
+
+    def _on_sync_db_type_changed(self, role: str) -> None:
+        vars_by_name = self.sync_db_vars[role]
+        try:
+            port = default_port(vars_by_name["type"].get())
+            schema = default_schema(vars_by_name["type"].get())
+        except ValueError:
+            port = ""
+            schema = ""
+
+        if port:
+            vars_by_name["port"].set(port)
+        if schema or vars_by_name["schema"].get().strip() in {"", "dbo", "public"}:
+            vars_by_name["schema"].set(schema)
+        self._sync_sync_db_type_fields(role)
+        self._mark_sync_db_unverified(role)
+
     def _sync_db_type_fields(self) -> None:
         is_sql_server = self.db_type.get() == "SQL Server"
         driver_state = "normal" if is_sql_server else "disabled"
@@ -1295,6 +1951,34 @@ class AutoCompareApp(tk.Tk):
         self.user_entry.configure(state=auth_state)
         self.password_entry.configure(state=auth_state)
         self._mark_db_unverified()
+
+    def _sync_sync_db_type_fields(self, role: str) -> None:
+        vars_by_name = self.sync_db_vars[role]
+        widgets = self.sync_db_widgets[role]
+        is_sql_server = vars_by_name["type"].get() == "SQL Server"
+        driver_state = "normal" if is_sql_server else "disabled"
+        trusted_state = "normal" if is_sql_server else "disabled"
+        driver_box = widgets.get("driver_box")
+        trusted_check = widgets.get("trusted_check")
+        if driver_box is not None:
+            driver_box.configure(state=driver_state)
+        if trusted_check is not None:
+            trusted_check.configure(state=trusted_state)
+        if not is_sql_server:
+            vars_by_name["trusted"].set(False)
+        self._sync_sync_auth_fields(role)
+
+    def _sync_sync_auth_fields(self, role: str) -> None:
+        vars_by_name = self.sync_db_vars[role]
+        widgets = self.sync_db_widgets[role]
+        auth_state = "disabled" if vars_by_name["type"].get() == "SQL Server" and vars_by_name["trusted"].get() else "normal"
+        user_entry = widgets.get("user_entry")
+        password_entry = widgets.get("password_entry")
+        if user_entry is not None:
+            user_entry.configure(state=auth_state)
+        if password_entry is not None:
+            password_entry.configure(state=auth_state)
+        self._mark_sync_db_unverified(role)
 
     def _refresh_folder_compare_default_output(self) -> None:
         if self.folder_compare_output_path.get().strip():
@@ -1383,18 +2067,29 @@ class AutoCompareApp(tk.Tk):
         self.fixme_note_combos = []
 
         columns = [
-            ("Tên folder/case", 16),
-            ("File Excel", 28),
-            ("Tên sheet", 18),
-            ("Tên cột", 22),
-            ("Giá trị bên trái", 32),
-            ("Giá trị bên phải", 32),
-            ("STT record", 8),
-            ("Ghi chú", 24),
+            ("Tên folder/case", 18, 130),
+            ("File Excel", 28, 200),
+            ("Tên sheet", 18, 140),
+            ("Tên cột", 22, 160),
+            ("Giá trị bên trái", 32, 240),
+            ("Giá trị bên phải", 32, 240),
+            ("STT record", 12, 100),
+            ("Ghi chú", 28, 240),
         ]
-        for column_index, (title, width) in enumerate(columns):
-            label = ttk.Label(self.fixme_table_frame, text=title, width=width, anchor="w")
-            label.grid(row=0, column=column_index, sticky="ew", padx=2, pady=(0, 4))
+        for column_index, (title, width, min_width) in enumerate(columns):
+            self.fixme_table_frame.columnconfigure(
+                column_index,
+                minsize=min_width,
+                weight=1 if column_index in {4, 5, 7} else 0,
+            )
+            label = ttk.Label(
+                self.fixme_table_frame,
+                text=title,
+                width=width,
+                anchor="w",
+                style="FixmeHeader.TLabel",
+            )
+            label.grid(row=0, column=column_index, sticky="ew", padx=1, pady=(0, 4))
 
         if not self.fixme_entries:
             ttk.Label(self.fixme_table_frame, text="Không tìm thấy FIXME.").grid(
