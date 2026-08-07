@@ -2,12 +2,12 @@
 
 ## High-Level Shape
 
-The application is a Tkinter GUI over small workflow modules.
+The primary application is a local HTTP web interface over small workflow modules. The legacy Tkinter interface remains available through `--desktop` during migration.
 
 ```text
 run.bat
   -> python -m autocompare_tool
-    -> gui.py
+    -> web_app.py -> web/index.html + web/app.css + web/app.js
       -> app_config.py      -> autocompare_config.ini
       -> processor.py       -> excel_writer.py -> compare.py -> csv_table.py
       -> folder_compare.py  -> excel_writer.py -> compare.py -> csv_table.py
@@ -19,13 +19,42 @@ run.bat
       -> copy_ut.py         -> copy_ut_files.py
 ```
 
+Long-running web actions use a single in-process background job. The browser polls job state and incremental logs, matching the desktop application's one-worker-at-a-time behavior.
+
+### `autocompare_tool/web_app.py`
+
+Owns:
+
+- Local `ThreadingHTTPServer` startup, static asset delivery, and JSON endpoints.
+- Background job lifecycle, incremental logs, and JSON result summaries.
+- Web request validation, destructive-action confirmation enforcement, and mapping request payloads into existing workflow calls.
+- Server-side local path browsing for directory/file selection.
+- In-memory FIXME review state for the latest compare run.
+
+Rules:
+
+- Bind to `127.0.0.1` by default because the app can access local files and databases.
+- Accept mutation API bodies only as `application/json`.
+- Keep business rules in the existing non-UI workflow modules.
+- Require an explicit `confirmed: true` payload for delete, DB import/export, and DB synchronization actions.
+
+### `autocompare_tool/web/`
+
+Owns:
+
+- Responsive HTML layout and page navigation.
+- Client-side form state, confirmation dialogs, FIXME/note rendering, database connection forms, and table selection.
+- Polling background job state and rendering logs/toasts.
+
+The web client has no build step or external CDN dependency.
+
 ## Module Responsibilities
 
 ### `autocompare_tool/gui.py`
 
 Owns:
 
-- Tkinter layout.
+- Legacy Tkinter layout used only with `--desktop`.
 - Left-side Main Menu page navigation.
 - User input validation.
 - Worker thread startup.
@@ -35,6 +64,8 @@ Owns:
 - Ad-hoc two-folder CSV compare page.
 - File utilities page and destructive-action confirmations.
 - Database page for connection inputs and CSV import/export action orchestration.
+
+Avoid adding new behavior here unless the desktop fallback must remain in parity. New UI work should target `web_app.py` and `autocompare_tool/web/`.
 
 Avoid:
 
@@ -139,7 +170,7 @@ Owns:
 - Connection validation and DB test query dispatch.
 - Metadata lookup for table columns, identity columns, generated/computed columns, primary keys, and numeric scale.
 - CSV normalize/import/export workflows for the GUI database page.
-- Import rules for skipping computed/generated/rowversion columns and optionally preserving identity values.
+- Import rules for skipping computed/generated/rowversion columns, optionally preserving identity values, deleting rows by composite primary key, or truncating destination tables.
 - Typed DBeaver-style CSV export.
 
 Important functions:
@@ -233,9 +264,26 @@ Selected folder + connected database
   -> skip if table missing
   -> validate CSV headers exist in table
   -> normalize: reorder to DB column order, format datetime/decimal values, rewrite CSV in place
-  -> import: skip computed/generated/rowversion columns, apply identity option, insert rows
+  -> import: choose append/delete-matching-primary-keys/truncate-table mode
+  -> validate PK columns and CSV key uniqueness when delete-matching mode is selected
+  -> skip computed/generated/rowversion columns, apply identity option, clean existing data, insert rows
   -> export: select table rows, format values by metadata, write typed DBeaver CSV
 ```
+
+### Database Delta Sync Flow
+
+```text
+Source table + target table
+  -> validate matching DDL and primary-key columns
+  -> open independent target read and write connections
+  -> SELECT mapped columns from both sides ORDER BY the same logical primary key
+  -> fetch rows in bounded batches and merge-compare canonical values
+  -> buffer target-only deletes, changed-row updates, and source-only inserts
+  -> execute parameterized DML batches inside one target transaction per table
+  -> report source/target scans plus insert/update/delete/unchanged counts
+```
+
+Incremental sync never uses `fetchall()`. It validates that canonical primary-key order stays strictly increasing; incompatible PK datatypes/collations fail and roll back the table instead of risking an incorrect merge.
 
 ### Folder Compare Flow
 

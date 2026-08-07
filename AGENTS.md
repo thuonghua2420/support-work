@@ -13,7 +13,7 @@ Main capabilities:
 - Normalize CSV files using database table metadata.
 - Import CSV files into connected databases and export database tables back to CSV.
 
-The GUI is Tkinter. Business logic lives in `autocompare_tool`.
+The primary GUI is a local HTML/CSS/JavaScript app served by Python on a configurable port. The previous Tkinter GUI remains available as a legacy fallback. Business logic lives in `autocompare_tool`.
 
 ## First Steps
 
@@ -40,7 +40,8 @@ If `.venv` is broken or Python is unavailable, report that clearly instead of gu
 
 - DB import is a real database write and must stay behind explicit GUI confirmation.
 - Preserve DBeaver-style CSV semantics: blank unquoted data cell is `NULL`, quoted empty string is `""`.
-- Keep Tkinter code as orchestration only; put rules and transformations in non-GUI modules.
+- Keep web/Tkinter code as orchestration only; put rules and transformations in non-GUI modules.
+- Keep the web server bound to loopback by default because it can access local files and databases.
 - Keep GUI features page-based under the left-side Main Menu.
 - Use `autocompare_config.ini` for folder names, workbook names, Excel headers, and default compare checkbox states.
 - Be careful with Japanese folder/file names and existing mojibake in docs/constants.
@@ -49,7 +50,9 @@ If `.venv` is broken or Python is unavailable, report that clearly instead of gu
 
 ## Important Paths
 
-- `autocompare_tool/gui.py`: Tkinter UI and worker threads.
+- `autocompare_tool/web_app.py`: local HTTP server, JSON API, and background jobs.
+- `autocompare_tool/web/`: HTML/CSS/JavaScript UI assets.
+- `autocompare_tool/gui.py`: legacy Tkinter UI and worker threads (`--desktop`).
 - `autocompare_config.ini`: user-editable workflow/folder/workbook/header config.
 - `autocompare_tool/app_config.py`: typed config loader.
 - `autocompare_tool/processor.py`: compare workflow orchestration.

@@ -25,7 +25,7 @@ class DbeaverCsvTests(unittest.TestCase):
             write_dbeaver_csv(path, ["id", "empty_value", "null_value", "text"], [["1", "", None, 'a"b']])
 
             self.assertEqual(
-                path.read_text(encoding="utf-8"),
+                path.read_bytes().decode("utf-8"),
                 'id,empty_value,null_value,text\r\n"1","",,"a""b"\r\n',
             )
 
@@ -41,7 +41,7 @@ class DbeaverCsvTests(unittest.TestCase):
             )
 
             self.assertEqual(
-                path.read_text(encoding="utf-8"),
+                path.read_bytes().decode("utf-8"),
                 'id,amount,empty_value,null_value,text\r\n1,3456.0000,"",,"a""b"\r\n',
             )
 

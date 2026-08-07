@@ -1,143 +1,77 @@
-# Công Cụ Python AutoCompare
+# AutoCompare Tool
 
-Tool này sao chép CSV từ `Input` vào các folder `before...`, sau đó so sánh các cặp `before/after` và tạo Excel trong `Output\Compare`.
+AutoCompare là công cụ web chạy local dành cho kiểm thử CSV/UT trên Windows. Ứng dụng tái sử dụng các workflow Python hiện có để sao chép dữ liệu, tạo workbook so sánh, review FIXME, xử lý file và trao đổi dữ liệu với cơ sở dữ liệu.
 
-## Cách Chạy
+## Khởi động
 
-1. Cài Python 3.10 trở lên và bật tùy chọn `Add Python to PATH`.
-2. Double-click `run.bat`.
-3. Dùng thanh `Menu chính` bên trái để chọn chức năng cần chạy.
+Yêu cầu Python 3.10 trở lên.
 
-Menu hiện có:
-
-- `So sánh`: chọn folder cha chứa các folder `UT*`, chọn checkbox so sánh, bấm `Chạy so sánh`, và review/apply ghi chú FIXME.
-- `So sánh 2 folder CSV`: chọn 2 folder CSV bất kỳ và tạo 1 file Excel so sánh.
-- `Tiện ích file`: đổi tên, xóa, di chuyển file/folder và kiểm tra folder trống.
-- `Sao chép file UT`: sao chép CSV từ nguồn sang đích theo luồng xử lý UT.
-- `Cơ sở dữ liệu`: kiểm tra kết nối CSDL, chuẩn hóa CSV, nhập CSV vào CSDL và xuất CSDL ra CSV.
-
-`run.bat` sẽ tự tạo `.venv`, cài các thư viện trong `requirements.txt`, và mở GUI.
-
-## File Config
-
-Những giá trị dùng để thay đổi cấu trúc folder/output nằm trong `autocompare_config.ini`.
-
-File này có comment cho từng config:
-
-- `[folders]`: tên folder `Input`, `Output`, `Compare`, các folder before/after của HTM và HTC.
-- `[workbooks]`: tên các file Excel xuất ra.
-- `[excel_headers]`: các header/text trong file compare Excel, bao gồm `FIXME`.
-- `[compare_workflows]`: checkbox nào được chọn mặc định khi mở GUI.
-
-## Sao Chép File UT
-
-Menu `Sao chép file UT` gồm 2 path:
-
-- `Đường dẫn nguồn 1`: folder nguồn chứa các folder `UT*`.
-- `Đường dẫn đích 2`: folder đích để tạo hoặc sao chép cấu trúc các folder `UT*`.
-
-Bấm `Chạy sao chép file UT` để chạy logic trong `copy_ut_files.py`.
-
-Logic sao chép hiện có:
-
-- Sao chép từ `UT*/input` của nguồn sang `UT*/入力` của đích.
-- Sao chép từ `UT*/output` của nguồn sang `UT*/出力/現在のシステム以降` của đích.
-- Nếu đích đã có file CSV, tool so sánh value/raw format và ghi chi tiết vào log trước khi ghi đè.
-- Log được tạo trong folder `copy_logs` cạnh `copy_ut_files.py`.
-
-## So Sánh 2 Folder CSV
-
-Menu `So sánh 2 folder CSV` gồm 3 path:
-
-- `Folder bên trái`: folder CSV nguồn bên trái.
-- `Folder bên phải`: folder CSV nguồn bên phải.
-- `File Excel xuất ra`: file Excel so sánh sẽ được tạo.
-
-Bấm `Chạy so sánh folder CSV` để tạo workbook so sánh. Luồng này dùng cùng logic compare hiện tại và quét đệ quy toàn bộ file CSV ở cả 2 folder; file chỉ tồn tại ở một bên vẫn được đưa vào workbook xuất ra.
-
-## Tiện Ích File
-
-Menu `Tiện ích file` dùng chung `Folder thao tác` cho các thao tác theo folder và có các tab:
-
-- `Đổi tên`: đổi tên file/folder theo tên chính xác, hoặc thay thế text trong tên file/folder.
-- `Xóa`: xóa file/folder khi tên có chứa text đã nhập.
-- `Sheet Excel`: đổi tên sheet trong một file Excel khi tên sheet có chứa text đã nhập.
-- `Di chuyển`: di chuyển file có tên chứa text vào folder đích cùng cấp với file, theo logic của `movefile.py`.
-- `Folder trống`: kiểm tra folder trống hoặc xóa toàn bộ folder trống bên dưới `Folder thao tác`.
-
-Các thao tác xóa sẽ hỏi xác nhận trước khi chạy.
-
-## Cơ Sở Dữ Liệu
-
-Menu `Cơ sở dữ liệu` có 2 vùng:
-
-- `Thông tin kết nối CSDL`: chọn loại CSDL và nhập thông tin kết nối.
-- `Nhập/Xuất CSV`: chọn `Folder CSV`, chạy chuẩn hóa, nhập CSV vào CSDL hoặc xuất CSDL ra CSV.
-
-Các loại CSDL đang có adapter sẵn:
-
-- SQL Server qua `pyodbc`.
-- MySQL qua `mysql-connector-python`.
-- PostgreSQL qua `psycopg`.
-- Oracle qua `oracledb`.
-
-Với SQL Server, máy chạy tool vẫn cần Microsoft ODBC Driver for SQL Server.
-
-Quy trình cơ bản:
-
-1. Chọn `Loại CSDL` và nhập thông tin kết nối.
-2. Bấm `Kiểm tra kết nối CSDL`.
-3. Sau khi kết nối thành công, chọn `Chuẩn hóa CSV`, `Nhập CSV vào CSDL` hoặc `Xuất CSDL ra CSV`.
-
-Tool duyệt tất cả CSV trong `Folder CSV`, bao gồm cả CSV trong folder con bên dưới. Mỗi CSV được map với table thật trong CSDL theo tên file không gồm `.csv`.
-
-```text
-customers.csv -> <schema>.customers
-orders.csv    -> <schema>.orders
+```bat
+run.bat
 ```
 
-Nếu không tìm thấy table tương ứng trong CSDL, CSV đó sẽ được bỏ qua và tool tiếp tục xử lý các file còn lại.
+Lệnh trên tự tạo `.venv`, cài dependencies, khởi động server tại `http://127.0.0.1:8765` và mở trình duyệt.
 
-### Chuẩn Hóa CSV
+Để dùng port khác:
 
-Tool đọc metadata column order và datatype từ CSDL, sau đó reorder/normalize CSV tại chỗ theo thứ tự column trong table.
-
-### Nhập CSV Vào CSDL
-
-- CSV header phải tồn tại trong table tương ứng. Nếu CSV có cột không có trong CSDL, file đó sẽ báo lỗi.
-- Column computed/generated/rowversion sẽ được bỏ qua khi nhập vì giá trị do CSDL tự sinh.
-- Checkbox `Giữ nguyên giá trị identity khi nhập` quyết định có insert giá trị identity từ CSV hay để CSDL tự sinh.
-- SQL Server sẽ bật/tắt `IDENTITY_INSERT` theo từng table khi cần giữ identity.
-- PostgreSQL sẽ dùng `OVERRIDING SYSTEM VALUE` khi cần giữ identity.
-- Oracle `GENERATED ALWAYS AS IDENTITY` không cho insert trực tiếp, nên column đó sẽ bị bỏ qua và ghi log.
-- Tool không tự `TRUNCATE` table trước khi nhập.
-
-### Xuất CSDL Ra CSV
-
-Nếu `Bảng xuất` bỏ trống, tool xuất tất cả table trong schema hiện tại. Có thể nhập danh sách table, phân tách bằng dấu phẩy, chấm phẩy hoặc xuống dòng.
-
-Format CSV:
-
-- Delimiter: `,`
-- Header: top, label, as-is
-- Quote character: `"`
-- Escape quote: double quote
-- Giá trị `NULL`: ô trống không quote, ví dụ `,,`
-- Empty string: `""`, ví dụ `,"",`
-- Cột kiểu chuỗi: luôn được bọc bởi `"`
-- Cột kiểu số: không quote; column có scale thập phân sẽ giữ số lẻ theo metadata CSDL
-- Cột datetime/time: output có millisecond `.fff`
-
-Ví dụ:
-
-```csv
-id,amount,empty_value,null_value,text
-1,3456.0000,"",,"Alice"
+```bat
+run.bat 9000
 ```
 
-Trong dòng data trên, `empty_value` là empty string, `null_value` là NULL.
+Hoặc chạy trực tiếp:
 
-## Cấu Trúc Folder Dự Kiến
+```bat
+.venv\Scripts\python.exe -m autocompare_tool --port 9000
+```
+
+Các tùy chọn hữu ích:
+
+```bat
+.venv\Scripts\python.exe -m autocompare_tool --host 127.0.0.1 --port 8765 --no-browser
+```
+
+Server mặc định chỉ bind vào `127.0.0.1`; không nên dùng `0.0.0.0` trên máy hoặc mạng không tin cậy vì ứng dụng có quyền thao tác file local và kết nối database.
+
+Giao diện Tkinter cũ vẫn có thể mở tạm thời bằng:
+
+```bat
+.venv\Scripts\python.exe -m autocompare_tool --desktop
+```
+
+## Chức năng
+
+- **So sánh UT**: chọn folder chứa các case `UT*`, chạy các workflow trong `autocompare_config.ini`, tạo Excel tại `Output\Compare` và review/apply ghi chú FIXME.
+- **So sánh 2 folder CSV**: quét đệ quy hai folder bất kỳ và tạo một workbook tổng hợp, bao gồm file chỉ tồn tại ở một phía.
+- **Tiện ích file**: đổi tên, xóa, di chuyển file/folder, đổi tên sheet Excel và tìm/xóa folder trống.
+- **Sao chép file UT**: chạy logic tương thích từ `copy_ut_files.py` và tạo log chi tiết trong `copy_logs`.
+- **CSV ↔ Database**: test kết nối, chuẩn hóa CSV, import CSV và export table cho SQL Server, MySQL, PostgreSQL và Oracle.
+- **Đồng bộ 2 CSDL**: đồng bộ chênh lệch theo primary key, insert thêm hoặc truncate rồi đồng bộ lại.
+
+Các thao tác xóa, import, export và đồng bộ luôn yêu cầu xác nhận rõ ràng trên giao diện web. DB import không tự truncate table.
+
+## Chọn đường dẫn
+
+Trình duyệt web không cho phép website đọc đường dẫn tuyệt đối từ file picker thông thường. Vì AutoCompare xử lý trực tiếp dữ liệu local, các nút **Chọn folder/file** mở trình duyệt filesystem do server local cung cấp. Người dùng cũng có thể nhập hoặc dán đường dẫn Windows trực tiếp.
+
+## Cấu hình
+
+`autocompare_config.ini` chứa:
+
+- `[folders]`: tên `Input`, `Output`, `Compare` và các folder before/after.
+- `[workbooks]`: tên các workbook được tạo.
+- `[excel_headers]`: header/text trong file compare Excel, gồm `FIXME`.
+- `[compare_workflows]`: trạng thái mặc định của các luồng so sánh.
+
+Giá trị ghi chú FIXME do người dùng tạo được lưu tại `fixme_notes.json`.
+
+## Quy tắc CSV quan trọng
+
+- Compare CSV hỗ trợ `utf-8-sig`, `utf-8` và `cp932`.
+- DBeaver CSV phân biệt ô trống không quote (`NULL`) với chuỗi rỗng có quote (`""`).
+- Export DB ghi string có quote, numeric không quote và `NULL` là ô trống không quote.
+- Normalize/import quét đệ quy mọi file `*.csv` bên dưới folder đã chọn và map table theo tên file.
+
+## Cấu trúc UT và kết quả compare
 
 ```text
 Root
@@ -153,55 +87,78 @@ Root
       Compare
 ```
 
-## Kết Quả
+Mỗi case có thể tạo tối đa ba workbook theo các checkbox đang bật:
 
-Mỗi `UT*` có thể tạo tối đa 3 file, tùy theo checkbox đã chọn:
+- `Compare新_Before_After.xlsx`
+- `Compare現行_Before_After.xlsx`
+- `Compare現行_vs_新_After_After.xlsx`
 
-- `Output\Compare\Compare新_Before_After.xlsx`
-- `Output\Compare\Compare現行_Before_After.xlsx`
-- `Output\Compare\Compare現行_vs_新_After_After.xlsx`
+Mỗi lần chạy, CSV cũ trong hai folder before được làm mới từ `Input`. File before không có file after tương ứng bị loại bỏ. Workbook của workflow đang tắt cũng được xóa để tránh đọc nhầm kết quả cũ.
 
-Với compare before/after, danh sách sheet lấy theo các file CSV trong folder bên phải/after. Với compare after/after của 2 hệ thống, danh sách sheet lấy theo tập hợp file CSV của cả 2 folder after. Tên sheet là tên file không gồm `.csv`. Record được map bằng cột đầu tiên của mỗi CSV.
+Record được ghép bằng cột đầu tiên của CSV cộng với thứ tự xuất hiện khi key bị trùng. Record chỉ có ở một phía được giữ lại với giá trị phía còn lại để trống. Các cột metadata `ValidationErrors`, `HasErrors`, `TargetProperties` và `DataState` được bỏ qua khi compare.
 
-Nếu một checkbox không được chọn, workbook xuất ra tương ứng trong `Output\Compare` sẽ bị xóa nếu đang tồn tại từ lần chạy trước.
+## FIXME review
 
-## Kiểm Tra FIXME
+Sau compare, giao diện hiển thị case UT, workbook, sheet, column, hai giá trị, số record và combobox ghi chú. Người dùng có thể thêm/sửa/xóa giá trị ghi chú; danh sách được lưu trong `fixme_notes.json`.
 
-Sau khi `Chạy so sánh`, GUI sẽ hiển thị toàn bộ dòng sai khác đang có `FIXME` theo dạng table:
+Nút **Áp dụng ghi chú** thay cell `FIXME` tương ứng trong workbook. Nếu nhiều mismatch cùng trỏ đến một cell FIXME, các ghi chú duy nhất được nối theo thứ tự bằng xuống dòng.
 
-```text
-Tên folder UT -> Tên file Excel -> Tên sheet -> Tên cột -> Giá trị bên trái -> Giá trị bên phải -> STT record -> Combobox ghi chú
+## Database CSV
+
+Quy trình cơ bản:
+
+1. Chọn loại CSDL và nhập thông tin kết nối.
+2. Bấm **Test Database Connection**.
+3. Chọn **Chuẩn hóa CSV**, **Import CSV** hoặc **Export CSV**.
+
+Mỗi CSV được map với table theo tên file không gồm `.csv`. CSV không có table tương ứng được bỏ qua. CSV header không tồn tại trong table là lỗi. Import bỏ qua computed/generated/rowversion; identity chỉ được giữ khi người dùng bật tùy chọn và adapter hỗ trợ.
+
+Trước khi bấm **Import**, chọn một trong ba chế độ xử lý dữ liệu hiện có:
+
+- **Insert thêm**: giữ nguyên dữ liệu hiện có và chỉ insert các dòng CSV.
+- **Xóa record trùng key**: xóa record có cùng toàn bộ primary key (hỗ trợ key ghép) rồi insert. CSV phải có đủ primary key; nếu primary key là identity thì phải bật giữ identity.
+- **Truncate toàn table**: truncate từng table tương ứng với CSV trước khi insert. Chế độ này xóa toàn bộ dữ liệu cũ và luôn hiển thị cảnh báo xác nhận.
+
+CSV có primary key `NULL` hoặc lặp key ngay trong chính CSV sẽ bị từ chối trước khi chạy lệnh xóa. Table không có primary key không dùng được chế độ xóa record trùng key. Một số database tự commit `TRUNCATE`, vì vậy bước truncate có thể không rollback được nếu insert sau đó lỗi.
+
+### Đồng bộ 2 CSDL
+
+Giao diện cung cấp ba phương thức:
+
+- **Chỉ đồng bộ chênh lệch**: stream hai table theo primary key, chỉ insert record có ở nguồn, update record cùng key nhưng khác dữ liệu và tùy chọn delete record chỉ có ở đích. Đây là chế độ mặc định.
+- **Insert thêm**: insert toàn bộ record nguồn mà không so sánh dữ liệu hiện có.
+- **Truncate & insert lại**: xóa toàn bộ table đích rồi insert lại dữ liệu nguồn.
+
+Chế độ chênh lệch yêu cầu table nguồn và đích có cùng primary key, hỗ trợ primary key ghép. Nếu key là identity phải bật **Giữ identity**. Dữ liệu được đọc bằng `fetchmany()` và thay đổi được ghi theo batch, mặc định 5.000 record, nên không nạp toàn bộ table vào RAM. Chế độ này không cho dùng giới hạn record vì việc dừng giữa table có thể khiến kết quả không còn phản ánh chính xác dữ liệu nguồn.
+
+Không bật **Xóa record chỉ có ở đích** nếu muốn giữ dữ liệu riêng của database đích. Khi bật, sau khi chạy thành công database đích sẽ giống nguồn đối với các column có thể đồng bộ. Nên tránh ghi đồng thời vào hai table trong lúc đồng bộ; datatype và collation của primary key cần tương thích để thứ tự streaming nhất quán.
+
+Đồng bộ chênh lệch vẫn phải đọc hai table để tìm khác biệt, nhưng chỉ ghi các record thực sự thay đổi. Muốn chỉ đọc phần thay đổi cho những lần chạy sau cần thêm CDC/Change Tracking hoặc column cập nhật đáng tin cậy ở cấp database.
+
+Khi export, bỏ trống danh sách table để xuất toàn bộ table trong schema. Có thể phân tách danh sách table bằng dấu phẩy, chấm phẩy hoặc xuống dòng.
+
+Ví dụ phân biệt empty string và `NULL`:
+
+```csv
+id,amount,empty_value,null_value,text
+1,3456.0000,"",,"Alice"
 ```
 
-Để thêm ghi chú cho combobox:
+Trong dòng trên, `empty_value` là chuỗi rỗng và `null_value` là `NULL`.
 
-1. Bấm `Thêm giá trị combobox`.
-2. Nhập `Ghi chú` và `Ý nghĩa`.
-3. Bấm `Lưu ghi chú`.
+## Sao chép file UT
 
-Có thể chọn ghi chú trong danh sách bên dưới để cập nhật hoặc xóa. Sau khi chọn ghi chú cho các dòng sai khác, bấm `Áp dụng ghi chú đã chọn` để thay thế các cell `FIXME` tương ứng trong file Excel.
+Workflow này tiếp tục dùng `copy_ut_files.py`:
 
-Danh sách ghi chú được lưu trong `fixme_notes.json` sau khi người dùng bấm `Lưu ghi chú`.
+- Sao chép từ `UT*/input` của nguồn sang cấu trúc input ở đích.
+- Sao chép từ `UT*/output` của nguồn sang cấu trúc output hệ thống hiện tại ở đích.
+- Nếu đích đã có CSV, công cụ so sánh value/raw format và ghi log trước khi ghi đè.
+- Log được tạo trong `copy_logs` cạnh `copy_ut_files.py`.
 
-## Quy Tắc Xử Lý
-
-- Mỗi lần chạy sẽ xóa CSV cũ trong 2 folder `before...`, rồi sao chép lại toàn bộ CSV từ `Input`.
-- File CSV chỉ có trong `before...` sẽ bị xóa khỏi folder `before...` sau bước sao chép, vì folder `after...` là nguồn ưu tiên.
-- Record chỉ có trong `after` sẽ để trống cột before.
-- Record chỉ có trong `before` sẽ để trống cột after.
-- Nếu key trùng nhau, tool dùng key + thứ tự xuất hiện để map deterministic.
-- Các cột metadata giống nguồn mẫu sẽ bị bỏ qua: `ValidationErrors`, `HasErrors`, `TargetProperties`, `DataState`.
-- Compare after/after của 2 hệ thống dùng folder after HTC làm bên trái và after HTM làm bên phải.
-
-## Chạy Test
-
-Sau khi các thư viện phụ thuộc đã được cài:
+## Test
 
 ```bat
 .venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-## Tài Liệu Quản Lý Dự Án
-
-- `AGENTS.md`: hướng dẫn nhanh cho coding agent.
-- `.agents/`: project memory gồm context, architecture, conventions, roadmap, và decisions.
+Nếu `.venv` trỏ tới bản Python đã bị gỡ, hãy xóa `.venv` rồi chạy lại `run.bat` sau khi cài Python 3.10+ để tạo lại môi trường.

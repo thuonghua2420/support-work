@@ -4,7 +4,7 @@
 
 AutoCompare Tool helps verify CSV-based UT output by copying expected input data, comparing before/after output folders, and moving CSV data to or from connected databases.
 
-The project is currently a local Windows desktop tool. It may grow into a larger test-data and comparison platform, so new changes should keep business logic modular and documented.
+The project is a Windows-oriented local web tool. It starts an HTTP server on a user-selectable port and opens a browser UI while continuing to process local filesystem paths and database connections on the Python server. It may grow into a larger test-data and comparison platform, so new changes should keep business logic modular and documented.
 
 ## Users
 
@@ -12,13 +12,15 @@ Primary users are developers or testers working with UT folders and database-bac
 
 ## Current Workflows
 
-The GUI is organized by a left-side `Main Menu`:
+The web UI is organized by a left-side navigation menu:
 
 - `Compare`: compare workflows and FIXME review.
 - `Compare CSV Folders`: ad-hoc compare for two user-selected CSV folders.
 - `File Utilities`: simple bulk file/folder operations.
 - `Copy UT Files`: source/target copy workflow.
-- `Database`: DB connection, CSV normalize, CSV import, and DB export.
+- `Database`: DB connection, CSV normalize/import/export, and database-to-database synchronization.
+
+Long-running actions run one at a time in a background job. The web UI shows live status and incremental logs in the activity panel.
 
 ### Run Compare
 

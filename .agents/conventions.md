@@ -5,7 +5,7 @@
 - Use Python 3.10+ type hints.
 - Prefer `pathlib.Path` for filesystem paths.
 - Keep dataclasses for simple workflow result objects.
-- Keep GUI orchestration separate from workflow logic.
+- Keep web/Tkinter orchestration separate from workflow logic.
 - Prefer explicit, small helper functions over large GUI callbacks.
 - Add comments only for non-obvious behavior.
 
@@ -60,6 +60,17 @@
 - If a value cannot be parsed/formatted, preserve the original value.
 - Import skips computed/generated/rowversion columns because DBs own those values.
 - Import identity values only when the user selects the keep-identity option and the adapter/database supports it.
+- Import existing-row mode defaults to append for backward compatibility.
+- Delete-matching import uses every primary-key column, including composite keys; do not guess a key when table metadata has no primary key.
+- Delete-matching import requires all primary-key columns to be present and insertable. Identity primary keys therefore require keep-identity mode.
+- Reject `NULL` primary keys and duplicate keys inside the same CSV before issuing delete statements.
+- Truncate-table import truncates only the table mapped to each CSV and requires explicit UI plus backend confirmation.
+- Incremental DB sync requires matching primary-key definitions and uses the complete composite key.
+- Stream source and target rows with bounded `fetchmany()` batches; never materialize a full table for incremental sync.
+- Use a separate target read connection so target writes cannot invalidate the streaming read cursor.
+- Apply incremental insert/update/delete batches in one target transaction per table and roll back the table on comparison or DML errors.
+- Disable record limits for exact incremental sync because a partial source scan cannot safely identify target-only rows.
+- Validate canonical PK ordering while streaming and fail on incompatible datatype/collation ordering.
 - Export `NULL` as an unquoted blank cell, empty strings as `""`, string columns quoted, and numeric columns unquoted.
 
 ## Excel Rules
@@ -84,6 +95,15 @@
 
 ## Logging Rules
 
-- GUI worker logs should be readable by non-developers.
+- Web job and legacy GUI worker logs should be readable by non-developers.
 - Include relative CSV paths when processing many files.
 - Distinguish skipped files from errors.
+
+## Web UI Rules
+
+- Keep the server dependency-free beyond the project's existing Python dependencies; static assets require no build step.
+- Bind to loopback by default and document the risk before exposing the server to a network.
+- Keep one background mutation job active at a time.
+- Require both a visible browser confirmation and backend `confirmed: true` validation for destructive file and DB actions.
+- Never return database passwords in bootstrap, job status, logs, or result payloads.
+- Use the server-side filesystem picker for absolute local paths; browsers cannot provide those paths through standard upload controls.

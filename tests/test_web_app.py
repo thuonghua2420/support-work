@@ -1,0 +1,177 @@
+from __future__ import annotations
+
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from autocompare_tool.database_io import DatabaseConnectionSettings, DatabaseCsvSummary, DatabaseSyncSummary
+from autocompare_tool.web_app import (
+    AutoCompareWebApplication,
+    JobManager,
+    _db_settings,
+)
+
+
+class WebApplicationTests(unittest.TestCase):
+    def test_bootstrap_contains_web_defaults_and_workflows(self) -> None:
+        app = AutoCompareWebApplication()
+
+        result = app.bootstrap(9876)
+
+        self.assertEqual(9876, result["port"])
+        self.assertEqual(str(Path.cwd()), result["cwd"])
+        self.assertTrue(result["compare_workflows"])
+        self.assertIn("SQL Server", result["database_types"])
+        self.assertIn("folder_compare_file", result)
+
+    def test_file_picker_filters_files_but_keeps_directories(self) -> None:
+        app = AutoCompareWebApplication()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "nested").mkdir()
+            (root / "report.xlsx").write_bytes(b"test")
+            (root / "notes.txt").write_text("test", encoding="utf-8")
+
+            result = app.list_files(str(root), "file", ["xlsx"])
+
+        entries = {entry["name"]: entry for entry in result["entries"]}
+        self.assertIn("nested", entries)
+        self.assertTrue(entries["nested"]["is_dir"])
+        self.assertIn("report.xlsx", entries)
+        self.assertNotIn("notes.txt", entries)
+
+    def test_file_picker_directory_mode_only_returns_directories(self) -> None:
+        app = AutoCompareWebApplication()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "nested").mkdir()
+            (root / "data.csv").write_text("id\n1\n", encoding="utf-8")
+
+            result = app.list_files(str(root), "directory", [])
+
+        self.assertEqual(["nested"], [entry["name"] for entry in result["entries"]])
+
+    def test_destructive_action_requires_explicit_confirmation(self) -> None:
+        app = AutoCompareWebApplication()
+
+        with self.assertRaises(PermissionError):
+            app.start_action("delete_empty_folders", {"root": str(Path.cwd())})
+
+    def test_database_settings_are_mapped_from_json(self) -> None:
+        settings = _db_settings(
+            {
+                "database_type": "PostgreSQL",
+                "host": "localhost",
+                "port": "5432",
+                "database": "sample",
+                "schema": "public",
+                "username": "tester",
+                "password": "secret",
+            }
+        )
+
+        self.assertIsInstance(settings, DatabaseConnectionSettings)
+        self.assertEqual("PostgreSQL", settings.database_type)
+        self.assertEqual("sample", settings.database)
+        self.assertFalse(settings.trusted_connection)
+
+    def test_database_import_passes_existing_row_mode_to_workflow(self) -> None:
+        app = AutoCompareWebApplication()
+        payload = {
+            "csv_path": str(Path.cwd()),
+            "settings": {
+                "database_type": "SQL Server",
+                "host": ".",
+                "database": "sample",
+                "schema": "dbo",
+                "trusted_connection": True,
+            },
+            "keep_identity": True,
+            "existing_row_mode": "delete_matching_keys",
+        }
+        summary = DatabaseCsvSummary(action_name="Nhập CSV vào CSDL", root_path=Path.cwd())
+
+        with patch("autocompare_tool.web_app.import_csv_folder", return_value=summary) as import_mock:
+            operation = app._operation("db_import", payload)
+            operation(lambda _message: None)
+
+        self.assertTrue(import_mock.call_args.kwargs["keep_identity"])
+        self.assertEqual("delete_matching_keys", import_mock.call_args.kwargs["existing_row_mode"])
+        self.assertIsNotNone(import_mock.call_args.kwargs["log"])
+
+    def test_database_sync_passes_incremental_options_to_workflow(self) -> None:
+        app = AutoCompareWebApplication()
+        connection = {
+            "database_type": "SQL Server",
+            "host": ".",
+            "database": "sample",
+            "schema": "dbo",
+            "trusted_connection": True,
+        }
+        payload = {
+            "source_settings": connection,
+            "target_settings": connection,
+            "table_names": ["customers"],
+            "keep_identity": True,
+            "sync_mode": "incremental",
+            "batch_size": "5000",
+            "delete_target_only": True,
+        }
+
+        with patch(
+            "autocompare_tool.web_app.sync_database_tables",
+            return_value=DatabaseSyncSummary(),
+        ) as sync_mock:
+            app._database_sync(payload, lambda _message: None)
+
+        self.assertEqual("incremental", sync_mock.call_args.kwargs["sync_mode"])
+        self.assertEqual("5000", sync_mock.call_args.kwargs["batch_size"])
+        self.assertTrue(sync_mock.call_args.kwargs["delete_target_only"])
+        self.assertTrue(sync_mock.call_args.kwargs["keep_identity"])
+
+
+class JobManagerTests(unittest.TestCase):
+    def test_job_collects_logs_and_result(self) -> None:
+        manager = JobManager()
+
+        manager.start("sample", "Đang chạy...", lambda log: self._successful_operation(log))
+        snapshot = self._wait_until_finished(manager)
+
+        self.assertEqual("succeeded", snapshot["state"])
+        self.assertEqual(["Bước 1", "Bước 2"], snapshot["logs"])
+        self.assertEqual({"value": 42}, snapshot["result"])
+
+    def test_job_captures_operation_error(self) -> None:
+        manager = JobManager()
+
+        manager.start("sample", "Đang chạy...", self._failed_operation)
+        snapshot = self._wait_until_finished(manager)
+
+        self.assertEqual("failed", snapshot["state"])
+        self.assertEqual("test failure", snapshot["error"])
+        self.assertIn("LỖI: test failure", snapshot["logs"])
+
+    @staticmethod
+    def _successful_operation(log):
+        log("Bước 1")
+        log("Bước 2")
+        return {"value": 42}
+
+    @staticmethod
+    def _failed_operation(_log):
+        raise ValueError("test failure")
+
+    def _wait_until_finished(self, manager: JobManager) -> dict:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            snapshot = manager.snapshot()
+            if snapshot is not None and snapshot["state"] in {"succeeded", "failed"}:
+                return snapshot
+            time.sleep(0.01)
+        self.fail("Background job did not finish")
+
+
+if __name__ == "__main__":
+    unittest.main()

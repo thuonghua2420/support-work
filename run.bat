@@ -31,6 +31,16 @@ if errorlevel 1 (
     exit /b 1
 )
 
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" -c "import sys" >nul 2>nul
+    if errorlevel 1 (
+        echo The existing .venv is broken or points to a Python installation that was removed.
+        echo Delete the .venv folder, then run this file again to recreate it.
+        pause
+        exit /b 1
+    )
+)
+
 if not exist ".venv\Scripts\python.exe" (
     echo Creating virtual environment...
     %PYTHON_CMD% -m venv .venv
@@ -49,10 +59,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Starting AutoCompare Tool...
-".venv\Scripts\python.exe" -m autocompare_tool
+set "AUTOCOMPARE_PORT=%~1"
+if not defined AUTOCOMPARE_PORT set "AUTOCOMPARE_PORT=8765"
+
+echo Starting AutoCompare at http://127.0.0.1:%AUTOCOMPARE_PORT% ...
+".venv\Scripts\python.exe" -m autocompare_tool --port "%AUTOCOMPARE_PORT%"
 if errorlevel 1 (
-    echo AutoCompare Tool exited with an error.
+    echo AutoCompare web server exited with an error.
     pause
     exit /b 1
 )

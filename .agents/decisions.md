@@ -2,6 +2,20 @@
 
 Use this file for lightweight architecture decisions. Add newest entries at the top.
 
+## 2026-08-07 - Primary-Key Streaming Delta Sync
+
+Decision:
+
+- Keep append and truncate sync modes for compatibility, but make primary-key incremental sync the default in the web UI.
+- Stream both tables in primary-key order and write only source-only inserts, changed-row updates, and optional target-only deletes.
+- Use bounded batches plus separate target read/write connections; keep target mutations atomic per table.
+- Reject incremental sync when PK metadata is missing/mismatched, a record limit is supplied, or canonical PK order is incompatible.
+
+Why:
+
+- Large tables with small differences should not be truncated, fully rewritten, or loaded into application memory.
+- Without CDC/change metadata, a full read comparison is still required, but database writes and transaction-log volume can remain proportional to the actual delta.
+
 ## 2026-07-28 - Multi-Database CSV Import Export
 
 Decision:
@@ -124,6 +138,34 @@ Consequence:
 
 - Users should choose the normalize root carefully because CSV files are rewritten in place.
 - Future dry-run support would reduce risk.
+
+## 2026-08-05 - Local Web UI Replaces Default Tkinter Startup
+
+Decision:
+
+- Make a local HTML/CSS/JavaScript interface the default UI.
+- Serve it from a dependency-free Python `ThreadingHTTPServer` on `127.0.0.1:8765` by default.
+- Keep Tkinter available through `--desktop` as a temporary fallback.
+- Run one long-lived background job at a time and poll incremental logs from the browser.
+
+Reason:
+
+- A browser layout is easier to organize, resize, and extend than the growing stacked desktop surface.
+- Reusing the Python process preserves local filesystem access and all existing compare/DB workflow modules.
+- Avoiding a frontend build system and new web framework keeps Windows startup simple and offline-friendly.
+
+Alternatives:
+
+- Flask/FastAPI would provide routing helpers but add another runtime dependency.
+- Electron/Tauri would provide desktop packaging but add a separate application toolchain.
+- Upload-based browser inputs cannot preserve the absolute local paths required by the current workflows.
+
+Consequence:
+
+- `run.bat [port]` starts the local server and opens the browser.
+- The server supplies a local filesystem picker because standard browser file inputs do not expose absolute paths.
+- Server binding must stay loopback by default; exposing it to a network grants access to powerful local file and DB workflows.
+- Destructive actions require confirmation in both the browser payload and backend dispatch.
 
 ## ADR Template
 

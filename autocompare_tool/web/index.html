@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AutoCompare</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">AC</span>
+        <span><strong>AutoCompare</strong><small>CSV verification workspace</small></span>
+      </div>
+
+      <nav class="nav-list" aria-label="Menu chính">
+        <button class="nav-item active" data-page="compare" type="button">
+          <span class="nav-icon">⌁</span><span><strong>So sánh UT</strong><small>Xuất Excel &amp; review FIXME</small></span>
+        </button>
+        <button class="nav-item" data-page="folder-compare" type="button">
+          <span class="nav-icon">⇄</span><span><strong>So sánh 2 folder</strong><small>Đối chiếu CSV bất kỳ</small></span>
+        </button>
+        <button class="nav-item" data-page="file-tools" type="button">
+          <span class="nav-icon">◇</span><span><strong>Tiện ích file</strong><small>Đổi tên, xóa, di chuyển</small></span>
+        </button>
+        <button class="nav-item" data-page="copy-ut" type="button">
+          <span class="nav-icon">⧉</span><span><strong>Sao chép UT</strong><small>Copy theo cấu trúc test</small></span>
+        </button>
+        <button class="nav-item" data-page="database" type="button">
+          <span class="nav-icon">▱</span><span><strong>Cơ sở dữ liệu</strong><small>CSV I/O &amp; đồng bộ</small></span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span class="online-dot"></span>
+        <span><small>Server local</small><strong id="server-address">127.0.0.1</strong></span>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <button class="icon-button mobile-only" id="menu-toggle" type="button" aria-label="Mở menu">☰</button>
+        <div>
+          <p class="eyebrow" id="page-eyebrow">WORKSPACE / SO SÁNH</p>
+          <h1 id="page-title">So sánh dữ liệu UT</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="status-pill idle" id="job-status-button" type="button">
+            <span class="status-dot"></span><span id="job-status-text">Sẵn sàng</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="content">
+        <section class="page active" id="page-compare" data-title="So sánh dữ liệu UT" data-eyebrow="WORKSPACE / SO SÁNH">
+          <div class="page-intro">
+            <div><span class="section-kicker">Quy trình chính</span><h2>Tạo báo cáo so sánh trong một lượt</h2><p>Chọn thư mục chứa các case <code>UT*</code>, bật những luồng cần chạy rồi theo dõi kết quả ở bảng FIXME.</p></div>
+            <div class="metric-card"><span>Luồng mặc định</span><strong id="workflow-count">—</strong><small>Cấu hình trong autocompare_config.ini</small></div>
+          </div>
+
+          <form class="card form-card" id="compare-form">
+            <div class="card-heading"><div><span class="step-number">01</span><h3>Nguồn dữ liệu</h3></div><span class="soft-badge">UT root</span></div>
+            <label class="field field-wide"><span>Thư mục gốc</span><span class="path-control"><input id="compare-root" name="root" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="compare-root" data-browse-kind="directory">Chọn folder</button></span><small>Folder hiện tại hoặc folder cha chứa các thư mục UT01, UT02...</small></label>
+            <div class="divider"></div>
+            <div class="card-heading compact"><div><span class="step-number">02</span><h3>Luồng so sánh</h3></div><button class="text-button" id="toggle-workflows" type="button">Chọn / bỏ tất cả</button></div>
+            <div class="choice-grid" id="compare-workflows"></div>
+            <div class="form-actions"><span class="hint">Excel sẽ được tạo trong <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>Chạy so sánh</span><b>→</b></button></div>
+          </form>
+
+          <section class="card fixme-card">
+            <div class="card-heading">
+              <div><span class="step-number">03</span><h3>Review FIXME</h3><span class="count-badge" id="fixme-count">0</span></div>
+              <div class="inline-actions"><button class="secondary-button" id="manage-notes" type="button">Quản lý ghi chú</button><button class="primary-button small" id="apply-fixmes" type="button">Áp dụng ghi chú</button></div>
+            </div>
+            <div class="empty-state" id="fixme-empty"><span>✓</span><strong>Chưa có mục cần review</strong><p>FIXME từ lần so sánh gần nhất sẽ xuất hiện tại đây.</p></div>
+            <div class="table-wrap hidden" id="fixme-table-wrap">
+              <table><thead><tr><th>Case</th><th>Workbook / Sheet</th><th>Column</th><th>Giá trị trái</th><th>Giá trị phải</th><th>Record</th><th>Ghi chú</th></tr></thead><tbody id="fixme-body"></tbody></table>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" id="page-folder-compare" data-title="So sánh hai folder CSV" data-eyebrow="WORKSPACE / FOLDER COMPARE">
+          <div class="page-intro"><div><span class="section-kicker">So sánh nhanh</span><h2>Đối chiếu hai cây thư mục CSV</h2><p>Quét đệ quy cả hai phía, bao gồm file chỉ xuất hiện ở một bên, rồi tạo một workbook tổng hợp.</p></div><div class="visual-chip"><b>CSV</b><span>⇄</span><b>CSV</b><i>→ XLSX</i></div></div>
+          <form class="card form-card" id="folder-compare-form">
+            <div class="two-column">
+              <label class="field"><span>Folder bên trái</span><span class="path-control"><input id="folder-left" required><button class="browse-button" type="button" data-browse-target="folder-left" data-browse-kind="directory">Chọn</button></span><small>Dữ liệu baseline / before</small></label>
+              <label class="field"><span>Folder bên phải</span><span class="path-control"><input id="folder-right" required><button class="browse-button" type="button" data-browse-target="folder-right" data-browse-kind="directory">Chọn</button></span><small>Dữ liệu actual / after</small></label>
+            </div>
+            <label class="field field-wide"><span>File Excel xuất ra</span><span class="path-control"><input id="folder-output" required><button class="browse-button" type="button" data-browse-target="folder-output" data-browse-kind="save" data-browse-ext="xlsx">Chọn</button></span></label>
+            <div class="form-actions"><span class="hint">Nếu thiếu đuôi <code>.xlsx</code>, hệ thống sẽ tự thêm.</span><button class="primary-button" type="submit">Tạo file so sánh <b>→</b></button></div>
+          </form>
+        </section>
+
+        <section class="page" id="page-file-tools" data-title="Tiện ích file" data-eyebrow="WORKSPACE / FILE UTILITIES">
+          <div class="page-intro slim"><div><span class="section-kicker">Thao tác hàng loạt</span><h2>Dọn và tổ chức cây thư mục</h2><p>Mỗi công cụ chỉ xử lý nội dung bên dưới folder gốc đã chọn.</p></div></div>
+          <div class="card root-strip"><label class="field"><span>Folder thao tác dùng chung</span><span class="path-control"><input id="utility-root"><button class="browse-button" type="button" data-browse-target="utility-root" data-browse-kind="directory">Chọn folder</button></span></label></div>
+          <div class="tabs" role="tablist" aria-label="Nhóm tiện ích file">
+            <button class="tab active" data-tab-group="file" data-tab="rename" type="button">Đổi tên</button>
+            <button class="tab" data-tab-group="file" data-tab="delete" type="button">Xóa</button>
+            <button class="tab" data-tab-group="file" data-tab="excel" type="button">Excel</button>
+            <button class="tab" data-tab-group="file" data-tab="move" type="button">Di chuyển</button>
+            <button class="tab" data-tab-group="file" data-tab="empty" type="button">Folder trống</button>
+          </div>
+          <div class="tab-panel active" data-tab-panel="file:rename">
+            <div class="tool-grid">
+              <form class="card tool-card" id="rename-exact-form"><div class="tool-icon blue">Aa</div><h3>Đổi tên chính xác</h3><p>Đổi mọi file/folder có tên trùng hoàn toàn.</p><label class="field"><span>Tên cũ</span><input id="rename-exact-old" required></label><label class="field"><span>Tên mới</span><input id="rename-exact-new" required></label><div class="check-row"><label><input type="checkbox" id="rename-exact-files" checked> File</label><label><input type="checkbox" id="rename-exact-folders" checked> Folder</label></div><button class="secondary-button full" type="submit">Chạy đổi tên</button></form>
+              <form class="card tool-card" id="rename-contains-form"><div class="tool-icon violet">Ab</div><h3>Thay text trong tên</h3><p>Thay một đoạn text ở nhiều tên cùng lúc.</p><label class="field"><span>Text cần tìm</span><input id="rename-contains-text" required></label><label class="field"><span>Text thay thế</span><input id="rename-replacement"></label><div class="check-row"><label><input type="checkbox" id="rename-contains-files" checked> File</label><label><input type="checkbox" id="rename-contains-folders" checked> Folder</label></div><button class="secondary-button full" type="submit">Chạy thay text</button></form>
+            </div>
+          </div>
+          <div class="tab-panel" data-tab-panel="file:delete"><form class="card tool-card danger-zone" id="delete-contains-form"><div class="tool-icon red">×</div><h3>Xóa khi tên chứa text</h3><p>Thao tác không thể hoàn tác. Kiểm tra kỹ folder gốc và từ khóa.</p><label class="field"><span>Text cần tìm</span><input id="delete-contains-text" required></label><div class="check-row"><label><input type="checkbox" id="delete-contains-files" checked> File</label><label><input type="checkbox" id="delete-contains-folders" checked> Folder</label></div><button class="danger-button" type="submit">Xóa các mục phù hợp</button></form></div>
+          <div class="tab-panel" data-tab-panel="file:excel"><form class="card tool-card wide-tool" id="rename-sheets-form"><div class="tool-icon green">X</div><h3>Đổi tên sheet Excel</h3><p>Đổi text trong tên các sheet của một workbook.</p><label class="field"><span>File Excel</span><span class="path-control"><input id="sheet-excel-path" required><button class="browse-button" type="button" data-browse-target="sheet-excel-path" data-browse-kind="file" data-browse-ext="xlsx,xlsm">Chọn file</button></span></label><div class="two-column"><label class="field"><span>Text cần tìm</span><input id="sheet-contains-text" required></label><label class="field"><span>Text thay thế</span><input id="sheet-replacement"></label></div><button class="secondary-button" type="submit">Đổi tên sheet</button></form></div>
+          <div class="tab-panel" data-tab-panel="file:move"><form class="card tool-card wide-tool" id="move-files-form"><div class="tool-icon amber">→</div><h3>Di chuyển file theo tên</h3><p>File phù hợp được chuyển vào folder đích nằm cạnh file đó.</p><div class="two-column"><label class="field"><span>Tên chứa text</span><input id="move-contains-text" required></label><label class="field"><span>Tên folder đích</span><input id="move-target-folder" required></label></div><button class="secondary-button" type="submit">Di chuyển file</button></form></div>
+          <div class="tab-panel" data-tab-panel="file:empty"><div class="card tool-card wide-tool"><div class="tool-icon cyan">□</div><h3>Folder trống</h3><p>Quét cây thư mục trước, sau đó chỉ xóa khi bạn xác nhận.</p><div class="inline-actions"><button class="secondary-button" id="find-empty" type="button">Kiểm tra folder trống</button><button class="danger-button" id="delete-empty" type="button">Xóa folder trống</button></div></div></div>
+        </section>
+
+        <section class="page" id="page-copy-ut" data-title="Sao chép file UT" data-eyebrow="WORKSPACE / COPY UT">
+          <div class="page-intro"><div><span class="section-kicker">Copy workflow</span><h2>Chuyển dữ liệu theo cấu trúc UT</h2><p>File CSV tại đích sẽ được so sánh và ghi log chi tiết trước khi ghi đè.</p></div><div class="visual-chip folder-flow"><b>Source</b><span>→</span><b>UT*</b><span>→</span><b>Target</b></div></div>
+          <form class="card form-card" id="copy-ut-form">
+            <div class="flow-fields">
+              <label class="field flow-node"><span><i>1</i> Đường dẫn nguồn</span><span class="path-control"><input id="copy-source" required><button class="browse-button" type="button" data-browse-target="copy-source" data-browse-kind="directory">Chọn</button></span></label>
+              <span class="flow-arrow">→</span>
+              <label class="field flow-node"><span><i>2</i> Đường dẫn đích</span><span class="path-control"><input id="copy-target" required><button class="browse-button" type="button" data-browse-target="copy-target" data-browse-kind="directory">Chọn</button></span></label>
+            </div>
+            <div class="form-actions"><span class="hint">Log chi tiết được lưu trong folder <code>copy_logs</code>.</span><button class="primary-button" type="submit">Bắt đầu sao chép <b>→</b></button></div>
+          </form>
+        </section>
+
+        <section class="page" id="page-database" data-title="Cơ sở dữ liệu" data-eyebrow="WORKSPACE / DATABASE">
+          <div class="page-intro slim"><div><span class="section-kicker">Data operations</span><h2>CSV và cơ sở dữ liệu</h2><p>Hỗ trợ SQL Server, MySQL, PostgreSQL và Oracle.</p></div></div>
+          <div class="tabs database-tabs" role="tablist" aria-label="Chức năng cơ sở dữ liệu">
+            <button class="tab active" data-tab-group="database" data-tab="csv" type="button">CSV ↔ Database</button>
+            <button class="tab" data-tab-group="database" data-tab="sync" type="button">Đồng bộ 2 CSDL</button>
+          </div>
+
+          <div class="tab-panel active" data-tab-panel="database:csv">
+            <div class="database-layout">
+              <form class="card connection-card" id="db-main-form" data-db-scope="main">
+                <div class="card-heading"><div><span class="step-number">01</span><h3>Kết nối</h3></div><span class="connection-state" data-verified-state="main">Chưa kiểm tra</span></div>
+                <div class="connection-fields"></div>
+                <button class="secondary-button full" data-db-test="main" type="button">Test Database Connection</button>
+              </form>
+              <form class="card form-card" id="db-csv-form">
+                <div class="card-heading"><div><span class="step-number">02</span><h3>Nhập / Xuất CSV</h3></div></div>
+                <label class="field"><span>Folder CSV</span><span class="path-control"><input id="db-csv-path" required><button class="browse-button" type="button" data-browse-target="db-csv-path" data-browse-kind="directory">Chọn</button></span></label>
+                <label class="switch-row"><span><strong>Giữ giá trị identity khi import</strong><small>Chỉ áp dụng khi database hỗ trợ.</small></span><input class="switch" type="checkbox" id="db-keep-identity"></label>
+                <fieldset class="import-mode-fieldset">
+                  <legend>Xử lý dữ liệu hiện có trước khi import</legend>
+                  <div class="import-mode-grid">
+                    <label class="import-mode-card">
+                      <input type="radio" name="db-import-mode" value="append" checked>
+                      <span><b>Insert thêm</b><small>Giữ nguyên dữ liệu hiện có trong table.</small></span>
+                    </label>
+                    <label class="import-mode-card">
+                      <input type="radio" name="db-import-mode" value="delete_matching_keys">
+                      <span><b>Xóa record trùng key</b><small>Xóa record trùng toàn bộ primary key của CSV rồi insert.</small></span>
+                    </label>
+                    <label class="import-mode-card danger-mode">
+                      <input type="radio" name="db-import-mode" value="truncate_table">
+                      <span><b>Truncate toàn table</b><small>Xóa sạch từng table tương ứng trước khi insert.</small></span>
+                    </label>
+                  </div>
+                </fieldset>
+                <label class="field"><span>Table cần export <em>— không bắt buộc</em></span><textarea id="db-export-tables" rows="3" placeholder="orders, customers hoặc mỗi table một dòng"></textarea><small>Bỏ trống để xuất toàn bộ table trong schema.</small></label>
+                <div class="action-grid"><button class="secondary-button" id="db-normalize" type="button">Chuẩn hóa CSV</button><button class="primary-button" id="db-import" type="button">Import CSV</button><button class="secondary-button" id="db-export" type="button">Export CSV</button></div>
+              </form>
+            </div>
+          </div>
+
+          <div class="tab-panel" data-tab-panel="database:sync">
+            <div class="notice warning"><b>!</b><span><strong>Đồng bộ là thao tác ghi dữ liệu.</strong> Hai bên cần cùng DDL/column. Hãy test cả hai kết nối trước khi chạy.</span></div>
+            <div class="sync-connections">
+              <form class="card connection-card" data-db-scope="source"><div class="card-heading"><div><span class="source-target source">S</span><h3>CSDL nguồn</h3></div><span class="connection-state" data-verified-state="source">Chưa kiểm tra</span></div><div class="connection-fields"></div><div class="two-buttons"><button class="ghost-button" data-db-load="source" type="button">Tải CSDL</button><button class="secondary-button" data-db-test="source" type="button">Test &amp; tải table</button></div></form>
+              <div class="sync-direction">→</div>
+              <form class="card connection-card" data-db-scope="target"><div class="card-heading"><div><span class="source-target target">T</span><h3>CSDL đích</h3></div><span class="connection-state" data-verified-state="target">Chưa kiểm tra</span></div><div class="connection-fields"></div><div class="two-buttons"><button class="ghost-button" data-db-load="target" type="button">Tải CSDL</button><button class="secondary-button" data-db-test="target" type="button">Test kết nối</button></div></form>
+            </div>
+            <form class="card sync-options" id="db-sync-form">
+              <div class="card-heading"><div><span class="step-number">03</span><h3>Phạm vi đồng bộ</h3></div><span class="count-badge" id="selected-table-count">0 table</span></div>
+              <label class="switch-row"><span><strong>Đồng bộ toàn bộ table nguồn</strong><small>Bật để bỏ qua danh sách chọn bên dưới.</small></span><input class="switch" type="checkbox" id="sync-all-tables"></label>
+              <div class="table-picker">
+                <div><label class="field"><span>Lọc table nguồn</span><input id="sync-table-filter" placeholder="Nhập một phần tên table..."></label><div class="available-tables" id="available-tables"><p>Test kết nối nguồn để tải danh sách table.</p></div></div>
+                <div class="selected-tables"><span>Table đã chọn</span><div id="selected-tables"><p>Chưa chọn table.</p></div><button class="text-button" id="clear-selected-tables" type="button">Bỏ chọn tất cả</button></div>
+              </div>
+              <fieldset class="import-mode-fieldset">
+                <legend>Phương thức đồng bộ</legend>
+                <div class="import-mode-grid">
+                  <label class="import-mode-card">
+                    <input type="radio" name="sync-mode" value="incremental" checked>
+                    <span><b>Chỉ đồng bộ chênh lệch</b><small>So sánh primary key, chỉ insert/update/delete phần khác nhau.</small></span>
+                  </label>
+                  <label class="import-mode-card">
+                    <input type="radio" name="sync-mode" value="append">
+                    <span><b>Insert thêm</b><small>Không so sánh; insert toàn bộ dữ liệu nguồn vào đích.</small></span>
+                  </label>
+                  <label class="import-mode-card danger-mode">
+                    <input type="radio" name="sync-mode" value="truncate_table">
+                    <span><b>Truncate &amp; insert lại</b><small>Xóa sạch table đích rồi insert toàn bộ dữ liệu nguồn.</small></span>
+                  </label>
+                </div>
+              </fieldset>
+              <div class="two-column">
+                <label class="field"><span>Số record mỗi table <em>— chỉ append/truncate</em></span><input type="number" min="1" id="sync-record-limit" placeholder="Toàn bộ" disabled></label>
+                <label class="field"><span>Batch size <em>— chỉ chênh lệch</em></span><input type="number" min="100" max="100000" value="5000" id="sync-batch-size"></label>
+              </div>
+              <div class="two-column">
+                <label class="switch-row compact-switch"><span><strong>Giữ identity</strong><small>Cần bật nếu primary key là identity.</small></span><input class="switch" type="checkbox" id="sync-keep-identity" checked></label>
+                <label class="switch-row compact-switch danger-switch" id="sync-delete-target-only-row"><span><strong>Xóa record chỉ có ở đích</strong><small>Đảm bảo database đích giống hoàn toàn nguồn.</small></span><input class="switch" type="checkbox" id="sync-delete-target-only" checked></label>
+              </div>
+              <div class="form-actions"><span class="hint" id="sync-mode-hint">Chỉ ghi các record khác biệt; table phải có primary key.</span><button class="primary-button" id="run-db-sync" type="submit">Đồng bộ chênh lệch <b>→</b></button></div>
+            </form>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <aside class="activity-panel collapsed" id="activity-panel" aria-label="Nhật ký tác vụ">
+    <button class="activity-handle" id="activity-toggle" type="button"><span class="activity-icon">⌘</span><span><strong>Nhật ký tác vụ</strong><small id="activity-subtitle">Chưa có hoạt động</small></span><b>⌃</b></button>
+    <div class="activity-body"><div class="activity-header"><div><span class="status-dot"></span><strong id="activity-title">Sẵn sàng</strong></div><button class="icon-button" id="clear-log" type="button" title="Xóa log">×</button></div><pre id="activity-log">AutoCompare đã sẵn sàng.</pre></div>
+  </aside>
+
+  <dialog id="path-dialog" class="modal path-modal">
+    <form method="dialog" class="modal-shell">
+      <header><div><span class="section-kicker">Chọn đường dẫn</span><h3 id="path-dialog-title">Chọn folder</h3></div><button class="icon-button" value="cancel" aria-label="Đóng">×</button></header>
+      <div class="path-toolbar"><select id="path-root-select" aria-label="Ổ đĩa"></select><button id="path-up" type="button" class="icon-button" title="Lên folder cha">↑</button><input id="path-current" aria-label="Đường dẫn hiện tại"><button id="path-go" type="button" class="secondary-button small">Đi</button></div>
+      <div class="path-list" id="path-list"></div>
+      <label class="field hidden" id="save-name-field"><span>Tên file</span><input id="save-file-name"></label>
+      <footer><span class="hint" id="path-selection-hint">Chọn một folder</span><div><button class="ghost-button" value="cancel">Hủy</button><button class="primary-button small" id="path-confirm" value="default">Chọn đường dẫn</button></div></footer>
+    </form>
+  </dialog>
+
+  <dialog id="notes-dialog" class="modal notes-modal">
+    <div class="modal-shell">
+      <header><div><span class="section-kicker">FIXME</span><h3>Quản lý ghi chú</h3></div><button class="icon-button" id="close-notes" type="button">×</button></header>
+      <div class="notes-layout"><div class="note-list" id="note-list"></div><form id="note-form"><input type="hidden" id="note-old-value"><label class="field"><span>Ghi chú</span><input id="note-value" required placeholder="Ví dụ: OK - expected"></label><label class="field"><span>Ý nghĩa</span><textarea id="note-meaning" rows="5" placeholder="Mô tả để người review dễ hiểu"></textarea></label><div class="form-actions"><button class="danger-button subtle" id="delete-note" type="button">Xóa</button><button class="primary-button small" type="submit">Lưu ghi chú</button></div></form></div>
+    </div>
+  </dialog>
+
+  <dialog id="confirm-dialog" class="modal confirm-modal">
+    <form method="dialog" class="modal-shell"><div class="confirm-symbol" id="confirm-symbol">!</div><h3 id="confirm-title">Xác nhận thao tác</h3><p id="confirm-message"></p><footer><button class="ghost-button" value="cancel">Hủy</button><button class="danger-button" id="confirm-accept" value="confirm">Xác nhận</button></footer></form>
+  </dialog>
+
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

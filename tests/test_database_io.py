@@ -13,18 +13,24 @@ from autocompare_tool.database_io import (
     DatabaseConnectionSettings,
     DatabaseCsvSummary,
     DatabaseSyncSummary,
+    IMPORT_MODE_DELETE_MATCHING_KEYS,
+    IMPORT_MODE_TRUNCATE_TABLE,
+    SYNC_MODE_INCREMENTAL,
     OracleAdapter,
     PostgreSqlAdapter,
     SqlServerAdapter,
     TableMetadata,
     _build_export_select_sql,
+    _build_delete_by_primary_key_sql,
     _build_import_mapping,
     _build_sync_columns,
     _build_sync_select_sql,
+    _build_sync_update_sql,
     _format_csv_value,
     _format_db_value,
     _import_one_csv,
     _parse_record_limit,
+    _parse_sync_batch_size,
     _sync_one_table,
     _sqlserver_type_name,
     normalize_database_type,
@@ -128,6 +134,25 @@ class DatabaseIoTests(unittest.TestCase):
 
         self.assertEqual(sql, "SELECT [id], [name] FROM [dbo].[orders] ORDER BY [id]")
 
+    def test_delete_by_primary_key_sql_supports_composite_keys(self) -> None:
+        adapter = SqlServerAdapter()
+        metadata = TableMetadata(
+            schema="dbo",
+            name="orders",
+            columns=[
+                _column("tenant_id", is_primary_key=True),
+                _column("id", is_primary_key=True),
+                _column("name", data_type="nvarchar"),
+            ],
+        )
+
+        sql = _build_delete_by_primary_key_sql(adapter, metadata)
+
+        self.assertEqual(
+            sql,
+            "DELETE FROM [dbo].[orders] WHERE [tenant_id] = ? AND [id] = ?",
+        )
+
     def test_sync_select_orders_by_primary_key_even_when_identity_is_skipped(self) -> None:
         adapter = SqlServerAdapter()
         metadata = TableMetadata(
@@ -226,6 +251,157 @@ class DatabaseIoTests(unittest.TestCase):
         self.assertTrue(target_connection.committed)
         self.assertEqual(summary.table_count, 1)
 
+    def test_incremental_sync_only_inserts_updates_and_deletes_differences(self) -> None:
+        metadata = TableMetadata(
+            schema="dbo",
+            name="customers",
+            columns=[
+                _column("id", data_type="int", is_primary_key=True),
+                _column("name", data_type="nvarchar"),
+            ],
+        )
+        source_adapter = DeltaRecordingAdapter(metadata)
+        target_adapter = DeltaRecordingAdapter(metadata)
+        source_connection = SyncConnection([(1, "Alice"), (2, "Bob updated"), (4, "Dora")])
+        target_read_connection = SyncConnection([(1, "Alice"), (2, "Bob"), (3, "Chris")])
+        target_write_connection = SyncConnection([])
+        summary = DatabaseSyncSummary()
+
+        _sync_one_table(
+            source_connection,
+            target_write_connection,
+            source_adapter,
+            target_adapter,
+            DatabaseConnectionSettings(database_type="sqlserver", host=".", database="source", schema="dbo"),
+            DatabaseConnectionSettings(database_type="sqlserver", host=".", database="target", schema="dbo"),
+            "customers",
+            None,
+            True,
+            False,
+            summary,
+            lambda _message: None,
+            sync_mode=SYNC_MODE_INCREMENTAL,
+            batch_size=100,
+            delete_target_only=True,
+            target_read_connection=target_read_connection,
+        )
+
+        result = summary.table_results[0]
+        self.assertEqual(result.source_row_count, 3)
+        self.assertEqual(result.target_row_count, 3)
+        self.assertEqual(result.inserted_count, 1)
+        self.assertEqual(result.updated_count, 1)
+        self.assertEqual(result.deleted_count, 1)
+        self.assertEqual(result.unchanged_count, 1)
+        self.assertEqual(result.row_count, 3)
+        self.assertEqual(target_adapter.rows_for("delete"), [(3,)])
+        self.assertEqual(target_adapter.rows_for("update"), [("Bob updated", 2)])
+        self.assertEqual(target_adapter.rows_for("insert"), [(4, "Dora")])
+        self.assertTrue(target_write_connection.committed)
+        self.assertFalse(target_write_connection.rolled_back)
+
+    def test_incremental_sync_compares_numeric_keys_in_database_order(self) -> None:
+        metadata = TableMetadata(
+            schema="dbo",
+            name="numbers",
+            columns=[
+                _column("id", data_type="int", is_primary_key=True),
+                _column("value", data_type="nvarchar"),
+            ],
+        )
+        source_adapter = DeltaRecordingAdapter(metadata)
+        target_adapter = DeltaRecordingAdapter(metadata)
+        summary = DatabaseSyncSummary()
+
+        _sync_one_table(
+            SyncConnection([(2, "Two"), (10, "Ten")]),
+            SyncConnection([]),
+            source_adapter,
+            target_adapter,
+            DatabaseConnectionSettings(database_type="sqlserver", host=".", database="source", schema="dbo"),
+            DatabaseConnectionSettings(database_type="sqlserver", host=".", database="target", schema="dbo"),
+            "numbers",
+            None,
+            True,
+            False,
+            summary,
+            lambda _message: None,
+            sync_mode=SYNC_MODE_INCREMENTAL,
+            batch_size=100,
+            target_read_connection=SyncConnection([(10, "Ten")]),
+        )
+
+        result = summary.table_results[0]
+        self.assertEqual(result.inserted_count, 1)
+        self.assertEqual(result.unchanged_count, 1)
+        self.assertEqual(result.deleted_count, 0)
+        self.assertEqual(target_adapter.rows_for("insert"), [(2, "Two")])
+
+    def test_incremental_sync_requires_matching_primary_keys(self) -> None:
+        metadata = TableMetadata(
+            schema="dbo",
+            name="customers",
+            columns=[_column("id", data_type="int"), _column("name", data_type="nvarchar")],
+        )
+        source_adapter = DeltaRecordingAdapter(metadata)
+        target_adapter = DeltaRecordingAdapter(metadata)
+        target_write_connection = SyncConnection([])
+        summary = DatabaseSyncSummary()
+
+        _sync_one_table(
+            SyncConnection([(1, "Alice")]),
+            target_write_connection,
+            source_adapter,
+            target_adapter,
+            DatabaseConnectionSettings(database_type="sqlserver", host=".", database="source", schema="dbo"),
+            DatabaseConnectionSettings(database_type="sqlserver", host=".", database="target", schema="dbo"),
+            "customers",
+            None,
+            True,
+            False,
+            summary,
+            lambda _message: None,
+            sync_mode=SYNC_MODE_INCREMENTAL,
+            batch_size=100,
+            target_read_connection=SyncConnection([(1, "Alice")]),
+        )
+
+        self.assertEqual(summary.error_count, 1)
+        self.assertIn("primary key", summary.errors[0].lower())
+        self.assertFalse(target_write_connection.committed)
+
+    def test_build_sync_update_sql_supports_composite_primary_key(self) -> None:
+        adapter = SqlServerAdapter()
+        metadata = TableMetadata(
+            schema="dbo",
+            name="orders",
+            columns=[
+                _column("tenant_id", is_primary_key=True),
+                _column("id", is_primary_key=True),
+                _column("name", data_type="nvarchar"),
+            ],
+        )
+
+        sql = _build_sync_update_sql(
+            adapter,
+            metadata,
+            [metadata.columns[2]],
+            metadata.columns[:2],
+        )
+
+        self.assertEqual(
+            sql,
+            "UPDATE [dbo].[orders] SET [name] = ? WHERE [tenant_id] = ? AND [id] = ?",
+        )
+
+    def test_parse_sync_batch_size_applies_bounds_and_default(self) -> None:
+        self.assertEqual(_parse_sync_batch_size(None), 5000)
+        self.assertEqual(_parse_sync_batch_size("1000"), 1000)
+        with self.assertRaises(ValueError):
+            _parse_sync_batch_size("99")
+        with self.assertRaises(ValueError):
+            _parse_sync_batch_size("100001")
+
     def test_formats_db_and_csv_values_by_metadata(self) -> None:
         amount = _column("amount", data_type="numeric", numeric_scale=4)
         created_at = _column("created_at", data_type="datetime")
@@ -258,6 +434,149 @@ class DatabaseIoTests(unittest.TestCase):
             self.assertEqual(adapter.calls, ["before", "executemany", "after"])
             self.assertEqual(summary.error_count, 1)
             self.assertTrue(connection.rolled_back)
+
+    def test_import_deletes_matching_composite_primary_keys_before_insert(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            csv_path = root / "orders.csv"
+            csv_path.write_text(
+                'tenant_id,id,name\n"A","1","First"\n"A","2","Second"\n',
+                encoding="utf-8",
+            )
+            metadata = TableMetadata(
+                schema="dbo",
+                name="orders",
+                columns=[
+                    _column("tenant_id", is_primary_key=True),
+                    _column("id", is_primary_key=True),
+                    _column("name", data_type="nvarchar"),
+                ],
+            )
+            adapter = RecordingImportAdapter(metadata)
+            connection = RecordingImportConnection()
+            summary = DatabaseCsvSummary(action_name="Nhập CSV vào CSDL", root_path=root)
+
+            _import_one_csv(
+                connection,
+                adapter,
+                DatabaseConnectionSettings(database_type="sqlserver", host=".", database="sample", schema="dbo"),
+                root,
+                csv_path,
+                False,
+                summary,
+                lambda _message: None,
+                IMPORT_MODE_DELETE_MATCHING_KEYS,
+            )
+
+            self.assertEqual(adapter.calls[0][0], "executemany")
+            self.assertTrue(str(adapter.calls[0][1]).startswith("DELETE FROM"))
+            self.assertEqual(adapter.calls[0][2], [("A", "1"), ("A", "2")])
+            self.assertEqual(adapter.calls[1][0], "before")
+            self.assertEqual(adapter.calls[2][0], "executemany")
+            self.assertTrue(str(adapter.calls[2][1]).startswith("INSERT INTO"))
+            self.assertEqual(adapter.calls[3][0], "after")
+            self.assertTrue(connection.committed)
+            self.assertEqual(summary.error_count, 0)
+
+    def test_import_truncates_table_before_insert(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            csv_path = root / "customers.csv"
+            csv_path.write_text('id,name\n"1","Alice"\n', encoding="utf-8")
+            metadata = TableMetadata(
+                schema="dbo",
+                name="customers",
+                columns=[_column("id", is_primary_key=True), _column("name", data_type="nvarchar")],
+            )
+            adapter = RecordingImportAdapter(metadata)
+            connection = RecordingImportConnection()
+            summary = DatabaseCsvSummary(action_name="Nhập CSV vào CSDL", root_path=root)
+
+            _import_one_csv(
+                connection,
+                adapter,
+                DatabaseConnectionSettings(database_type="sqlserver", host=".", database="sample", schema="dbo"),
+                root,
+                csv_path,
+                False,
+                summary,
+                lambda _message: None,
+                IMPORT_MODE_TRUNCATE_TABLE,
+            )
+
+            self.assertEqual(adapter.calls[0], ("truncate", "customers"))
+            self.assertEqual(adapter.calls[1][0], "before")
+            self.assertEqual(adapter.calls[2][0], "executemany")
+            self.assertTrue(connection.committed)
+
+    def test_delete_matching_keys_requires_importable_primary_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            csv_path = root / "customers.csv"
+            csv_path.write_text('id,name\n"1","Alice"\n', encoding="utf-8")
+            metadata = TableMetadata(
+                schema="dbo",
+                name="customers",
+                columns=[
+                    _column("id", is_identity=True, is_primary_key=True),
+                    _column("name", data_type="nvarchar"),
+                ],
+            )
+            adapter = RecordingImportAdapter(metadata)
+            connection = RecordingImportConnection()
+            summary = DatabaseCsvSummary(action_name="Nhập CSV vào CSDL", root_path=root)
+
+            _import_one_csv(
+                connection,
+                adapter,
+                DatabaseConnectionSettings(database_type="sqlserver", host=".", database="sample", schema="dbo"),
+                root,
+                csv_path,
+                False,
+                summary,
+                lambda _message: None,
+                IMPORT_MODE_DELETE_MATCHING_KEYS,
+            )
+
+            self.assertEqual(summary.error_count, 1)
+            self.assertIn("hãy bật tùy chọn giữ identity", summary.errors[0])
+            self.assertTrue(connection.rolled_back)
+            self.assertFalse(connection.committed)
+
+    def test_delete_matching_keys_rejects_duplicate_csv_keys_before_deleting(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            csv_path = root / "customers.csv"
+            csv_path.write_text(
+                'id,name\n"1","Alice"\n"1","Alice updated"\n',
+                encoding="utf-8",
+            )
+            metadata = TableMetadata(
+                schema="dbo",
+                name="customers",
+                columns=[_column("id", is_primary_key=True), _column("name", data_type="nvarchar")],
+            )
+            adapter = RecordingImportAdapter(metadata)
+            connection = RecordingImportConnection()
+            summary = DatabaseCsvSummary(action_name="Nhập CSV vào CSDL", root_path=root)
+
+            _import_one_csv(
+                connection,
+                adapter,
+                DatabaseConnectionSettings(database_type="sqlserver", host=".", database="sample", schema="dbo"),
+                root,
+                csv_path,
+                False,
+                summary,
+                lambda _message: None,
+                IMPORT_MODE_DELETE_MATCHING_KEYS,
+            )
+
+            self.assertEqual(summary.error_count, 1)
+            self.assertIn("primary key trùng", summary.errors[0])
+            self.assertEqual(adapter.calls, [])
+            self.assertTrue(connection.rolled_back)
+            self.assertFalse(connection.committed)
 
 
 def _column(
@@ -341,6 +660,7 @@ class SyncConnection:
 class SyncCursor:
     def __init__(self, rows: list[tuple[object, ...]]) -> None:
         self.rows = rows
+        self.index = 0
 
     def execute(self, *_args: object) -> None:
         return None
@@ -349,7 +669,9 @@ class SyncCursor:
         return self.rows
 
     def fetchmany(self, size: int) -> list[tuple[object, ...]]:
-        return self.rows[:size]
+        rows = self.rows[self.index : self.index + size]
+        self.index += len(rows)
+        return rows
 
 
 class SyncRecordingAdapter(DatabaseAdapter):
@@ -368,6 +690,64 @@ class SyncRecordingAdapter(DatabaseAdapter):
 
     def executemany(self, _cursor, _sql: str, rows) -> None:
         self.calls.append(("executemany", [tuple(row) for row in rows]))
+
+    def after_import(self, _cursor, _metadata, columns: list[DatabaseColumn], _keep_identity: bool) -> None:
+        self.calls.append(("after", [column.name for column in columns]))
+
+
+class DeltaRecordingAdapter(DatabaseAdapter):
+    def __init__(self, metadata: TableMetadata) -> None:
+        self.metadata = metadata
+        self.calls: list[tuple[str, object]] = []
+
+    def get_table(self, _connection, _settings, _table_name: str, schema: str | None = None) -> TableMetadata:
+        return self.metadata
+
+    def before_import(self, _cursor, _metadata, columns: list[DatabaseColumn], _keep_identity: bool) -> None:
+        self.calls.append(("before", [column.name for column in columns]))
+
+    def executemany(self, _cursor, sql: str, rows) -> None:
+        operation = sql.split(None, 1)[0].lower()
+        self.calls.append((operation, [tuple(row) for row in rows]))
+
+    def after_import(self, _cursor, _metadata, columns: list[DatabaseColumn], _keep_identity: bool) -> None:
+        self.calls.append(("after", [column.name for column in columns]))
+
+    def rows_for(self, operation: str) -> list[tuple[object, ...]]:
+        return [row for name, rows in self.calls if name == operation for row in rows]
+
+
+class RecordingImportConnection:
+    def __init__(self) -> None:
+        self.committed = False
+        self.rolled_back = False
+
+    def cursor(self) -> object:
+        return object()
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def rollback(self) -> None:
+        self.rolled_back = True
+
+
+class RecordingImportAdapter(DatabaseAdapter):
+    def __init__(self, metadata: TableMetadata) -> None:
+        self.metadata = metadata
+        self.calls: list[tuple[object, ...]] = []
+
+    def get_table(self, _connection, _settings, _table_name: str, schema: str | None = None) -> TableMetadata:
+        return self.metadata
+
+    def truncate_table(self, _cursor, metadata: TableMetadata) -> None:
+        self.calls.append(("truncate", metadata.name))
+
+    def before_import(self, _cursor, _metadata, columns: list[DatabaseColumn], _keep_identity: bool) -> None:
+        self.calls.append(("before", [column.name for column in columns]))
+
+    def executemany(self, _cursor, sql: str, rows) -> None:
+        self.calls.append(("executemany", sql, [tuple(row) for row in rows]))
 
     def after_import(self, _cursor, _metadata, columns: list[DatabaseColumn], _keep_identity: bool) -> None:
         self.calls.append(("after", [column.name for column in columns]))
