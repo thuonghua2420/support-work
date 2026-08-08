@@ -3,6 +3,7 @@
 const state = {
   bootstrap: null,
   notes: [],
+  excelFormatPresets: [],
   fixmes: [],
   job: null,
   jobCursor: 0,
@@ -30,11 +31,13 @@ async function init() {
   try {
     state.bootstrap = await api("/api/bootstrap");
     state.notes = state.bootstrap.notes || [];
+    state.excelFormatPresets = state.bootstrap.excel_format_presets || [];
     state.fixmes = state.bootstrap.fixmes || [];
     hydrateDefaults();
     renderWorkflows();
     renderConnectionForms();
     renderNotes();
+    renderExcelFormatPresets();
     renderFixmes();
     renderTables();
     if (state.bootstrap.job) {
@@ -114,6 +117,42 @@ function bindForms() {
     event.preventDefault();
     startAction("copy_ut", { source: valueOf("copy-source"), target: valueOf("copy-target") });
   });
+  $("#excel-format-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const root = valueOf("excel-format-root");
+    const overwriteOriginal = $('input[name="excel-output-mode"]:checked')?.value === "overwrite";
+    const fontName = valueOf("excel-format-font-name");
+    const fontSize = valueOf("excel-format-font-size");
+    const exclusions = valueOf("excel-format-exclusions");
+    const ruleCount = exclusions.split(/\r?\n/).filter((item) => item.trim()).length;
+    const title = overwriteOriginal ? "Ghi đè các workbook gốc?" : "Format các workbook?";
+    const message = overwriteOriginal
+      ? `CẢNH BÁO: Mọi workbook bên dưới “${root}” sẽ được format và lưu trực tiếp. Thao tác này không thể hoàn tác tự động.`
+      : `Workbook sẽ được copy vào “${joinPath(root, "Formatted")}” rồi format. File kết quả cùng tên đã tồn tại có thể bị ghi đè.`;
+    const formatDetails = `\n\nFont: ${fontName}, size ${fontSize}; ${ruleCount} quy tắc giữ nguyên cỡ chữ. Mọi sheet sẽ trở về A1 và scroll về đầu.`;
+    if (await confirmAction(title, message + formatDetails)) {
+      startAction("format_excel_images", {
+        root,
+        recursive: checked("excel-format-recursive"),
+        run_image_format: checked("excel-format-run-image"),
+        font_name: fontName,
+        font_size: fontSize,
+        font_size_exclusions: exclusions,
+        overwrite_original: overwriteOriginal,
+        confirmed: true,
+      });
+    }
+  });
+  $("#excel-format-preset").addEventListener("change", applySelectedExcelFormatPreset);
+  $("#save-excel-format-preset").addEventListener("click", saveExcelFormatPreset);
+  $("#delete-excel-format-preset").addEventListener("click", deleteExcelFormatPreset);
+  $("#sql-studio-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    runSqlAction("sql_analyze");
+  });
+  $("#sql-format").addEventListener("click", () => runSqlAction("sql_format"));
+  $("#sql-analyze").addEventListener("click", () => runSqlAction("sql_analyze"));
+  $("#copy-formatted-sql").addEventListener("click", copyFormattedSql);
 
   $("#rename-exact-form").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -297,6 +336,7 @@ function hydrateDefaults() {
   $("#server-address").textContent = `127.0.0.1:${state.bootstrap.port}`;
   $("#compare-root").value = cwd;
   $("#utility-root").value = cwd;
+  $("#excel-format-root").value = cwd;
   $("#db-csv-path").value = cwd;
   $("#folder-output").value = joinPath(cwd, state.bootstrap.folder_compare_file);
   $("#workflow-count").textContent = String(state.bootstrap.compare_workflows.filter((item) => item.default_enabled).length);
@@ -484,6 +524,72 @@ function renderNotes() {
   $("#delete-note").disabled = !valueOf("note-old-value");
 }
 
+function renderExcelFormatPresets(selectedName = "") {
+  const select = $("#excel-format-preset");
+  select.innerHTML = `<option value="">— Chọn preset —</option>` + state.excelFormatPresets.map((preset) =>
+    `<option value="${escapeHtml(preset.name)}">${escapeHtml(preset.name)}</option>`
+  ).join("");
+  if (selectedName && state.excelFormatPresets.some((item) => item.name === selectedName)) {
+    select.value = selectedName;
+  }
+  $("#delete-excel-format-preset").disabled = !select.value;
+}
+
+function applySelectedExcelFormatPreset() {
+  const name = valueOf("excel-format-preset");
+  const preset = state.excelFormatPresets.find((item) => item.name === name);
+  $("#delete-excel-format-preset").disabled = !preset;
+  if (!preset) return;
+  $("#excel-format-preset-name").value = preset.name;
+  $("#excel-format-font-name").value = preset.font_name;
+  $("#excel-format-font-size").value = String(preset.font_size);
+  $("#excel-format-exclusions").value = Array.isArray(preset.exclusions) ? preset.exclusions.join("\n") : "";
+}
+
+async function saveExcelFormatPreset() {
+  const name = valueOf("excel-format-preset-name");
+  if (!name) {
+    showToast("Vui lòng nhập tên preset.", "error");
+    $("#excel-format-preset-name").focus();
+    return;
+  }
+  try {
+    const response = await api("/api/excel-format-presets/save", {
+      method: "POST",
+      body: {
+        name,
+        font_name: valueOf("excel-format-font-name"),
+        font_size: valueOf("excel-format-font-size"),
+        exclusions: valueOf("excel-format-exclusions"),
+      },
+    });
+    state.excelFormatPresets = response.presets || [];
+    renderExcelFormatPresets(name);
+    applySelectedExcelFormatPreset();
+    showToast("Đã lưu preset format Excel.", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
+async function deleteExcelFormatPreset() {
+  const name = valueOf("excel-format-preset");
+  if (!name) return;
+  if (!await confirmAction("Xóa preset format Excel?", `Preset “${name}” sẽ bị xóa khỏi bộ nhớ.`)) return;
+  try {
+    const response = await api("/api/excel-format-presets/delete", {
+      method: "POST",
+      body: { name },
+    });
+    state.excelFormatPresets = response.presets || [];
+    renderExcelFormatPresets();
+    $("#excel-format-preset-name").value = "";
+    showToast("Đã xóa preset.", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
 function clearNoteForm() {
   $("#note-old-value").value = "";
   $("#note-value").value = "";
@@ -606,12 +712,141 @@ function consumeJobResult(job) {
     list.innerHTML = result.databases.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
     if (!valueOf(`db-${result.role}-database`) && result.databases.length) $(`#db-${result.role}-database`).value = result.databases[0];
   }
+  if (job.action === "sql_format" || job.action === "sql_analyze") {
+    $("#sql-formatted-output").value = result.formatted_sql || "";
+    $("#sql-statement-count").textContent = `${result.statement_count || 0} statement`;
+    $("#sql-output-card").classList.remove("hidden");
+    if (job.action === "sql_analyze") renderSqlAnalysis(result);
+    else $("#sql-analysis").classList.add("hidden");
+  }
+}
+
+function runSqlAction(action) {
+  const sql = valueOf("sql-input");
+  if (!sql) {
+    showToast("Vui lòng nhập câu SQL cần xử lý.", "error");
+    $("#sql-input").focus();
+    return;
+  }
+  startAction(action, { sql, dialect: valueOf("sql-dialect") });
+}
+
+async function copyFormattedSql() {
+  const sql = $("#sql-formatted-output").value;
+  if (!sql) return;
+  try {
+    await navigator.clipboard.writeText(sql);
+  } catch (_error) {
+    const output = $("#sql-formatted-output");
+    output.focus();
+    output.select();
+    document.execCommand("copy");
+  }
+  showToast("Đã sao chép SQL đã format.", "success");
+}
+
+function renderSqlAnalysis(result) {
+  const tables = Array.isArray(result.tables) ? result.tables : [];
+  const conditions = Array.isArray(result.conditions) ? result.conditions : [];
+  const ctes = Array.isArray(result.ctes) ? result.ctes : [];
+  const subqueries = Array.isArray(result.subqueries) ? result.subqueries : [];
+  const projections = Array.isArray(result.projections) ? result.projections : [];
+  const clauses = Array.isArray(result.clauses) ? result.clauses : [];
+
+  $("#sql-analysis").classList.remove("hidden");
+  $("#sql-analysis-dialect").textContent = String(result.dialect || "auto").toUpperCase();
+  $("#sql-count-statements").textContent = String(result.statement_count || 0);
+  $("#sql-count-tables").textContent = String(tables.length);
+  $("#sql-count-conditions").textContent = String(conditions.length);
+  $("#sql-count-ctes").textContent = String(ctes.length);
+  $("#sql-count-subqueries").textContent = String(subqueries.length);
+  $("#sql-table-count").textContent = String(tables.length);
+  $("#sql-condition-count").textContent = String(conditions.length);
+  $("#sql-cte-count").textContent = String(ctes.length);
+  $("#sql-subquery-count").textContent = String(subqueries.length);
+  $("#sql-projection-count").textContent = String(projections.length);
+  $("#sql-clause-count").textContent = String(clauses.length);
+
+  $("#sql-table-body").innerHTML = tables.length ? tables.map((item, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td><code class="sql-code">${escapeHtml(item.qualified_name)}</code></td>
+      <td>${item.alias ? `<b>${escapeHtml(item.alias)}</b>` : "—"}</td>
+      <td><span class="soft-badge">${escapeHtml(item.role)}</span></td>
+      <td>${escapeHtml(sqlSourceTypeLabel(item.source_type))}</td>
+      <td>${sqlScopeHtml(item)}</td>
+    </tr>`).join("") : emptySqlTableRow(6, "Không tìm thấy table/reference trong SQL.");
+
+  $("#sql-condition-body").innerHTML = conditions.length ? conditions.map((item, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td><span class="soft-badge">${escapeHtml(item.clause)}</span></td>
+      <td><code class="sql-code">${escapeHtml(item.expression)}</code></td>
+      <td>${sqlPills(item.referenced_aliases)}</td>
+      <td>${sqlPills(item.referenced_columns)}</td>
+      <td>${sqlScopeHtml(item)}</td>
+    </tr>`).join("") : emptySqlTableRow(6, "Không có điều kiện WHERE/JOIN/HAVING trong SQL.");
+
+  $("#sql-cte-list").innerHTML = ctes.length ? ctes.map((item) => `
+    <article class="sql-stack-item">
+      <header><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.scope_id)}${item.recursive ? " · recursive" : ""}</span></header>
+      <small>${item.columns?.length ? `Columns: ${escapeHtml(item.columns.join(", "))}` : "Không khai báo danh sách column riêng"}</small>
+      <code class="sql-code">${escapeHtml(item.sql)}</code>
+    </article>`).join("") : sqlEmpty("Không có CTE.");
+
+  $("#sql-subquery-list").innerHTML = subqueries.length ? subqueries.map((item) => `
+    <article class="sql-stack-item">
+      <header><strong>${escapeHtml(item.alias || item.subquery_type)}</strong><span>${escapeHtml(item.subquery_type)} · depth ${item.depth}</span></header>
+      <small>${escapeHtml(item.context)} · ${escapeHtml(item.scope_name)}</small>
+      <code class="sql-code">${escapeHtml(item.sql)}</code>
+    </article>`).join("") : sqlEmpty("Không có subquery.");
+
+  $("#sql-projection-body").innerHTML = projections.length ? projections.map((item, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td><code class="sql-code">${escapeHtml(item.expression)}</code></td>
+      <td>${item.alias ? `<b>${escapeHtml(item.alias)}</b>` : "—"}</td>
+      <td>${sqlPills(item.referenced_columns)}</td>
+      <td>${sqlScopeHtml(item)}</td>
+    </tr>`).join("") : emptySqlTableRow(5, "Không có SELECT expression.");
+
+  $("#sql-clause-list").innerHTML = clauses.length ? clauses.map((item) => `
+    <article class="sql-stack-item">
+      <header><strong>${escapeHtml(item.clause)}</strong><span>${escapeHtml(item.scope_id)}</span></header>
+      <small>${escapeHtml(item.scope_name)}</small>
+      <code class="sql-code">${escapeHtml(item.expression)}</code>
+    </article>`).join("") : sqlEmpty("Không có GROUP BY, ORDER BY hoặc LIMIT.");
+}
+
+function sqlScopeHtml(item) {
+  return `<span class="sql-scope">${escapeHtml(item.scope_name || "Main query")}<small>${escapeHtml(item.scope_id || "")} · depth ${Number(item.depth || 0)}</small></span>`;
+}
+
+function sqlPills(values) {
+  if (!Array.isArray(values) || !values.length) return "—";
+  return `<span class="sql-pill-list">${values.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</span>`;
+}
+
+function sqlSourceTypeLabel(value) {
+  const labels = { TABLE: "Table vật lý", CTE_REFERENCE: "CTE reference", QUERY_REFERENCE: "Query reference" };
+  return labels[value] || value || "Table vật lý";
+}
+
+function emptySqlTableRow(columnCount, message) {
+  return `<tr><td colspan="${columnCount}">${sqlEmpty(message)}</td></tr>`;
+}
+
+function sqlEmpty(message) {
+  return `<div class="sql-empty">${escapeHtml(message)}</div>`;
 }
 
 function summaryMessage(job) {
   const result = job.result || {};
   if (job.action === "compare") return `Đã xử lý ${result.processed_count || 0} case, tạo ${result.workbook_count || 0} workbook và tìm thấy ${result.fixme_count || 0} FIXME.`;
   if (job.action === "folder_compare") return `Đã tạo ${result.sheet_count || 0} sheet, tìm thấy ${result.fixme_count || 0} FIXME.`;
+  if (job.action === "format_excel_images") return `Đã format ${result.processed_count || 0}/${result.file_count || 0} workbook, chuẩn hóa ${result.workbook_format_sheet_count || 0} sheet, giữ size cũ tại ${result.font_size_skipped_row_count || 0} row; lỗi ${result.error_count || 0}.`;
+  if (job.action === "sql_format") return `Đã format ${result.statement_count || 0} câu lệnh SQL.`;
+  if (job.action === "sql_analyze") return `Đã phân tích ${result.statement_count || 0} statement: ${result.tables?.length || 0} table/reference, ${result.conditions?.length || 0} điều kiện, ${result.subqueries?.length || 0} subquery.`;
   if (job.action === "db_test") return "Kết nối cơ sở dữ liệu thành công.";
   if (job.action === "db_list_databases") return `Đã tải ${result.databases?.length || 0} cơ sở dữ liệu.`;
   if (job.action === "db_sync") {
@@ -639,8 +874,8 @@ function setJobVisual(kind, text) {
 
 function setBusy(busy) {
   document.body.classList.toggle("is-busy", busy);
-  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #find-empty, #delete-empty, [data-db-test], [data-db-load], #apply-fixmes').forEach((button) => {
-    button.disabled = busy;
+  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #find-empty, #delete-empty, #sql-format, #sql-analyze, #save-excel-format-preset, #delete-excel-format-preset, [data-db-test], [data-db-load], #apply-fixmes').forEach((button) => {
+    button.disabled = busy || (button.id === "delete-excel-format-preset" && !valueOf("excel-format-preset"));
   });
 }
 

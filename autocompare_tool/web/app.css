@@ -46,6 +46,7 @@ code { padding: 2px 6px; border-radius: 5px; background: #eef2f7; color: #34455c
 .nav-item:hover { color: white; background: rgba(255,255,255,.055); }
 .nav-item.active { color: white; border-color: rgba(87,159,255,.22); background: linear-gradient(90deg, rgba(33,121,238,.25), rgba(41,108,196,.1)); box-shadow: inset 3px 0 #3a92ff; }
 .nav-icon { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; color: #a7bfdb; background: rgba(255,255,255,.07); font-size: 18px; }
+.nav-icon.sql-nav-icon { font-size: 8px; font-weight: 850; letter-spacing: -.02em; }
 .nav-item.active .nav-icon { color: white; background: #176bd7; }
 .nav-item strong, .nav-item small { display: block; }
 .nav-item strong { font-size: 13px; font-weight: 650; }
@@ -85,6 +86,10 @@ code { padding: 2px 6px; border-radius: 5px; background: #eef2f7; color: #34455c
 .visual-chip b { padding: 7px 10px; border-radius: 8px; color: var(--blue); background: var(--blue-soft); font-size: 12px; }
 .visual-chip i { color: var(--green); font-style: normal; font-weight: 700; font-size: 12px; }
 .folder-flow b:nth-of-type(2) { color: var(--violet); background: #f0ecff; }
+.excel-format-flow b:first-child { color: var(--amber); background: var(--amber-soft); }
+.excel-format-flow b:nth-of-type(2) { color: var(--green); background: var(--green-soft); }
+.sql-flow b:first-child { color: var(--red); background: var(--red-soft); }
+.sql-flow b:nth-of-type(2) { color: var(--violet); background: #f0ecff; }
 
 .card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
 .form-card { padding: clamp(20px, 3vw, 30px); }
@@ -214,6 +219,81 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .import-mode-card b { color: #334b67; font-size: 11px; line-height: 1.35; }
 .import-mode-card small { margin-top: 5px; color: #7e8ea1; font-size: 9px; line-height: 1.45; }
 .action-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 20px; }
+.excel-format-card { max-width: 1050px; }
+.excel-output-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.excel-output-grid .import-mode-card { min-height: 82px; }
+.excel-font-fields { margin-bottom: 14px; }
+.excel-preset-panel { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto; align-items: end; gap: 10px; margin: 17px 0 14px; padding: 16px; border: 1px solid #dce6f0; border-radius: 12px; background: linear-gradient(145deg, #f9fbfe, #f3f7fc); }
+.excel-preset-actions { display: flex; gap: 7px; }
+.excel-preset-actions button { min-height: 40px; white-space: nowrap; }
+.excel-exclusion-field textarea { min-height: 116px; font: 11px/1.55 "Cascadia Code", Consolas, monospace; }
+.excel-view-note { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 12px 14px; border: 1px solid #d6e7df; border-radius: 10px; color: #3d6656; background: #f1faf6; }
+.excel-view-note > span { display: grid; place-items: center; flex: 0 0 auto; width: 30px; height: 30px; border-radius: 8px; color: var(--green); background: var(--green-soft); font-size: 16px; font-weight: 800; }
+.excel-view-note p { margin: 0; font-size: 10px; line-height: 1.5; }
+.excel-view-note strong { display: block; color: #315848; font-size: 11px; }
+.excel-requirement { margin-top: 21px; }
+.format-logic-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; max-width: 1050px; margin-top: 18px; }
+.format-logic-item { display: flex; align-items: center; gap: 13px; padding: 16px 18px; }
+.format-logic-item > span { display: grid; place-items: center; flex: 0 0 auto; width: 32px; height: 32px; border-radius: 9px; color: var(--blue); background: var(--blue-soft); font-size: 11px; font-weight: 800; }
+.format-logic-item strong, .format-logic-item small { display: block; }
+.format-logic-item strong { color: #344b66; font-size: 11px; }
+.format-logic-item small { margin-top: 3px; color: #8492a3; font-size: 9px; line-height: 1.45; }
+
+.sql-editor-card { padding: 0; overflow: hidden; }
+.sql-editor-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 22px; border-bottom: 1px solid var(--line-soft); background: linear-gradient(180deg, #fff, #fbfcfe); }
+.sql-editor-toolbar > div { display: flex; align-items: center; gap: 11px; }
+.sql-editor-toolbar h3, .sql-analysis-heading h3 { margin: 0; font-size: 16px; }
+.sql-editor-toolbar small { display: block; margin-top: 3px; color: #8b98a8; font-size: 9px; }
+.sql-dialect-control { display: flex; align-items: center; gap: 9px; }
+.sql-dialect-control > span { color: #64758a; font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.sql-dialect-control select { min-width: 210px; min-height: 36px; padding-block: 7px; font-size: 10px; }
+.sql-editor-wrap { position: relative; background: #101d2e; }
+.sql-gutter { position: absolute; top: 15px; left: 15px; z-index: 1; padding: 4px 6px; border: 1px solid rgba(117,177,255,.18); border-radius: 5px; color: #71adfa; background: rgba(49,124,218,.1); font: 8px/1 "Cascadia Code", Consolas, monospace; font-weight: 800; letter-spacing: .1em; }
+#sql-input, .sql-formatted-output { width: 100%; min-height: 360px; padding: 48px 22px 22px; border: 0; border-radius: 0; color: #dbe9f8; background: #101d2e; box-shadow: none; resize: vertical; tab-size: 2; font: 12px/1.72 "Cascadia Code", Consolas, monospace; }
+#sql-input:focus { color: #eef6ff; background: #0e1b2c; box-shadow: inset 0 0 0 2px rgba(58,146,255,.22); }
+#sql-input::placeholder { color: #58708d; }
+.sql-editor-actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 16px 22px; border-top: 1px solid #20334b; background: #14253b; }
+.sql-editor-actions .hint { color: #849ab4; }
+.sql-editor-actions > div { display: flex; gap: 8px; flex: 0 0 auto; }
+.sql-editor-actions .secondary-button { border-color: #3a5069; color: #c6d7e9; background: #1c3049; }
+.sql-output-card { margin-top: 20px; padding: 22px; }
+.sql-output-card .card-heading { margin-bottom: 14px; }
+.sql-formatted-output { min-height: 340px; padding: 20px 22px; border: 1px solid #203550; border-radius: 11px; color: #dceafa; background: #112138; }
+.sql-analysis { margin-top: 28px; }
+.sql-analysis-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 15px; margin-bottom: 14px; }
+.sql-analysis-heading h3 { margin-top: 5px; font-size: 21px; }
+.sql-metric-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.sql-metric { padding: 16px 18px; }
+.sql-metric span { color: #76869a; font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.sql-metric strong { display: block; margin-top: 5px; color: var(--blue); font-size: 23px; letter-spacing: -.04em; }
+.sql-analysis-card { margin-top: 16px; padding: 21px; }
+.sql-analysis-card .card-heading { margin-bottom: 14px; }
+.sql-result-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; color: var(--blue); background: var(--blue-soft); font-size: 10px; font-weight: 850; }
+.sql-result-icon.condition-icon { color: var(--amber); background: var(--amber-soft); }
+.sql-result-icon.cte-icon { color: var(--violet); background: #f0ecff; }
+.sql-result-icon.subquery-icon { color: var(--green); background: var(--green-soft); }
+.sql-result-icon.select-icon { color: var(--cyan); background: #e7f8fb; }
+.sql-result-icon.clause-icon { color: #4f6075; background: #edf1f5; }
+.sql-table-wrap { max-height: 480px; }
+.sql-result-table { min-width: 900px; }
+.sql-result-table.condition-table { min-width: 1080px; }
+.sql-result-table th { top: 0; }
+.sql-result-table td { max-width: 410px; }
+.sql-code { display: block; max-height: 110px; overflow: auto; padding: 7px 9px; border-radius: 7px; color: #28425f; background: #f2f6fa; font: 10px/1.55 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sql-scope { display: block; color: #52677f; font-size: 10px; font-weight: 700; }
+.sql-scope small { display: block; margin-top: 2px; color: #93a0af; font-size: 8px; font-weight: 500; }
+.sql-pill-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.sql-pill-list span { padding: 3px 6px; border-radius: 5px; color: #4d627a; background: #edf2f7; font: 8px/1.3 "Cascadia Code", Consolas, monospace; }
+.sql-analysis-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.sql-stack { display: grid; gap: 9px; max-height: 520px; overflow: auto; }
+.sql-stack-item { padding: 12px 13px; border: 1px solid var(--line-soft); border-radius: 10px; background: #fafcfe; }
+.sql-stack-item header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sql-stack-item strong { color: #354e6a; font-size: 11px; }
+.sql-stack-item header span { color: #8795a5; font-size: 8px; font-weight: 750; text-transform: uppercase; }
+.sql-stack-item small { display: block; margin-top: 4px; color: #8997a7; font-size: 9px; }
+.sql-stack-item .sql-code { margin-top: 9px; max-height: 145px; }
+.sql-stack.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sql-empty { padding: 24px; border: 1px dashed #d6e0e9; border-radius: 10px; color: #8b98a8; text-align: center; font-size: 10px; }
 .notice { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px; padding: 13px 16px; border: 1px solid #efd59e; border-radius: 11px; color: #72501c; background: var(--amber-soft); font-size: 11px; line-height: 1.5; }
 .notice > b { display: grid; place-items: center; flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; color: white; background: var(--amber); }
 .notice strong { display: block; margin-bottom: 2px; }
@@ -300,6 +380,10 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
   .database-layout { grid-template-columns: 1fr; }
   .sync-connections { grid-template-columns: 1fr; }
   .sync-direction { margin: -5px auto; transform: rotate(90deg); }
+  .sql-metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sql-analysis-split { grid-template-columns: 1fr; }
+  .excel-preset-panel { grid-template-columns: 1fr 1fr; }
+  .excel-preset-actions { grid-column: 1 / -1; }
 }
 
 @media (max-width: 760px) {
@@ -329,7 +413,15 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
   .inline-actions { width: 100%; }
   .inline-actions > button { flex: 1; }
   .action-grid { grid-template-columns: 1fr; }
-  .import-mode-grid { grid-template-columns: 1fr; }
+  .import-mode-grid, .excel-output-grid, .format-logic-grid { grid-template-columns: 1fr; }
+  .excel-preset-panel { grid-template-columns: 1fr; }
+  .excel-preset-actions { grid-column: auto; }
+  .excel-preset-actions > button { flex: 1; }
+  .sql-editor-toolbar, .sql-editor-actions { align-items: stretch; flex-direction: column; }
+  .sql-dialect-control { align-items: stretch; flex-direction: column; }
+  .sql-dialect-control select { width: 100%; min-width: 0; }
+  .sql-editor-actions > div { display: grid; grid-template-columns: 1fr; }
+  .sql-metric-grid, .sql-stack.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .import-mode-card { min-height: 0; }
   .tabs { width: 100%; overflow-x: auto; }
   .tab { flex: 1 0 auto; }

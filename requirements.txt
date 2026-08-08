@@ -1,4 +1,6 @@
 openpyxl>=3.1,<4
+pywin32>=306,<400
+sqlglot>=29,<30
 pyodbc>=5.1,<6
 mysql-connector-python>=9.0,<10
 oracledb>=2.4,<4

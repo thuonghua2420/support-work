@@ -11,6 +11,9 @@ run.bat
       -> app_config.py      -> autocompare_config.ini
       -> processor.py       -> excel_writer.py -> compare.py -> csv_table.py
       -> folder_compare.py  -> excel_writer.py -> compare.py -> csv_table.py
+      -> excel_image_formatter.py -> Microsoft Excel Desktop COM -> workbook VBA
+      -> excel_format_presets.py -> excel_format_presets.json
+      -> sql_tools.py       -> SQLGlot parser/AST
       -> file_utilities.py
       -> fixme_notes.py     -> fixme_notes.json
       -> fixme_replacements.py
@@ -37,6 +40,7 @@ Rules:
 - Accept mutation API bodies only as `application/json`.
 - Keep business rules in the existing non-UI workflow modules.
 - Require an explicit `confirmed: true` payload for delete, DB import/export, and DB synchronization actions.
+- Require explicit confirmation for Excel image formatting because copied results can be overwritten and overwrite mode mutates source workbooks.
 
 ### `autocompare_tool/web/`
 
@@ -138,6 +142,52 @@ Owns:
 Keep:
 
 - Styling constants near this module until there is a real theme/config need.
+
+### `autocompare_tool/excel_image_formatter.py`
+
+Owns:
+
+- Recursive discovery of `.xlsx`, `.xls`, `.xlsb`, and `.xlsm` workbooks.
+- Safe-copy output under `Formatted` or explicit in-place overwrite mode.
+- One hidden Microsoft Excel COM session per batch.
+- Direct invocation of each workbook's public `FixForMatUTR` VBA routine on eligible sheets.
+- Workbook-wide font/font-size formatting, row exclusions, A1 selection, scroll reset, and first-sheet activation.
+
+Rules:
+
+- Use Excel Desktop automation rather than `openpyxl` so images, VBA projects, and form buttons remain intact.
+- Skip temporary `~$` workbooks, the output tree, and history/sample sheets excluded by the source VBA.
+- Apply general font/view formatting to every worksheet; special-sheet exclusions affect only the image macro.
+- Treat a plain exclusion as an exact, case-insensitive value anywhere in a row; treat `(Text, A1)` as a value check at one explicit cell.
+- Do not weaken Excel macro security settings from Python.
+
+### `autocompare_tool/excel_format_presets.py`
+
+Owns:
+
+- Parsing and validating font-size exclusion rules.
+- Loading, updating, and deleting user-named Excel format presets.
+- JSON persistence in the ignored root-level `excel_format_presets.json` file.
+
+Rules:
+
+- Persist only preset name, font name, font size, and normalized exclusion text.
+- Keep preset matching case-insensitive and rule order stable.
+
+### `autocompare_tool/sql_tools.py`
+
+Owns:
+
+- Multi-statement SQL parsing and pretty formatting through SQLGlot.
+- Dialect validation for the SQL Studio choices.
+- AST/scope traversal for physical tables, CTE references, aliases, DML targets, conditions, CTEs, subqueries, projections, grouping, ordering, and limits.
+- Parser-error translation into line/column messages suitable for the web UI.
+
+Rules:
+
+- Never execute submitted SQL or connect to a database from SQL Studio.
+- Use AST nodes and SQLGlot scopes; do not identify tables or subqueries with regex.
+- Keep every table occurrence, including repeated/self-join references, because aliases and scopes are semantically distinct.
 
 ### `autocompare_tool/csv_table.py`
 
@@ -301,6 +351,17 @@ Selected folder or Excel file
   -> validate path and user input
   -> run utility worker
   -> log per-item changes and summary
+```
+
+### SQL Studio Flow
+
+```text
+SQL text + selected dialect
+  -> parse all statements into SQLGlot ASTs
+  -> format each statement with pretty output
+  -> traverse query scopes
+  -> collect tables/aliases + conditions + CTE/subquery/projection/clause metadata
+  -> return structured JSON for the web result panels
 ```
 
 ## Extension Points

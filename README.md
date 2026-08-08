@@ -44,10 +44,36 @@ Giao diện Tkinter cũ vẫn có thể mở tạm thời bằng:
 - **So sánh 2 folder CSV**: quét đệ quy hai folder bất kỳ và tạo một workbook tổng hợp, bao gồm file chỉ tồn tại ở một phía.
 - **Tiện ích file**: đổi tên, xóa, di chuyển file/folder, đổi tên sheet Excel và tìm/xóa folder trống.
 - **Sao chép file UT**: chạy logic tương thích từ `copy_ut_files.py` và tạo log chi tiết trong `copy_logs`.
+- **Format ảnh Excel**: chạy macro `FixForMatUTR` trong hàng loạt workbook có macro, giữ nguyên ảnh, VBA và button.
+- **SQL Studio**: format SQL và phân tích table/alias, điều kiện, CTE, subquery, SELECT expression theo cây cú pháp.
 - **CSV ↔ Database**: test kết nối, chuẩn hóa CSV, import CSV và export table cho SQL Server, MySQL, PostgreSQL và Oracle.
 - **Đồng bộ 2 CSDL**: đồng bộ chênh lệch theo primary key, insert thêm hoặc truncate rồi đồng bộ lại.
 
 Các thao tác xóa, import, export và đồng bộ luôn yêu cầu xác nhận rõ ràng trên giao diện web. DB import không tự truncate table.
+
+## Format ảnh và workbook Excel
+
+Chọn folder chứa workbook `.xlsx`, `.xlsm`, `.xlsb` hoặc `.xls`. Công cụ áp dụng font và cỡ chữ cho toàn bộ sheet, đưa mỗi sheet về ô `A1`, kéo thanh cuộn ngang/dọc về đầu và chọn sheet đầu tiên trước khi lưu. Với file có macro, có thể bật thêm bước gọi public macro `FixForMatUTR` theo `sampleformatimage/sample.vba` để format ảnh; file `.xlsx` vẫn được format font/view nhưng tự bỏ qua bước macro.
+
+Ô **Giữ nguyên size cho các row** nhận nhiều quy tắc, mỗi quy tắc một dòng:
+
+- `Header`: giữ nguyên cỡ chữ của mọi row có cell bằng chính xác `Header` (không phân biệt hoa/thường).
+- `(Header, A1)`: chỉ giữ nguyên cỡ chữ của row chứa `A1` khi giá trị tại `A1` bằng `Header`.
+
+Font name vẫn được áp dụng cho các row này; phần loại trừ chỉ áp dụng cho font size. Có thể đặt tên và lưu font, size cùng toàn bộ quy tắc thành preset JSON local, sau đó chọn lại từ combobox ở những lần chạy sau.
+
+Mặc định workbook được copy theo đúng cấu trúc folder vào thư mục con `Formatted` rồi mới xử lý. Chỉ chọn **Ghi đè file gốc** khi đã có backup. Cả hai chế độ đều yêu cầu xác nhận vì kết quả cũ cùng tên có thể bị ghi đè.
+
+Tính năng này cần Microsoft Excel Desktop trên máy Windows. Ứng dụng không tự hạ mức bảo mật macro; workbook phải được Excel cho phép chạy macro. Dùng Excel COM thay vì `openpyxl` để không làm mất VBA, ảnh hoặc button có sẵn. Các preset cá nhân được lưu trong `excel_format_presets.json` và file này không được commit vào Git.
+
+## SQL Studio
+
+Tab **SQL Studio** có hai thao tác độc lập và không thực thi SQL trên database:
+
+- **Format SQL**: chuẩn hóa keyword, xuống dòng và thụt lề; hỗ trợ nhiều statement trong cùng input.
+- **Phân tích toàn bộ**: parse SQL thành AST rồi liệt kê từng table/reference cùng alias, vai trò `FROM`/`JOIN`/DML target và scope. Kết quả còn gồm điều kiện `WHERE`, `JOIN ON/USING`, `HAVING`, `QUALIFY`, `MERGE ON`, `START WITH`, `CONNECT BY`, `CASE/IF`, CTE, subquery, SELECT expression, `GROUP BY`, `ORDER BY`, `LIMIT/OFFSET`.
+
+Có thể chọn dialect SQL Server, MySQL, PostgreSQL, Oracle, SQLite, BigQuery, Snowflake, Spark, Databricks hoặc DuckDB. Chế độ tự động dùng SQL phổ thông; với cú pháp riêng của hệ quản trị nên chọn đúng dialect để parser không hiểu nhầm. Ứng dụng không đặt giới hạn riêng về số dòng/độ dài SQL; giới hạn thực tế phụ thuộc bộ nhớ khả dụng của máy và trình duyệt.
 
 ## Chọn đường dẫn
 

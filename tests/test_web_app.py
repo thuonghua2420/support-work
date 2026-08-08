@@ -7,6 +7,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from autocompare_tool.database_io import DatabaseConnectionSettings, DatabaseCsvSummary, DatabaseSyncSummary
+from autocompare_tool.excel_format_presets import ExcelFormatPresetStore
+from autocompare_tool.excel_image_formatter import ExcelImageFormatSummary
+from autocompare_tool.sql_tools import SqlFormatResult
 from autocompare_tool.web_app import (
     AutoCompareWebApplication,
     JobManager,
@@ -25,6 +28,26 @@ class WebApplicationTests(unittest.TestCase):
         self.assertTrue(result["compare_workflows"])
         self.assertIn("SQL Server", result["database_types"])
         self.assertIn("folder_compare_file", result)
+        self.assertIn("excel_format_presets", result)
+
+    def test_excel_format_preset_can_be_saved_and_deleted(self) -> None:
+        app = AutoCompareWebApplication()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app.excel_format_preset_store = ExcelFormatPresetStore(Path(temp_dir) / "presets.json")
+
+            presets = app.save_excel_format_preset(
+                {
+                    "name": "UT chuẩn",
+                    "font_name": "Meiryo UI",
+                    "font_size": "10.5",
+                    "exclusions": "Header\n(Title, B2)",
+                }
+            )
+
+            self.assertEqual("UT chuẩn", presets[0]["name"])
+            self.assertEqual(10.5, presets[0]["font_size"])
+            self.assertEqual(["Header", "(Title, B2)"], presets[0]["exclusions"])
+            self.assertEqual([], app.delete_excel_format_preset({"name": "UT chuẩn"}))
 
     def test_file_picker_filters_files_but_keeps_directories(self) -> None:
         app = AutoCompareWebApplication()
@@ -58,6 +81,61 @@ class WebApplicationTests(unittest.TestCase):
 
         with self.assertRaises(PermissionError):
             app.start_action("delete_empty_folders", {"root": str(Path.cwd())})
+
+    def test_excel_format_action_requires_explicit_confirmation(self) -> None:
+        app = AutoCompareWebApplication()
+
+        with self.assertRaises(PermissionError):
+            app.start_action("format_excel_images", {"root": str(Path.cwd())})
+
+    def test_excel_format_action_maps_safe_copy_options(self) -> None:
+        app = AutoCompareWebApplication()
+        summary = ExcelImageFormatSummary(
+            action_name="Format ảnh Excel",
+            root_path=Path.cwd(),
+            output_root=Path.cwd() / "Formatted",
+        )
+        payload = {
+            "root": str(Path.cwd()),
+            "recursive": False,
+            "overwrite_original": False,
+            "run_image_format": False,
+            "font_name": "Calibri",
+            "font_size": "12",
+            "font_size_exclusions": "Header\n(Title, A1)",
+        }
+
+        with patch("autocompare_tool.web_app.format_excel_images", return_value=summary) as format_mock:
+            result = app._operation("format_excel_images", payload)(lambda _message: None)
+
+        self.assertEqual(0, result["processed_count"])
+        self.assertEqual(str(Path.cwd() / "Formatted"), result["output_root"])
+        self.assertFalse(format_mock.call_args.kwargs["recursive"])
+        self.assertFalse(format_mock.call_args.kwargs["overwrite_original"])
+        self.assertTrue(format_mock.call_args.kwargs["draw_format"])
+        self.assertFalse(format_mock.call_args.kwargs["run_image_format"])
+        self.assertEqual("Calibri", format_mock.call_args.kwargs["font_name"])
+        self.assertEqual("12", format_mock.call_args.kwargs["font_size"])
+        self.assertEqual("Header\n(Title, A1)", format_mock.call_args.kwargs["font_size_exclusions"])
+
+    def test_sql_format_action_maps_sql_and_dialect(self) -> None:
+        app = AutoCompareWebApplication()
+        summary = SqlFormatResult(
+            formatted_sql="SELECT\n  *\nFROM x",
+            statement_count=1,
+            dialect="tsql",
+        )
+
+        with patch("autocompare_tool.web_app.format_sql", return_value=summary) as format_mock:
+            result = app._operation(
+                "sql_format",
+                {"sql": "select * from x", "dialect": "tsql"},
+            )(lambda _message: None)
+
+        self.assertEqual("SELECT\n  *\nFROM x", result["formatted_sql"])
+        self.assertEqual("select * from x", format_mock.call_args.args[0])
+        self.assertEqual("tsql", format_mock.call_args.kwargs["dialect"])
+        self.assertIsNotNone(format_mock.call_args.kwargs["log"])
 
     def test_database_settings_are_mapped_from_json(self) -> None:
         settings = _db_settings(

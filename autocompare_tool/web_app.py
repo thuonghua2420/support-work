@@ -30,6 +30,8 @@ from .database_io import (
     sync_database_tables,
     test_database_connection,
 )
+from .excel_image_formatter import format_excel_images
+from .excel_format_presets import ExcelFormatPreset, ExcelFormatPresetStore
 from .excel_writer import WorkbookFixmeEntry
 from .file_utilities import (
     delete_contains_text,
@@ -44,6 +46,7 @@ from .fixme_notes import FixmeNote, FixmeNoteStore
 from .fixme_replacements import apply_fixme_replacements
 from .folder_compare import compare_csv_folders
 from .processor import process_root
+from .sql_tools import analyze_sql, format_sql
 
 APP_TITLE = "AutoCompare"
 DEFAULT_HOST = "127.0.0.1"
@@ -143,6 +146,9 @@ class AutoCompareWebApplication:
         "compare": "Đang chạy so sánh UT...",
         "folder_compare": "Đang so sánh hai folder CSV...",
         "copy_ut": "Đang sao chép file UT...",
+        "format_excel_images": "Đang format ảnh trong Excel...",
+        "sql_format": "Đang format câu SQL...",
+        "sql_analyze": "Đang phân tích toàn bộ câu SQL...",
         "rename_exact": "Đang đổi tên chính xác...",
         "rename_contains": "Đang đổi tên theo nội dung...",
         "delete_contains": "Đang xóa file/folder...",
@@ -165,17 +171,20 @@ class AutoCompareWebApplication:
         "db_import",
         "db_export",
         "db_sync",
+        "format_excel_images",
     }
 
     def __init__(self) -> None:
         self.config: AppConfig = load_app_config()
         self.note_store = FixmeNoteStore()
+        self.excel_format_preset_store = ExcelFormatPresetStore()
         self.jobs = JobManager()
         self._state_lock = threading.Lock()
         self._fixme_entries: list[WorkbookFixmeEntry] = []
 
     def bootstrap(self, port: int) -> dict[str, Any]:
         notes = self.note_store.load()
+        excel_format_presets = self.excel_format_preset_store.load()
         return {
             "app_title": APP_TITLE,
             "cwd": str(Path.cwd()),
@@ -199,6 +208,7 @@ class AutoCompareWebApplication:
             },
             "sqlserver_drivers": get_available_sqlserver_drivers(),
             "notes": [_note_to_dict(note) for note in notes],
+            "excel_format_presets": [_excel_format_preset_to_dict(item) for item in excel_format_presets],
             "fixmes": self.fixme_snapshot(),
             "job": self.jobs.snapshot(),
         }
@@ -220,6 +230,19 @@ class AutoCompareWebApplication:
     def delete_note(self, payload: dict[str, Any]) -> list[dict[str, str]]:
         notes = self.note_store.delete(_text(payload, "value"))
         return [_note_to_dict(note) for note in notes]
+
+    def save_excel_format_preset(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        presets = self.excel_format_preset_store.upsert(
+            name=_text(payload, "name"),
+            font_name=_text(payload, "font_name"),
+            font_size=payload.get("font_size", 11),
+            exclusions=payload.get("exclusions", ""),
+        )
+        return [_excel_format_preset_to_dict(item) for item in presets]
+
+    def delete_excel_format_preset(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        presets = self.excel_format_preset_store.delete(_text(payload, "name"))
+        return [_excel_format_preset_to_dict(item) for item in presets]
 
     def start_action(self, action: str, payload: dict[str, Any]) -> WebJob:
         if action not in self.ACTION_LABELS:
@@ -282,6 +305,33 @@ class AutoCompareWebApplication:
             "compare": lambda log: self._compare(payload, log),
             "folder_compare": lambda log: self._folder_compare(payload, log),
             "copy_ut": lambda log: self._copy_ut(payload, log),
+            "format_excel_images": lambda log: self._file_summary(
+                format_excel_images(
+                    _text(payload, "root"),
+                    overwrite_original=_bool(payload, "overwrite_original"),
+                    recursive=_bool(payload, "recursive", True),
+                    draw_format=True,
+                    run_image_format=_bool(payload, "run_image_format", True),
+                    font_name=_text(payload, "font_name"),
+                    font_size=payload.get("font_size", 11),
+                    font_size_exclusions=payload.get("font_size_exclusions", ""),
+                    log=log,
+                )
+            ),
+            "sql_format": lambda log: self._file_summary(
+                format_sql(
+                    _text(payload, "sql"),
+                    dialect=str(payload.get("dialect", "")),
+                    log=log,
+                )
+            ),
+            "sql_analyze": lambda log: self._file_summary(
+                analyze_sql(
+                    _text(payload, "sql"),
+                    dialect=str(payload.get("dialect", "")),
+                    log=log,
+                )
+            ),
             "rename_exact": lambda log: self._file_summary(
                 rename_exact_name(
                     _text(payload, "root"),
@@ -537,6 +587,12 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/notes/delete":
                 self._send_json({"notes": self.app.delete_note(payload)})
                 return
+            if parsed.path == "/api/excel-format-presets/save":
+                self._send_json({"presets": self.app.save_excel_format_preset(payload)})
+                return
+            if parsed.path == "/api/excel-format-presets/delete":
+                self._send_json({"presets": self.app.delete_excel_format_preset(payload)})
+                return
             raise FileNotFoundError(f"API không tồn tại: {parsed.path}")
         except Exception as exc:
             self._send_error_json(exc)
@@ -680,6 +736,15 @@ def _fixme_to_dict(entry: WorkbookFixmeEntry, index: int) -> dict[str, Any]:
 
 def _note_to_dict(note: FixmeNote) -> dict[str, str]:
     return {"value": note.value, "meaning": note.meaning}
+
+
+def _excel_format_preset_to_dict(preset: ExcelFormatPreset) -> dict[str, Any]:
+    return {
+        "name": preset.name,
+        "font_name": preset.font_name,
+        "font_size": preset.font_size,
+        "exclusions": list(preset.exclusions),
+    }
 
 
 def _jsonable(value: Any) -> Any:

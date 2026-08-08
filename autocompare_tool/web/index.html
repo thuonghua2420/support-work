@@ -28,6 +28,12 @@
         <button class="nav-item" data-page="copy-ut" type="button">
           <span class="nav-icon">⧉</span><span><strong>Sao chép UT</strong><small>Copy theo cấu trúc test</small></span>
         </button>
+          <button class="nav-item" data-page="excel-format" type="button">
+            <span class="nav-icon">▦</span><span><strong>Format ảnh Excel</strong><small>Ảnh · font · vị trí sheet</small></span>
+        </button>
+        <button class="nav-item" data-page="sql-studio" type="button">
+          <span class="nav-icon sql-nav-icon">SQL</span><span><strong>SQL Studio</strong><small>Format &amp; phân tích câu SQL</small></span>
+        </button>
         <button class="nav-item" data-page="database" type="button">
           <span class="nav-icon">▱</span><span><strong>Cơ sở dữ liệu</strong><small>CSV I/O &amp; đồng bộ</small></span>
         </button>
@@ -125,6 +131,137 @@
             </div>
             <div class="form-actions"><span class="hint">Log chi tiết được lưu trong folder <code>copy_logs</code>.</span><button class="primary-button" type="submit">Bắt đầu sao chép <b>→</b></button></div>
           </form>
+        </section>
+
+        <section class="page" id="page-excel-format" data-title="Format ảnh Excel" data-eyebrow="WORKSPACE / EXCEL IMAGE FORMAT">
+          <div class="page-intro">
+            <div><span class="section-kicker">Excel workflow</span><h2>Căn ảnh và chuẩn hóa toàn bộ workbook</h2><p>Chạy logic căn ảnh UT, đồng thời thống nhất font/cỡ chữ và đưa mọi sheet về vị trí A1 để mở file luôn ở trạng thái dễ đọc.</p></div>
+            <div class="visual-chip excel-format-flow"><b>Ảnh cũ</b><span>⇄</span><b>Ảnh mới</b><i>→ Căn chuẩn</i></div>
+          </div>
+
+          <form class="card form-card excel-format-card" id="excel-format-form">
+            <div class="card-heading"><div><span class="step-number">01</span><h3>Folder workbook</h3></div><span class="soft-badge">XLSX · XLSM · XLSB · XLS</span></div>
+            <label class="field field-wide"><span>Đường dẫn chứa file Excel</span><span class="path-control"><input id="excel-format-root" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="excel-format-root" data-browse-kind="directory">Chọn folder</button></span><small>File XLSX được format font/view; chỉ bước căn ảnh mới cần macro public <code>FixForMatUTR</code> như file <code>sample.vba</code>.</small></label>
+            <label class="switch-row"><span><strong>Quét cả folder con</strong><small>Giữ nguyên cấu trúc folder con khi tạo bản sao.</small></span><input class="switch" type="checkbox" id="excel-format-recursive" checked></label>
+
+            <div class="divider"></div>
+            <div class="card-heading compact"><div><span class="step-number">02</span><h3>Định dạng workbook</h3></div><span class="soft-badge">Font · Size · View</span></div>
+            <div class="two-column excel-font-fields">
+              <label class="field"><span>Font chữ</span><input id="excel-format-font-name" value="Meiryo UI" required><small>Áp dụng cho toàn bộ vùng dữ liệu đã sử dụng trên mọi sheet.</small></label>
+              <label class="field"><span>Cỡ chữ</span><input id="excel-format-font-size" type="number" min="1" max="409" step="0.5" value="11" required><small>Chỉ các row khớp quy tắc bên dưới được giữ nguyên size cũ.</small></label>
+            </div>
+            <label class="switch-row"><span><strong>Chạy căn ảnh bằng VBA</strong><small>Bật để gọi <code>FixForMatUTR</code> trên file có macro; file XLSX vẫn được format font và view.</small></span><input class="switch" type="checkbox" id="excel-format-run-image" checked></label>
+
+            <div class="excel-preset-panel">
+              <label class="field"><span>Bộ quy tắc đã lưu</span><select id="excel-format-preset"><option value="">— Chọn preset —</option></select></label>
+              <label class="field"><span>Tên preset</span><input id="excel-format-preset-name" placeholder="Ví dụ: UT Report chuẩn"></label>
+              <div class="excel-preset-actions"><button class="secondary-button" id="save-excel-format-preset" type="button">Lưu preset</button><button class="danger-button subtle" id="delete-excel-format-preset" type="button" disabled>Xóa</button></div>
+            </div>
+            <label class="field field-wide excel-exclusion-field"><span>Không đổi cỡ chữ tại các row</span><textarea id="excel-format-exclusions" rows="5" spellcheck="false" placeholder="Header&#10;(Title, A1)&#10;Total"></textarea><small>Mỗi quy tắc một dòng. <code>Header</code>: giữ nguyên size của mọi row có cell bằng Header. <code>(Header, A1)</code>: chỉ giữ row của A1 khi A1 bằng Header.</small></label>
+            <div class="excel-view-note"><span>↖</span><p><strong>Trạng thái sau khi lưu</strong>Mỗi sheet chọn ô A1, scroll ngang/dọc về đầu; workbook được đặt tại sheet đầu tiên.</p></div>
+
+            <div class="divider"></div>
+            <div class="card-heading compact"><div><span class="step-number">03</span><h3>Chọn cách lưu</h3></div></div>
+            <fieldset class="import-mode-fieldset excel-output-fieldset">
+              <div class="excel-output-grid">
+                <label class="import-mode-card">
+                  <input type="radio" name="excel-output-mode" value="copy" checked>
+                  <span><b>Tạo bản sao an toàn</b><small>Copy vào folder <code>Formatted</code> bên trong đường dẫn đã chọn rồi mới format.</small></span>
+                </label>
+                <label class="import-mode-card danger-mode">
+                  <input type="radio" name="excel-output-mode" value="overwrite">
+                  <span><b>Ghi đè file gốc</b><small>Format và lưu trực tiếp vào workbook nguồn; không thể hoàn tác tự động.</small></span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div class="notice excel-requirement"><b>i</b><span><strong>Cần Microsoft Excel Desktop</strong>Excel chạy ẩn để giữ nguyên ảnh, VBA và button. Sheet đặc biệt chỉ bị bỏ qua ở bước căn ảnh; font và trạng thái xem vẫn được chuẩn hóa.</span></div>
+            <div class="form-actions"><span class="hint">Mặc định tạo bản sao an toàn trong <code>Formatted</code>.</span><button class="primary-button" type="submit">Format workbook <b>→</b></button></div>
+          </form>
+
+          <div class="format-logic-grid" aria-label="Quy trình format">
+            <article class="card format-logic-item"><span>1</span><div><strong>Nhận diện ảnh</strong><small>Tách ảnh cũ và mới tại mốc cột 19.</small></div></article>
+            <article class="card format-logic-item"><span>2</span><div><strong>Ghép theo hàng</strong><small>Sắp xếp theo vị trí và các vùng Input, Steps, Output.</small></div></article>
+            <article class="card format-logic-item"><span>3</span><div><strong>Căn &amp; lưu</strong><small>Resize, dồn hàng, kẻ viền rồi lưu workbook.</small></div></article>
+          </div>
+        </section>
+
+        <section class="page" id="page-sql-studio" data-title="SQL Studio" data-eyebrow="WORKSPACE / SQL STUDIO">
+          <div class="page-intro">
+            <div><span class="section-kicker">SQL workspace</span><h2>Làm sạch và đọc hiểu SQL phức tạp</h2><p>Format lại câu SQL khó đọc hoặc phân tích cây cú pháp để tìm đầy đủ table, alias, điều kiện, CTE và subquery theo từng scope.</p></div>
+            <div class="visual-chip sql-flow"><b>SQL bẩn</b><span>→</span><b>AST</b><span>→</span><i>Rõ ràng</i></div>
+          </div>
+
+          <form class="card sql-editor-card" id="sql-studio-form">
+            <div class="sql-editor-toolbar">
+              <div><span class="step-number">01</span><div><h3>SQL đầu vào</h3><small>Không thực thi SQL và không kết nối database</small></div></div>
+              <label class="sql-dialect-control"><span>Dialect</span><select id="sql-dialect">
+                <option value="">Tự động / SQL phổ thông</option>
+                <option value="tsql">SQL Server (T-SQL)</option>
+                <option value="mysql">MySQL</option>
+                <option value="postgres">PostgreSQL</option>
+                <option value="oracle">Oracle</option>
+                <option value="sqlite">SQLite</option>
+                <option value="bigquery">BigQuery</option>
+                <option value="snowflake">Snowflake</option>
+                <option value="spark">Spark SQL</option>
+                <option value="databricks">Databricks</option>
+                <option value="duckdb">DuckDB</option>
+              </select></label>
+            </div>
+            <div class="sql-editor-wrap"><span class="sql-gutter" aria-hidden="true">SQL</span><textarea id="sql-input" rows="18" spellcheck="false" placeholder="Dán câu SQL vào đây..." required></textarea></div>
+            <div class="sql-editor-actions">
+              <span class="hint">Hỗ trợ nhiều statement; chọn đúng dialect để nhận diện cú pháp đặc thù chính xác nhất.</span>
+              <div><button class="secondary-button" id="sql-format" type="button">Format SQL</button><button class="primary-button" id="sql-analyze" type="button">Phân tích toàn bộ <b>→</b></button></div>
+            </div>
+          </form>
+
+          <section class="card sql-output-card hidden" id="sql-output-card">
+            <div class="card-heading"><div><span class="step-number">02</span><h3>SQL đã format</h3><span class="count-badge" id="sql-statement-count">0 statement</span></div><button class="secondary-button small" id="copy-formatted-sql" type="button">Sao chép</button></div>
+            <textarea class="sql-formatted-output" id="sql-formatted-output" rows="18" readonly spellcheck="false"></textarea>
+          </section>
+
+          <section class="sql-analysis hidden" id="sql-analysis">
+            <div class="sql-analysis-heading"><div><span class="section-kicker">AST analysis</span><h3>Kết quả phân tích</h3></div><span class="soft-badge" id="sql-analysis-dialect">AUTO</span></div>
+            <div class="sql-metric-grid">
+              <div class="card sql-metric"><span>Statements</span><strong id="sql-count-statements">0</strong></div>
+              <div class="card sql-metric"><span>Tables / refs</span><strong id="sql-count-tables">0</strong></div>
+              <div class="card sql-metric"><span>Conditions</span><strong id="sql-count-conditions">0</strong></div>
+              <div class="card sql-metric"><span>CTE</span><strong id="sql-count-ctes">0</strong></div>
+              <div class="card sql-metric"><span>Subqueries</span><strong id="sql-count-subqueries">0</strong></div>
+            </div>
+
+            <section class="card sql-analysis-card">
+              <div class="card-heading"><div><span class="sql-result-icon table-icon">T</span><h3>Table và alias</h3><span class="count-badge" id="sql-table-count">0</span></div></div>
+              <div class="table-wrap sql-table-wrap"><table class="sql-result-table"><thead><tr><th>#</th><th>Table / reference</th><th>Alias</th><th>Vai trò</th><th>Loại nguồn</th><th>Scope</th></tr></thead><tbody id="sql-table-body"></tbody></table></div>
+            </section>
+
+            <section class="card sql-analysis-card">
+              <div class="card-heading"><div><span class="sql-result-icon condition-icon">?</span><h3>Điều kiện WHERE / JOIN / HAVING</h3><span class="count-badge" id="sql-condition-count">0</span></div></div>
+              <div class="table-wrap sql-table-wrap"><table class="sql-result-table condition-table"><thead><tr><th>#</th><th>Clause</th><th>Điều kiện</th><th>Alias tham chiếu</th><th>Columns</th><th>Scope</th></tr></thead><tbody id="sql-condition-body"></tbody></table></div>
+            </section>
+
+            <div class="sql-analysis-split">
+              <section class="card sql-analysis-card">
+                <div class="card-heading"><div><span class="sql-result-icon cte-icon">C</span><h3>CTE</h3><span class="count-badge" id="sql-cte-count">0</span></div></div>
+                <div class="sql-stack" id="sql-cte-list"></div>
+              </section>
+              <section class="card sql-analysis-card">
+                <div class="card-heading"><div><span class="sql-result-icon subquery-icon">Q</span><h3>Subquery</h3><span class="count-badge" id="sql-subquery-count">0</span></div></div>
+                <div class="sql-stack" id="sql-subquery-list"></div>
+              </section>
+            </div>
+
+            <section class="card sql-analysis-card">
+              <div class="card-heading"><div><span class="sql-result-icon select-icon">S</span><h3>SELECT expressions</h3><span class="count-badge" id="sql-projection-count">0</span></div></div>
+              <div class="table-wrap sql-table-wrap"><table class="sql-result-table"><thead><tr><th>#</th><th>Expression</th><th>Output alias</th><th>Columns</th><th>Scope</th></tr></thead><tbody id="sql-projection-body"></tbody></table></div>
+            </section>
+
+            <section class="card sql-analysis-card">
+              <div class="card-heading"><div><span class="sql-result-icon clause-icon">≡</span><h3>GROUP BY / ORDER BY / LIMIT</h3><span class="count-badge" id="sql-clause-count">0</span></div></div>
+              <div class="sql-stack compact" id="sql-clause-list"></div>
+            </section>
+          </section>
         </section>
 
         <section class="page" id="page-database" data-title="Cơ sở dữ liệu" data-eyebrow="WORKSPACE / DATABASE">
