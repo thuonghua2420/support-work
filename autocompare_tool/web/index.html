@@ -4,38 +4,38 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>AutoCompare</title>
+  <title>Support</title>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
-        <span class="brand-mark" aria-hidden="true">AC</span>
-        <span><strong>AutoCompare</strong><small>CSV verification workspace</small></span>
+        <span class="brand-mark" aria-hidden="true">HM</span>
+        <span><strong>Some Support</strong><small>Hope it helps you</small></span>
       </div>
 
       <nav class="nav-list" aria-label="Menu chính">
         <button class="nav-item active" data-page="compare" type="button">
-          <span class="nav-icon">⌁</span><span><strong>So sánh UT</strong><small>Xuất Excel &amp; review FIXME</small></span>
+          <span class="nav-icon">⌁</span><span><strong>Compare Csv</strong><small>Xuất Compare &amp; review FIXME</small></span>
         </button>
         <button class="nav-item" data-page="folder-compare" type="button">
-          <span class="nav-icon">⇄</span><span><strong>So sánh 2 folder</strong><small>Đối chiếu CSV bất kỳ</small></span>
+          <span class="nav-icon">⇄</span><span><strong>Compare Csv With Path</strong><small>Compare CSV bất kỳ</small></span>
         </button>
         <button class="nav-item" data-page="file-tools" type="button">
-          <span class="nav-icon">◇</span><span><strong>Tiện ích file</strong><small>Đổi tên, xóa, di chuyển</small></span>
+          <span class="nav-icon">◇</span><span><strong>File/Folder</strong><small>Đổi tên, xóa, di chuyển</small></span>
         </button>
         <button class="nav-item" data-page="copy-ut" type="button">
           <span class="nav-icon">⧉</span><span><strong>Sao chép UT</strong><small>Copy theo cấu trúc test</small></span>
         </button>
           <button class="nav-item" data-page="excel-format" type="button">
-            <span class="nav-icon">▦</span><span><strong>Format ảnh Excel</strong><small>Ảnh · font · vị trí sheet</small></span>
+            <span class="nav-icon">▦</span><span><strong>Format EVD/Excel</strong><small>Ảnh · font · vị trí sheet</small></span>
         </button>
         <button class="nav-item" data-page="sql-studio" type="button">
-          <span class="nav-icon sql-nav-icon">SQL</span><span><strong>SQL Studio</strong><small>Format &amp; phân tích câu SQL</small></span>
+          <span class="nav-icon sql-nav-icon">SQL</span><span><strong>SQL</strong><small>Format &amp; phân tích câu SQL</small></span>
         </button>
         <button class="nav-item" data-page="database" type="button">
-          <span class="nav-icon">▱</span><span><strong>Cơ sở dữ liệu</strong><small>CSV I/O &amp; đồng bộ</small></span>
+          <span class="nav-icon">▱</span><span><strong>Database</strong><small>CSV I/O &amp; đồng bộ</small></span>
         </button>
       </nav>
 
@@ -50,7 +50,7 @@
         <button class="icon-button mobile-only" id="menu-toggle" type="button" aria-label="Mở menu">☰</button>
         <div>
           <p class="eyebrow" id="page-eyebrow">WORKSPACE / SO SÁNH</p>
-          <h1 id="page-title">So sánh dữ liệu UT</h1>
+          <h1 id="page-title">Compare CSV</h1>
         </div>
         <div class="topbar-actions">
           <button class="status-pill idle" id="job-status-button" type="button">
@@ -60,9 +60,9 @@
       </header>
 
       <main class="content">
-        <section class="page active" id="page-compare" data-title="So sánh dữ liệu UT" data-eyebrow="WORKSPACE / SO SÁNH">
+        <section class="page active" id="page-compare" data-title="Compare CSV" data-eyebrow="WORKSPACE / SO SÁNH">
           <div class="page-intro">
-            <div><span class="section-kicker">Quy trình chính</span><h2>Tạo báo cáo so sánh trong một lượt</h2><p>Chọn thư mục chứa các case <code>UT*</code>, bật những luồng cần chạy rồi theo dõi kết quả ở bảng FIXME.</p></div>
+            <div><span class="section-kicker">Quy trình chính</span><h2>Compare CSV HTC/HTM</h2><p>Chọn thư mục chứa các case <code>UT*</code>, bật những luồng cần chạy rồi theo dõi kết quả ở bảng FIXME.</p></div>
             <div class="metric-card"><span>Luồng mặc định</span><strong id="workflow-count">—</strong><small>Cấu hình trong autocompare_config.ini</small></div>
           </div>
 
@@ -72,13 +72,13 @@
             <div class="divider"></div>
             <div class="card-heading compact"><div><span class="step-number">02</span><h3>Luồng so sánh</h3></div><button class="text-button" id="toggle-workflows" type="button">Chọn / bỏ tất cả</button></div>
             <div class="choice-grid" id="compare-workflows"></div>
-            <div class="form-actions"><span class="hint">Excel sẽ được tạo trong <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>Chạy so sánh</span><b>→</b></button></div>
+            <div class="form-actions"><span class="hint">Excel sẽ được tạo trong <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>ExportCompare</span><b>→</b></button></div>
           </form>
 
           <section class="card fixme-card">
             <div class="card-heading">
               <div><span class="step-number">03</span><h3>Review FIXME</h3><span class="count-badge" id="fixme-count">0</span></div>
-              <div class="inline-actions"><button class="secondary-button" id="manage-notes" type="button">Quản lý ghi chú</button><button class="primary-button small" id="apply-fixmes" type="button">Áp dụng ghi chú</button></div>
+              <div class="inline-actions"><button class="secondary-button" id="manage-notes" type="button">Quản lý Note</button><button class="primary-button small" id="apply-fixmes" type="button">Áp dụng Note</button></div>
             </div>
             <div class="empty-state" id="fixme-empty"><span>✓</span><strong>Chưa có mục cần review</strong><p>FIXME từ lần so sánh gần nhất sẽ xuất hiện tại đây.</p></div>
             <div class="table-wrap hidden" id="fixme-table-wrap">
@@ -87,8 +87,8 @@
           </section>
         </section>
 
-        <section class="page" id="page-folder-compare" data-title="So sánh hai folder CSV" data-eyebrow="WORKSPACE / FOLDER COMPARE">
-          <div class="page-intro"><div><span class="section-kicker">So sánh nhanh</span><h2>Đối chiếu hai cây thư mục CSV</h2><p>Quét đệ quy cả hai phía, bao gồm file chỉ xuất hiện ở một bên, rồi tạo một workbook tổng hợp.</p></div><div class="visual-chip"><b>CSV</b><span>⇄</span><b>CSV</b><i>→ XLSX</i></div></div>
+        <section class="page" id="page-folder-compare" data-title="Compare Csv With Path" data-eyebrow="WORKSPACE / FOLDER COMPARE">
+          <div class="page-intro"><div><span class="section-kicker">So sánh nhanh</span><h2>Compare 2 thư mục CSV</h2><p>Quét các file csv cả hai phía, rồi tạo một file compare tổng hợp.</p></div><div class="visual-chip"><b>CSV</b><span>⇄</span><b>CSV</b><i>→ XLSX</i></div></div>
           <form class="card form-card" id="folder-compare-form">
             <div class="two-column">
               <label class="field"><span>Folder bên trái</span><span class="path-control"><input id="folder-left" required><button class="browse-button" type="button" data-browse-target="folder-left" data-browse-kind="directory">Chọn</button></span><small>Dữ liệu baseline / before</small></label>
@@ -99,8 +99,8 @@
           </form>
         </section>
 
-        <section class="page" id="page-file-tools" data-title="Tiện ích file" data-eyebrow="WORKSPACE / FILE UTILITIES">
-          <div class="page-intro slim"><div><span class="section-kicker">Thao tác hàng loạt</span><h2>Dọn và tổ chức cây thư mục</h2><p>Mỗi công cụ chỉ xử lý nội dung bên dưới folder gốc đã chọn.</p></div></div>
+        <section class="page" id="page-file-tools" data-title="File/Folder" data-eyebrow="WORKSPACE / FILE UTILITIES">
+          <div class="page-intro slim"><div><span class="section-kicker">Thao tác hàng loạt</span><h2>Thao tác File/Folder</h2><p>Mỗi công cụ chỉ xử lý nội dung bên dưới folder gốc đã chọn.</p></div></div>
           <div class="card root-strip"><label class="field"><span>Folder thao tác dùng chung</span><span class="path-control"><input id="utility-root"><button class="browse-button" type="button" data-browse-target="utility-root" data-browse-kind="directory">Chọn folder</button></span></label></div>
           <div class="tabs" role="tablist" aria-label="Nhóm tiện ích file">
             <button class="tab active" data-tab-group="file" data-tab="rename" type="button">Đổi tên</button>
