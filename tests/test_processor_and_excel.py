@@ -5,13 +5,16 @@ import unittest
 from pathlib import Path
 
 try:
-    from openpyxl import load_workbook
+    from openpyxl import Workbook, load_workbook
+    from autocompare_tool.excel_writer import WorkbookFixmeEntry
     from autocompare_tool.fixme_replacements import apply_fixme_replacements
     from autocompare_tool.folder_compare import compare_csv_folders
     from autocompare_tool.processor import process_root
 except ImportError:  # pragma: no cover
     apply_fixme_replacements = None
     compare_csv_folders = None
+    Workbook = None
+    WorkbookFixmeEntry = None
     load_workbook = None
     process_root = None
 
@@ -118,6 +121,26 @@ class ProcessorAndExcelTests(unittest.TestCase):
 
             workbook = load_workbook(compare_new)
             self.assertEqual(workbook["table"]["F4"].value, "KNOWN_DIFF")
+
+    def test_apply_fixme_replacements_updates_multiple_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workbook_path = Path(temp_dir) / "compare.xlsx"
+            workbook = Workbook()
+            worksheet = workbook.active
+            worksheet.title = "table"
+            workbook.save(workbook_path)
+            entries = [
+                WorkbookFixmeEntry("UT01", workbook_path, "compare.xlsx", "table.csv", "table", "name", "old", "new", 1, 3, 8),
+                WorkbookFixmeEntry("UT01", workbook_path, "compare.xlsx", "table.csv", "table", "price", "10", "20", 1, 4, 8),
+            ]
+
+            result = apply_fixme_replacements(entries, {0: "KNOWN_DIFF", 1: "SPEC_CHANGE"})
+
+            self.assertEqual(result.cell_count, 2)
+            self.assertEqual(result.selected_entry_count, 2)
+            workbook = load_workbook(workbook_path)
+            self.assertEqual(workbook["table"]["H3"].value, "KNOWN_DIFF")
+            self.assertEqual(workbook["table"]["H4"].value, "SPEC_CHANGE")
 
     def test_compare_csv_folders_uses_all_csv_files_from_both_folders(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

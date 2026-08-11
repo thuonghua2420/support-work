@@ -47,7 +47,7 @@ Rules:
 Owns:
 
 - Responsive HTML layout and page navigation.
-- Client-side form state, confirmation dialogs, FIXME/note rendering, database connection forms, and table selection.
+- Client-side form state, confirmation dialogs, FIXME/note rendering, per-column FIXME filters, bulk note assignment, database connection forms, and table selection.
 - Polling background job state and rendering logs/toasts.
 
 The web client has no build step or external CDN dependency.
@@ -272,6 +272,7 @@ Owns:
 
 - Applying selected note text to generated workbook `FIXME` cells.
 - Grouping multiple mismatch rows that point to the same workbook cell.
+- Receiving many selected row notes in one call so the web UI can apply notes after filtering large FIXME sets.
 
 ### `copy_ut_files.py`
 

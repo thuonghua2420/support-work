@@ -125,9 +125,9 @@ Record được ghép bằng cột đầu tiên của CSV cộng với thứ t�
 
 ## FIXME review
 
-Sau compare, giao diện hiển thị case UT, workbook, sheet, column, hai giá trị, số record và combobox ghi chú. Người dùng có thể thêm/sửa/xóa giá trị ghi chú; danh sách được lưu trong `fixme_notes.json`.
+Sau compare, giao diện hiển thị case UT, workbook, sheet thật trong workbook, CSV nguồn, column, hai giá trị, số record và combobox ghi chú. Mỗi header có filter riêng để tìm nhanh các nhóm FIXME có điểm chung.
 
-Nút **Áp dụng ghi chú** thay cell `FIXME` tương ứng trong workbook. Nếu nhiều mismatch cùng trỏ đến một cell FIXME, các ghi chú duy nhất được nối theo thứ tự bằng xuống dòng.
+Người dùng có thể tick dòng hoặc chọn toàn bộ dòng đang lọc, gán/xóa note hàng loạt rồi bấm **Áp dụng ghi chú** một lần để thay cell `FIXME` tương ứng trong workbook. Nếu nhiều mismatch cùng trỏ đến một cell FIXME, các ghi chú duy nhất được nối theo thứ tự bằng xuống dòng. Danh sách note được lưu trong `fixme_notes.json`.
 
 ## Database CSV
 

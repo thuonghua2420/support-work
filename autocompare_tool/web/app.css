@@ -137,7 +137,7 @@ input::placeholder, textarea::placeholder { color: #a8b3c0; }
 .primary-button { display: inline-flex; align-items: center; justify-content: center; gap: 16px; min-height: 42px; padding: 9px 18px; border: 1px solid var(--blue); color: white; background: linear-gradient(145deg, #1974ec, #0f5fcb); box-shadow: 0 8px 18px rgba(20,104,230,.18); font-size: 12px; }
 .primary-button:hover { background: linear-gradient(145deg, #0f67d8, #094fab); transform: translateY(-1px); }
 .primary-button b { font-size: 16px; }
-.primary-button.small, .secondary-button.small { min-height: 35px; padding: 7px 12px; }
+.primary-button.small, .secondary-button.small, .ghost-button.small { min-height: 35px; padding: 7px 12px; }
 .secondary-button, .ghost-button { min-height: 40px; padding: 8px 14px; border: 1px solid #c9d6e4; color: #405975; background: #f8fafc; font-size: 11px; }
 .secondary-button:hover, .ghost-button:hover { border-color: #8eb7e9; color: var(--blue); background: var(--blue-soft); }
 .ghost-button { background: transparent; }
@@ -150,8 +150,22 @@ input::placeholder, textarea::placeholder { color: #a8b3c0; }
 button:disabled { opacity: .5; cursor: not-allowed; transform: none !important; }
 .switch-row.disabled { opacity: .55; cursor: not-allowed; }
 .icon-button { display: grid; place-items: center; width: 35px; height: 35px; padding: 0; border: 1px solid #d6e0e9; border-radius: 9px; color: #64748b; background: #f9fbfd; cursor: pointer; }
+.icon-button.tiny { width: 28px; height: 28px; min-height: 28px; border-radius: 7px; font-size: 14px; }
 
 .fixme-card { margin-top: 20px; padding: clamp(20px, 3vw, 28px); }
+.fixme-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; padding: 12px; border: 1px solid #dbe6f1; border-radius: 11px; background: #f8fbfe; }
+.fixme-summary { display: grid; gap: 2px; min-width: 145px; }
+.fixme-summary strong { color: #24456a; font-size: 12px; }
+.fixme-summary small { color: #7b8a9d; font-size: 10px; }
+.fixme-bulk-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.fixme-bulk-actions select { min-height: 36px; min-width: 145px; padding: 7px 9px; font-size: 10px; }
+.fixme-table { min-width: 1380px; }
+.fixme-table .select-column { width: 42px; min-width: 42px; text-align: center; }
+.fixme-table .select-column input, .fixme-row-check { width: 15px; min-height: 15px; accent-color: var(--blue); }
+.fixme-filter-row th { top: 36px; z-index: 2; padding: 7px 8px; background: #f8fbfe; }
+.fixme-filter-row input, .fixme-filter-row select { width: 100%; min-height: 29px; padding: 5px 7px; border: 1px solid #d0dbe8; border-radius: 7px; background: white; color: #31465f; font-size: 10px; text-transform: none; letter-spacing: 0; }
+.fixme-filter-row .icon-button { margin: 0 auto; }
+.fixme-empty-row td { padding: 28px; text-align: center; color: #8796a8; }
 .empty-state { display: grid; place-items: center; min-height: 190px; padding: 28px; border: 1px dashed #cdd9e5; border-radius: 12px; text-align: center; background: #fafcfe; }
 .empty-state > span { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 10px; border-radius: 50%; color: var(--green); background: var(--green-soft); font-size: 20px; }
 .empty-state strong { font-size: 13px; }
@@ -384,6 +398,8 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
   .sql-analysis-split { grid-template-columns: 1fr; }
   .excel-preset-panel { grid-template-columns: 1fr 1fr; }
   .excel-preset-actions { grid-column: 1 / -1; }
+  .fixme-toolbar { align-items: stretch; flex-direction: column; }
+  .fixme-bulk-actions { justify-content: flex-start; }
 }
 
 @media (max-width: 760px) {
@@ -410,6 +426,8 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
   .form-actions .primary-button { width: 100%; }
   .card-heading { align-items: flex-start; }
   .fixme-card .card-heading { flex-direction: column; }
+  .fixme-bulk-actions { display: grid; grid-template-columns: 1fr; }
+  .fixme-bulk-actions select, .fixme-bulk-actions button { width: 100%; }
   .inline-actions { width: 100%; }
   .inline-actions > button { flex: 1; }
   .action-grid { grid-template-columns: 1fr; }

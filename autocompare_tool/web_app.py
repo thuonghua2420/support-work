@@ -725,6 +725,7 @@ def _fixme_to_dict(entry: WorkbookFixmeEntry, index: int) -> dict[str, Any]:
         "workbook_path": str(entry.workbook_path),
         "workbook_name": entry.workbook_name,
         "csv_file_name": entry.csv_file_name,
+        "source_sheet_name": Path(entry.csv_file_name).with_suffix("").as_posix(),
         "sheet_name": entry.sheet_name,
         "column_name": entry.column_name,
         "left_value": entry.left_value,

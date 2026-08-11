@@ -9,11 +9,13 @@ from unittest.mock import patch
 from autocompare_tool.database_io import DatabaseConnectionSettings, DatabaseCsvSummary, DatabaseSyncSummary
 from autocompare_tool.excel_format_presets import ExcelFormatPresetStore
 from autocompare_tool.excel_image_formatter import ExcelImageFormatSummary
+from autocompare_tool.excel_writer import WorkbookFixmeEntry
 from autocompare_tool.sql_tools import SqlFormatResult
 from autocompare_tool.web_app import (
     AutoCompareWebApplication,
     JobManager,
     _db_settings,
+    _fixme_to_dict,
 )
 
 
@@ -75,6 +77,30 @@ class WebApplicationTests(unittest.TestCase):
             result = app.list_files(str(root), "directory", [])
 
         self.assertEqual(["nested"], [entry["name"] for entry in result["entries"]])
+
+    def test_fixme_snapshot_keeps_sheet_and_source_csv_names_separate(self) -> None:
+        entry = WorkbookFixmeEntry(
+            case_folder_name="UT01-001",
+            workbook_path=Path("C:/work/Compare_Before_After.xlsx"),
+            workbook_name="Compare_Before_After.xlsx",
+            csv_file_name="nested/VeryLongTableName.csv",
+            sheet_name="nested_VeryLongTableName",
+            column_name="Amount",
+            left_value="100",
+            right_value="200",
+            record_number=3,
+            worksheet_row=8,
+            fixme_column=12,
+        )
+
+        result = _fixme_to_dict(entry, 5)
+
+        self.assertEqual(5, result["index"])
+        self.assertEqual("Compare_Before_After.xlsx", result["workbook_name"])
+        self.assertEqual("nested_VeryLongTableName", result["sheet_name"])
+        self.assertEqual("nested/VeryLongTableName.csv", result["csv_file_name"])
+        self.assertEqual("nested/VeryLongTableName", result["source_sheet_name"])
+        self.assertEqual("L8", result["fixme_cell"])
 
     def test_destructive_action_requires_explicit_confirmation(self) -> None:
         app = AutoCompareWebApplication()

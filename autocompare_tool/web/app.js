@@ -5,6 +5,9 @@ const state = {
   notes: [],
   excelFormatPresets: [],
   fixmes: [],
+  fixmeFilters: {},
+  fixmeSelections: {},
+  fixmeCheckedRows: new Set(),
   job: null,
   jobCursor: 0,
   handledJobs: new Set(),
@@ -37,6 +40,7 @@ async function init() {
     renderWorkflows();
     renderConnectionForms();
     renderNotes();
+    refreshFixmeNoteOptions();
     renderExcelFormatPresets();
     renderFixmes();
     renderTables();
@@ -281,9 +285,22 @@ function bindForms() {
   $("#sync-all-tables").addEventListener("change", renderTables);
   $("#sync-table-filter").addEventListener("input", renderTables);
   $("#clear-selected-tables").addEventListener("click", () => { state.selectedTables = []; renderTables(); });
+  $$("[data-fixme-filter]").forEach((control) => control.addEventListener("input", updateFixmeFilter));
+  $$("[data-fixme-filter]").forEach((control) => control.addEventListener("change", updateFixmeFilter));
+  $("#fixme-bulk-note").addEventListener("change", updateFixmeToolbarState);
+  $("#fixme-bulk-scope").addEventListener("change", updateFixmeToolbarState);
+  $("#fixme-select-filtered").addEventListener("click", selectFilteredFixmeRows);
+  $("#fixme-clear-selection").addEventListener("click", clearFixmeRowSelection);
+  $("#fixme-bulk-assign").addEventListener("click", assignBulkFixmeNote);
+  $("#fixme-bulk-clear").addEventListener("click", clearBulkFixmeNotes);
+  $("#fixme-clear-filters").addEventListener("click", clearFixmeFilters);
+  $("#fixme-check-visible").addEventListener("change", toggleVisibleFixmeRows);
   $("#apply-fixmes").addEventListener("click", () => {
-    const selections = {};
-    $$("select[data-fixme-index]").forEach((select) => { if (select.value) selections[select.dataset.fixmeIndex] = select.value; });
+    const selections = Object.fromEntries(Object.entries(state.fixmeSelections).filter(([, value]) => value));
+    if (!Object.keys(selections).length) {
+      showToast("Vui lòng gán ít nhất một note cho dòng FIXME.", "error");
+      return;
+    }
     startAction("apply_fixmes", { selections });
   });
 
@@ -300,10 +317,15 @@ function bindDialogs() {
         method: "POST",
         body: { old_value: valueOf("note-old-value"), value: valueOf("note-value"), meaning: valueOf("note-meaning") },
       });
+      const oldValue = valueOf("note-old-value");
+      const newValue = valueOf("note-value");
       state.notes = response.notes;
+      renameFixmeSelectionNote(oldValue, newValue);
+      pruneFixmeSelectionsToNotes();
       clearNoteForm();
       renderNotes();
       refreshFixmeNoteOptions();
+      renderFixmes();
       showToast("Đã lưu ghi chú.", "success");
     } catch (error) { showToast(error.message, "error"); }
   });
@@ -314,9 +336,11 @@ function bindDialogs() {
     try {
       const response = await api("/api/notes/delete", { method: "POST", body: { value } });
       state.notes = response.notes;
+      pruneFixmeSelectionsToNotes();
       clearNoteForm();
       renderNotes();
       refreshFixmeNoteOptions();
+      renderFixmes();
       showToast("Đã xóa ghi chú.", "success");
     } catch (error) { showToast(error.message, "error"); }
   });
@@ -485,25 +509,196 @@ function renderFixmes() {
   $("#fixme-count").textContent = String(state.fixmes.length);
   $("#fixme-empty").classList.toggle("hidden", state.fixmes.length > 0);
   $("#fixme-table-wrap").classList.toggle("hidden", state.fixmes.length === 0);
-  const options = [`<option value="">Chọn ghi chú</option>`, ...state.notes.map((note) => `<option value="${escapeHtml(note.value)}">${escapeHtml(note.value)}</option>`)].join("");
-  $("#fixme-body").innerHTML = state.fixmes.map((entry) => `
+  $("#fixme-tools").classList.toggle("hidden", state.fixmes.length === 0);
+  const filteredEntries = filteredFixmes();
+  $("#fixme-body").innerHTML = filteredEntries.length ? filteredEntries.map((entry) => `
     <tr>
+      <td class="select-column"><input class="fixme-row-check" type="checkbox" data-fixme-check-index="${entry.index}" ${state.fixmeCheckedRows.has(String(entry.index)) ? "checked" : ""}></td>
       <td>${escapeHtml(entry.case_folder_name)}</td>
-      <td><span class="cell-stack"><strong title="${escapeHtml(entry.workbook_path)}">${escapeHtml(entry.workbook_name)}</strong><small>${escapeHtml(entry.sheet_name)} · ${escapeHtml(entry.fixme_cell)}</small></span></td>
+      <td><span class="cell-stack"><strong title="${escapeHtml(entry.workbook_path)}">${escapeHtml(entry.workbook_name)}</strong><small>${escapeHtml(parentPath(entry.workbook_path) || "")}</small></span></td>
+      <td>${fixmeSheetCellHtml(entry)}</td>
+      <td>${escapeHtml(entry.csv_file_name)}</td>
       <td>${escapeHtml(entry.column_name)}</td>
       <td><span class="diff-value">${escapeHtml(entry.left_value)}</span></td>
       <td><span class="diff-value">${escapeHtml(entry.right_value)}</span></td>
       <td>${escapeHtml(entry.record_number)}</td>
-      <td><select data-fixme-index="${entry.index}">${options}</select></td>
-    </tr>`).join("");
+      <td><select data-fixme-index="${entry.index}">${fixmeNoteOptionsHtml("Chọn ghi chú", state.fixmeSelections[entry.index])}</select></td>
+    </tr>`).join("") : `<tr class="fixme-empty-row"><td colspan="10">Không có dòng phù hợp với filter hiện tại.</td></tr>`;
+
+  $$('select[data-fixme-index]').forEach((select) => {
+    select.addEventListener("change", () => {
+      if (select.value) state.fixmeSelections[select.dataset.fixmeIndex] = select.value;
+      else delete state.fixmeSelections[select.dataset.fixmeIndex];
+      updateFixmeToolbarState(filteredEntries);
+    });
+  });
+  $$("[data-fixme-check-index]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const index = checkbox.dataset.fixmeCheckIndex;
+      if (checkbox.checked) state.fixmeCheckedRows.add(index);
+      else state.fixmeCheckedRows.delete(index);
+      updateFixmeToolbarState(filteredEntries);
+    });
+  });
+  updateFixmeToolbarState(filteredEntries);
 }
 
 function refreshFixmeNoteOptions() {
+  const bulkSelect = $("#fixme-bulk-note");
+  const noteFilter = $("#fixme-filter-note");
+  const previousBulkNote = bulkSelect.value;
+  const previousNoteFilter = noteFilter.value;
+  bulkSelect.innerHTML = fixmeNoteOptionsHtml("Chọn note");
+  noteFilter.innerHTML = fixmeNoteOptionsHtml("Tất cả");
+  if (state.notes.some((note) => note.value === previousBulkNote)) bulkSelect.value = previousBulkNote;
+  if (state.notes.some((note) => note.value === previousNoteFilter)) noteFilter.value = previousNoteFilter;
+
   $$('select[data-fixme-index]').forEach((select) => {
     const currentValue = select.value;
     select.replaceChildren(new Option("Chọn ghi chú", ""));
     state.notes.forEach((note) => select.add(new Option(note.value, note.value)));
     if (state.notes.some((note) => note.value === currentValue)) select.value = currentValue;
+  });
+  updateFixmeToolbarState();
+}
+
+function fixmeNoteOptionsHtml(placeholder, selectedValue = "") {
+  return [`<option value="">${escapeHtml(placeholder)}</option>`, ...state.notes.map((note) =>
+    `<option value="${escapeHtml(note.value)}" ${note.value === selectedValue ? "selected" : ""}>${escapeHtml(note.value)}</option>`
+  )].join("");
+}
+
+function fixmeSheetCellHtml(entry) {
+  const sourceSheet = entry.source_sheet_name || "";
+  const sourceText = sourceSheet && sourceSheet !== entry.sheet_name ? `Nguồn: ${sourceSheet}` : "";
+  return `<span class="cell-stack"><strong>${escapeHtml(entry.sheet_name)}</strong><small>${escapeHtml([entry.fixme_cell, sourceText].filter(Boolean).join(" · "))}</small></span>`;
+}
+
+function filteredFixmes() {
+  return state.fixmes.filter((entry) => Object.entries(state.fixmeFilters).every(([field, filterValue]) => {
+    if (!filterValue) return true;
+    return normalizedFixmeText(fixmeFieldValue(entry, field)).includes(normalizedFixmeText(filterValue));
+  }));
+}
+
+function fixmeFieldValue(entry, field) {
+  if (field === "note") return state.fixmeSelections[entry.index] || "";
+  return entry[field] ?? "";
+}
+
+function normalizedFixmeText(value) {
+  return String(value ?? "").trim().toLocaleLowerCase("vi");
+}
+
+function updateFixmeFilter(event) {
+  const field = event.target.dataset.fixmeFilter;
+  if (!field) return;
+  const value = event.target.value.trim();
+  if (value) state.fixmeFilters[field] = value;
+  else delete state.fixmeFilters[field];
+  renderFixmes();
+}
+
+function clearFixmeFilters() {
+  state.fixmeFilters = {};
+  $$("[data-fixme-filter]").forEach((control) => { control.value = ""; });
+  renderFixmes();
+}
+
+function selectFilteredFixmeRows() {
+  filteredFixmes().forEach((entry) => state.fixmeCheckedRows.add(String(entry.index)));
+  renderFixmes();
+}
+
+function clearFixmeRowSelection() {
+  state.fixmeCheckedRows.clear();
+  renderFixmes();
+}
+
+function toggleVisibleFixmeRows(event) {
+  const visibleRows = filteredFixmes();
+  visibleRows.forEach((entry) => {
+    const index = String(entry.index);
+    if (event.target.checked) state.fixmeCheckedRows.add(index);
+    else state.fixmeCheckedRows.delete(index);
+  });
+  renderFixmes();
+}
+
+function assignBulkFixmeNote() {
+  const note = valueOf("fixme-bulk-note");
+  if (!note) {
+    showToast("Vui lòng chọn note cần gán.", "error");
+    $("#fixme-bulk-note").focus();
+    return;
+  }
+  const targets = fixmeBulkTargets();
+  if (!targets.length) {
+    showToast("Không có dòng nào để gán note.", "error");
+    return;
+  }
+  targets.forEach((entry) => { state.fixmeSelections[entry.index] = note; });
+  renderFixmes();
+  showToast(`Đã gán note cho ${targets.length} dòng FIXME.`, "success");
+}
+
+function clearBulkFixmeNotes() {
+  const targets = fixmeBulkTargets();
+  if (!targets.length) {
+    showToast("Không có dòng nào để xóa note.", "error");
+    return;
+  }
+  targets.forEach((entry) => { delete state.fixmeSelections[entry.index]; });
+  renderFixmes();
+  showToast(`Đã xóa note khỏi ${targets.length} dòng FIXME.`, "success");
+}
+
+function fixmeBulkTargets() {
+  const filteredEntries = filteredFixmes();
+  if (valueOf("fixme-bulk-scope") === "checked") {
+    return filteredEntries.filter((entry) => state.fixmeCheckedRows.has(String(entry.index)));
+  }
+  return filteredEntries;
+}
+
+function updateFixmeToolbarState(filteredEntries = filteredFixmes()) {
+  const checkVisible = $("#fixme-check-visible");
+  if (!checkVisible) return;
+  const visibleCount = filteredEntries.length;
+  const noteCount = Object.values(state.fixmeSelections).filter(Boolean).length;
+  const checkedVisibleCount = filteredEntries.filter((entry) => state.fixmeCheckedRows.has(String(entry.index))).length;
+  $("#fixme-visible-count").textContent = `${visibleCount} / ${state.fixmes.length} dòng`;
+  $("#fixme-note-count").textContent = `${noteCount} dòng đã gán note · ${state.fixmeCheckedRows.size} dòng đã tick`;
+  checkVisible.checked = visibleCount > 0 && checkedVisibleCount === visibleCount;
+  checkVisible.indeterminate = checkedVisibleCount > 0 && checkedVisibleCount < visibleCount;
+
+  const busy = document.body.classList.contains("is-busy");
+  const scopedTargets = valueOf("fixme-bulk-scope") === "checked" ? checkedVisibleCount : visibleCount;
+  $("#fixme-select-filtered").disabled = busy || visibleCount === 0;
+  $("#fixme-clear-selection").disabled = busy || state.fixmeCheckedRows.size === 0;
+  $("#fixme-bulk-assign").disabled = busy || scopedTargets === 0 || !valueOf("fixme-bulk-note");
+  $("#fixme-bulk-clear").disabled = busy || scopedTargets === 0;
+  $("#apply-fixmes").disabled = busy || noteCount === 0;
+}
+
+function resetFixmeReviewState() {
+  state.fixmeFilters = {};
+  state.fixmeSelections = {};
+  state.fixmeCheckedRows = new Set();
+  $$("[data-fixme-filter]").forEach((control) => { control.value = ""; });
+}
+
+function renameFixmeSelectionNote(oldValue, newValue) {
+  if (!oldValue || !newValue || oldValue === newValue) return;
+  Object.keys(state.fixmeSelections).forEach((index) => {
+    if (state.fixmeSelections[index] === oldValue) state.fixmeSelections[index] = newValue;
+  });
+}
+
+function pruneFixmeSelectionsToNotes() {
+  const knownNotes = new Set(state.notes.map((note) => note.value));
+  Object.keys(state.fixmeSelections).forEach((index) => {
+    if (!knownNotes.has(state.fixmeSelections[index])) delete state.fixmeSelections[index];
   });
 }
 
@@ -696,6 +891,7 @@ function consumeJobResult(job) {
   const result = job.result || {};
   if (Array.isArray(result.fixmes)) {
     state.fixmes = result.fixmes;
+    resetFixmeReviewState();
     renderFixmes();
   }
   if (job.action === "db_test" && result.verified) {
@@ -874,9 +1070,10 @@ function setJobVisual(kind, text) {
 
 function setBusy(busy) {
   document.body.classList.toggle("is-busy", busy);
-  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #find-empty, #delete-empty, #sql-format, #sql-analyze, #save-excel-format-preset, #delete-excel-format-preset, [data-db-test], [data-db-load], #apply-fixmes').forEach((button) => {
+  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #find-empty, #delete-empty, #sql-format, #sql-analyze, #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes').forEach((button) => {
     button.disabled = busy || (button.id === "delete-excel-format-preset" && !valueOf("excel-format-preset"));
   });
+  updateFixmeToolbarState();
 }
 
 function appendLogs(lines) {
