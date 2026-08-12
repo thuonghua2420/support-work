@@ -33,6 +33,8 @@ from autocompare_tool.database_io import (
     _parse_sync_batch_size,
     _sync_one_table,
     _sqlserver_type_name,
+    build_update_by_primary_key_sql,
+    canonical_row_hash,
     normalize_database_type,
     validate_connection_settings,
 )
@@ -152,6 +154,25 @@ class DatabaseIoTests(unittest.TestCase):
             sql,
             "DELETE FROM [dbo].[orders] WHERE [tenant_id] = ? AND [id] = ?",
         )
+
+    def test_public_update_sql_and_canonical_hash_support_composite_keys(self) -> None:
+        adapter = SqlServerAdapter()
+        metadata = TableMetadata(
+            schema="dbo",
+            name="orders",
+            columns=[
+                _column("tenant_id", is_primary_key=True),
+                _column("id", is_primary_key=True),
+                _column("name", data_type="nvarchar"),
+            ],
+        )
+
+        sql = build_update_by_primary_key_sql(adapter, metadata, [metadata.columns[2]], metadata.columns[:2])
+        first_hash = canonical_row_hash(("A", 1, "Alice"), metadata.columns)
+        second_hash = canonical_row_hash(("A", 1, "Alice"), metadata.columns)
+
+        self.assertEqual(sql, "UPDATE [dbo].[orders] SET [name] = ? WHERE [tenant_id] = ? AND [id] = ?")
+        self.assertEqual(first_hash, second_hash)
 
     def test_sync_select_orders_by_primary_key_even_when_identity_is_skipped(self) -> None:
         adapter = SqlServerAdapter()

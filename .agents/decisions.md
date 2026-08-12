@@ -2,6 +2,29 @@
 
 Use this file for lightweight architecture decisions. Add newest entries at the top.
 
+## 2026-08-12 - Database SQL Workspace
+
+Decision:
+
+- Remove the independent SQL menu entry from the web UI and expose SQL tooling as the `SQL Workspace` tab inside Database.
+- Use a common Database 1/Database 2 connection area: Database 1 serves CSV, SQL Workspace, and sync source; Database 2 serves sync target.
+- Add `autocompare_tool/sql_database_workspace.py` for SQL execution, write-mode tokens, result spool, source lineage diagnostics, export, and optimistic update.
+- Keep `sql_tools.py` parser-only and keep database adapter behavior in `database_io.py`.
+- Use strict source lineage: unsupported SQL structures show diagnostics instead of approximating source rows from whole tables.
+
+Reason:
+
+- SQL analysis becomes much more useful when paired with live metadata and source data, but execution and update need stronger safety boundaries than the formatter/analyzer.
+- A common Database connection area avoids duplicated credentials and makes it clear which database is source or target.
+- Strict lineage prevents misleading test data when CTEs, aggregates, derived sources, or correlated logic cannot be rewritten without changing semantics.
+
+Consequence:
+
+- DDL/DML execution requires a temporary Write mode token tied to the Database 1 fingerprint.
+- Query result/source grids use temporary workspace spool and page loading instead of loading full result sets into browser memory.
+- Inline update is available only for base tables with primary keys and uses full-row conflict detection.
+- Future lineage support should add exact rewrites first, then expose data; never add best-effort whole-table fallback.
+
 ## 2026-08-07 - Primary-Key Streaming Delta Sync
 
 Decision:

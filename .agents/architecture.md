@@ -14,6 +14,7 @@ run.bat
       -> excel_image_formatter.py -> Microsoft Excel Desktop COM
       -> excel_format_presets.py -> excel_format_presets.json
       -> sql_tools.py       -> SQLGlot parser/AST
+      -> sql_database_workspace.py -> database_io.py -> dbeaver_csv.py
       -> file_utilities.py
       -> fixme_notes.py     -> fixme_notes.json
       -> fixme_replacements.py
@@ -185,9 +186,27 @@ Owns:
 
 Rules:
 
-- Never execute submitted SQL or connect to a database from SQL Studio.
+- Never execute submitted SQL or connect to a database from this module.
 - Use AST nodes and SQLGlot scopes; do not identify tables or subqueries with regex.
 - Keep every table occurrence, including repeated/self-join references, because aliases and scopes are semantically distinct.
+
+### `autocompare_tool/sql_database_workspace.py`
+
+Owns:
+
+- Database SQL Workspace execution on Database 1.
+- Read/write statement classification and temporary Write mode tokens.
+- Result spool/workspace paging through bounded `fetchmany()` batches.
+- Metadata-backed relation cards, source occurrence IDs, column usage colors, and join groups.
+- Strict source lineage diagnostics for exact Source Data, CSV export, negative-record lookup, and optimistic inline update.
+
+Rules:
+
+- Format/analyze remain parser-only; execution always goes through this module.
+- Do not expose passwords in workspace responses, logs, bootstrap payloads, or job results.
+- DDL/DML require a valid Write mode token tied to the current Database 1 fingerprint.
+- Source Data must stay strict: unsupported lineage shows a diagnostic card and must not fall back to whole-table data.
+- Inline update is limited to base tables with primary keys and uses parameterized SQL plus full-row conflict checks.
 
 ### `autocompare_tool/csv_table.py`
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable, Sequence
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,35 @@ def write_typed_dbeaver_csv(
                 cells.append(_format_typed_data_cell(value, should_quote))
             file.write(",".join(cells))
             file.write("\r\n")
+
+
+def write_typed_dbeaver_csv_rows(
+    path: Path,
+    headers: list[str],
+    rows: Iterable[Sequence[str | None]],
+    quote_columns: list[bool],
+) -> int:
+    """Stream typed rows to disk and return the number of rows written."""
+    if len(headers) != len(quote_columns):
+        raise ValueError("Số lượng header và cấu hình quote column không khớp.")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    row_count = 0
+    with path.open("w", encoding="utf-8", newline="") as file:
+        if not headers:
+            return 0
+        file.write(",".join(_format_header(header) for header in headers))
+        file.write("\r\n")
+        for row in rows:
+            cells: list[str] = []
+            for index in range(len(headers)):
+                value = row[index] if index < len(row) else None
+                should_quote = quote_columns[index]
+                cells.append(_format_typed_data_cell(value, should_quote))
+            file.write(",".join(cells))
+            file.write("\r\n")
+            row_count += 1
+    return row_count
 
 
 def _read_text(path: Path) -> str:

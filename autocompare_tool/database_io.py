@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
@@ -7,7 +9,13 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
-from .dbeaver_csv import DbeaverCsv, read_dbeaver_csv, write_dbeaver_csv, write_typed_dbeaver_csv
+from .dbeaver_csv import (
+    DbeaverCsv,
+    read_dbeaver_csv,
+    write_dbeaver_csv,
+    write_typed_dbeaver_csv,
+    write_typed_dbeaver_csv_rows,
+)
 
 Logger = Callable[[str], None]
 
@@ -194,6 +202,7 @@ class TableMetadata:
     schema: str
     name: str
     columns: list[DatabaseColumn]
+    relation_type: str = "table"
 
 
 @dataclass(frozen=True)
@@ -341,6 +350,49 @@ class DatabaseAdapter:
     ) -> TableMetadata:
         raise NotImplementedError
 
+    def find_view(
+        self,
+        connection,
+        settings: DatabaseConnectionSettings,
+        view_name: str,
+        schema: str | None = None,
+    ) -> tuple[str, str] | None:
+        return None
+
+    def get_relation(
+        self,
+        connection,
+        settings: DatabaseConnectionSettings,
+        relation_name: str,
+        schema: str | None = None,
+    ) -> TableMetadata:
+        try:
+            return self.get_table(connection, settings, relation_name, schema)
+        except TableNotFoundError as table_error:
+            view = self.find_view(connection, settings, relation_name, schema)
+            if view is None:
+                raise table_error
+            view_schema, actual_name = view
+            metadata = TableMetadata(schema=view_schema, name=actual_name, columns=[], relation_type="view")
+            cursor = connection.cursor()
+            self.execute(cursor, f"SELECT * FROM {self.qualified_table(metadata)} WHERE 1 = 0")
+            description = cursor.description or []
+            columns = [
+                DatabaseColumn(
+                    name=str(item[0]),
+                    ordinal=index,
+                    data_type=_description_type_name(item),
+                    nullable=_description_nullable(item),
+                )
+                for index, item in enumerate(description, start=1)
+            ]
+            return TableMetadata(
+                schema=view_schema,
+                name=actual_name,
+                columns=columns,
+                relation_type="view",
+            )
+
     def insert_sql(
         self,
         metadata: TableMetadata,
@@ -434,6 +486,29 @@ class SqlServerAdapter(DatabaseAdapter):
             (schema,),
         )
         return [str(row[0]) for row in cursor.fetchall()]
+
+    def find_view(
+        self,
+        connection,
+        settings: DatabaseConnectionSettings,
+        view_name: str,
+        schema: str | None = None,
+    ) -> tuple[str, str] | None:
+        selected_schema = self.schema_name(settings, schema)
+        cursor = connection.cursor()
+        self.execute(
+            cursor,
+            """
+            SELECT TOP (1) s.name, v.name
+            FROM sys.schemas s
+            INNER JOIN sys.views v ON v.schema_id = s.schema_id
+            WHERE s.name = ? AND LOWER(v.name) = LOWER(?)
+            ORDER BY CASE WHEN v.name = ? THEN 0 ELSE 1 END, v.name
+            """,
+            (selected_schema, view_name, view_name),
+        )
+        row = cursor.fetchone()
+        return (str(row[0]), str(row[1])) if row is not None else None
 
     def get_table(
         self,
@@ -590,6 +665,29 @@ class MySqlAdapter(DatabaseAdapter):
         )
         return [str(row[0]) for row in cursor.fetchall()]
 
+    def find_view(
+        self,
+        connection,
+        settings: DatabaseConnectionSettings,
+        view_name: str,
+        schema: str | None = None,
+    ) -> tuple[str, str] | None:
+        selected_schema = self.schema_name(settings, schema)
+        cursor = connection.cursor()
+        self.execute(
+            cursor,
+            """
+            SELECT table_schema, table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s AND LOWER(table_name) = LOWER(%s) AND table_type = 'VIEW'
+            ORDER BY CASE WHEN table_name = %s THEN 0 ELSE 1 END, table_name
+            LIMIT 1
+            """,
+            (selected_schema, view_name, view_name),
+        )
+        row = cursor.fetchone()
+        return (str(row[0]), str(row[1])) if row is not None else None
+
     def get_table(
         self,
         connection,
@@ -705,6 +803,29 @@ class PostgreSqlAdapter(DatabaseAdapter):
             (schema,),
         )
         return [str(row[0]) for row in cursor.fetchall()]
+
+    def find_view(
+        self,
+        connection,
+        settings: DatabaseConnectionSettings,
+        view_name: str,
+        schema: str | None = None,
+    ) -> tuple[str, str] | None:
+        selected_schema = self.schema_name(settings, schema)
+        cursor = connection.cursor()
+        self.execute(
+            cursor,
+            """
+            SELECT table_schema, table_name
+            FROM information_schema.views
+            WHERE table_schema = %s AND LOWER(table_name) = LOWER(%s)
+            ORDER BY CASE WHEN table_name = %s THEN 0 ELSE 1 END, table_name
+            LIMIT 1
+            """,
+            (selected_schema, view_name, view_name),
+        )
+        row = cursor.fetchone()
+        return (str(row[0]), str(row[1])) if row is not None else None
 
     def get_table(
         self,
@@ -835,6 +956,29 @@ class OracleAdapter(DatabaseAdapter):
         )
         return [str(row[0]) for row in cursor.fetchall()]
 
+    def find_view(
+        self,
+        connection,
+        settings: DatabaseConnectionSettings,
+        view_name: str,
+        schema: str | None = None,
+    ) -> tuple[str, str] | None:
+        selected_schema = self.schema_name(settings, schema).upper()
+        cursor = connection.cursor()
+        self.execute(
+            cursor,
+            """
+            SELECT owner, view_name
+            FROM all_views
+            WHERE owner = :1 AND LOWER(view_name) = LOWER(:2)
+            ORDER BY CASE WHEN view_name = :3 THEN 0 ELSE 1 END, view_name
+            FETCH FIRST 1 ROWS ONLY
+            """,
+            (selected_schema, view_name, view_name),
+        )
+        row = cursor.fetchone()
+        return (str(row[0]), str(row[1])) if row is not None else None
+
     def get_table(
         self,
         connection,
@@ -925,6 +1069,15 @@ def database_type_options() -> list[str]:
     return list(DATABASE_LABELS.values())
 
 
+def database_sqlglot_dialect(database_type: str) -> str:
+    return {
+        DATABASE_SQLSERVER: "tsql",
+        DATABASE_MYSQL: "mysql",
+        DATABASE_POSTGRESQL: "postgres",
+        DATABASE_ORACLE: "oracle",
+    }[normalize_database_type(database_type)]
+
+
 def normalize_database_type(value: str) -> str:
     normalized = value.strip().casefold().replace(" ", "")
     aliases = {
@@ -997,6 +1150,53 @@ def list_database_tables(settings: DatabaseConnectionSettings) -> list[str]:
         return adapter.list_tables(connection, settings)
     finally:
         connection.close()
+
+
+def get_database_relation(
+    settings: DatabaseConnectionSettings,
+    relation_name: str,
+    schema: str | None = None,
+) -> TableMetadata:
+    settings = validate_connection_settings(settings)
+    adapter = get_adapter(settings.normalized_type)
+    connection = adapter.connect(settings)
+    try:
+        return adapter.get_relation(connection, settings, relation_name, schema)
+    finally:
+        connection.close()
+
+
+def format_database_value(value: object, column: DatabaseColumn) -> str | None:
+    return _format_db_value(value, column)
+
+
+def apply_query_timeout(cursor, timeout_seconds: int) -> None:
+    if timeout_seconds <= 0 or not hasattr(cursor, "timeout"):
+        return
+    try:
+        cursor.timeout = int(timeout_seconds)
+    except (AttributeError, TypeError, ValueError):
+        return
+
+
+def build_update_by_primary_key_sql(
+    adapter: DatabaseAdapter,
+    metadata: TableMetadata,
+    update_columns: list[DatabaseColumn],
+    primary_key_columns: list[DatabaseColumn],
+) -> str:
+    sql = _build_sync_update_sql(adapter, metadata, update_columns, primary_key_columns)
+    if sql is None:
+        raise ValueError("Cần ít nhất một column để update.")
+    return sql
+
+
+def canonical_row_hash(values: Sequence[object], columns: list[DatabaseColumn]) -> str:
+    payload = [
+        {"name": column.name, "value": _canonical_hash_value(values[index] if index < len(values) else None, column)}
+        for index, column in enumerate(columns)
+    ]
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 def normalize_csv_folder(
@@ -2127,6 +2327,11 @@ def _format_db_value(value: object, column: DatabaseColumn) -> str | None:
     return str(value)
 
 
+def _canonical_hash_value(value: object, column: DatabaseColumn) -> dict[str, str | None]:
+    formatted = _format_db_value(value, column)
+    return {"type": column.normalized_type_name, "value": formatted}
+
+
 def _format_datetime_text(value: str) -> str:
     parsed = _parse_datetime(value)
     if parsed is None:
@@ -2384,3 +2589,16 @@ def _sqlserver_type_name(value: object) -> str:
 
 def _brace_value(value: str) -> str:
     return "{" + value.replace("}", "}}") + "}"
+
+
+def _description_type_name(item: Sequence[object]) -> str:
+    if len(item) < 2 or item[1] is None:
+        return "unknown"
+    value = item[1]
+    return getattr(value, "__name__", None) or str(value)
+
+
+def _description_nullable(item: Sequence[object]) -> bool:
+    if len(item) < 7 or item[6] is None:
+        return True
+    return bool(item[6])

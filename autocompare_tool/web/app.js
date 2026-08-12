@@ -16,6 +16,15 @@ const state = {
   databaseNames: { main: [], source: [], target: [] },
   sourceTables: [],
   selectedTables: [],
+  sqlWorkspace: {
+    workspaceId: "",
+    writeToken: "",
+    writeExpiresAt: "",
+    stale: false,
+    exportable: false,
+    dirty: {},
+    rowTokens: {},
+  },
   picker: null,
 };
 
@@ -25,6 +34,7 @@ const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selec
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
+  prepareDatabaseWorkspaceLayout();
   bindNavigation();
   bindMobileMenu();
   bindTabs();
@@ -82,13 +92,94 @@ function bindMobileMenu() {
   $("#menu-toggle").addEventListener("click", () => $("#sidebar").classList.toggle("open"));
 }
 
+function prepareDatabaseWorkspaceLayout() {
+  const sqlNav = $('.nav-item[data-page="sql-studio"]');
+  if (sqlNav) sqlNav.remove();
+
+  const databasePage = $("#page-database");
+  const tabs = $(".database-tabs", databasePage);
+  if (!databasePage || !tabs || $("#db-common-connections")) return;
+
+  const sqlTab = document.createElement("button");
+  sqlTab.className = "tab";
+  sqlTab.dataset.tabGroup = "database";
+  sqlTab.dataset.tab = "sql-workspace";
+  sqlTab.type = "button";
+  sqlTab.textContent = "SQL Workspace";
+  const syncTab = $('.tab[data-tab-group="database"][data-tab="sync"]', tabs);
+  tabs.insertBefore(sqlTab, syncTab || null);
+
+  const common = document.createElement("section");
+  common.className = "db-common-connections";
+  common.id = "db-common-connections";
+  common.innerHTML = `
+    <form class="card connection-card db-common-card" data-db-scope="main">
+      <div class="card-heading"><div><span class="source-target source">1</span><h3>Database 1</h3></div><span class="connection-state" data-verified-state="main">Chưa kiểm tra</span></div>
+      <div class="connection-fields"></div>
+      <div class="two-buttons"><button class="ghost-button" data-db-load="main" type="button">Tải CSDL</button><button class="secondary-button" data-db-test="main" type="button">Test & tải table</button></div>
+    </form>
+    <form class="card connection-card db-common-card" data-db-scope="target">
+      <div class="card-heading"><div><span class="source-target target">2</span><h3>Database 2</h3></div><span class="connection-state" data-verified-state="target">Chưa kiểm tra</span></div>
+      <div class="connection-fields"></div>
+      <div class="two-buttons"><button class="ghost-button" data-db-load="target" type="button">Tải CSDL</button><button class="secondary-button" data-db-test="target" type="button">Test kết nối</button></div>
+    </form>`;
+  databasePage.insertBefore(common, tabs);
+
+  $("#db-main-form")?.remove();
+  $(".sync-connections")?.remove();
+
+  const sqlPage = $("#page-sql-studio");
+  if (sqlPage) {
+    const sqlPanel = document.createElement("div");
+    sqlPanel.className = "tab-panel";
+    sqlPanel.dataset.tabPanel = "database:sql-workspace";
+    while (sqlPage.firstChild) sqlPanel.appendChild(sqlPage.firstChild);
+    const syncPanel = $('[data-tab-panel="database:sync"]', databasePage);
+    databasePage.insertBefore(sqlPanel, syncPanel || null);
+    sqlPage.remove();
+    enhanceSqlWorkspacePanel(sqlPanel);
+  }
+}
+
+function enhanceSqlWorkspacePanel(panel) {
+  const toolbarText = $(".sql-editor-toolbar small", panel);
+  if (toolbarText) toolbarText.textContent = "Format/Analyze dùng parser; Run dùng Database 1 đã kết nối";
+  const actions = $(".sql-editor-actions > div", panel);
+  if (actions && !$("#sql-run-current")) {
+    actions.insertAdjacentHTML("beforeend", `
+      <button class="secondary-button" id="sql-run-current" type="button">Run current</button>
+      <button class="secondary-button" id="sql-run-all" type="button">Run all</button>
+      <button class="ghost-button" id="sql-write-mode" type="button">Write mode OFF</button>`);
+  }
+  panel.insertAdjacentHTML("beforeend", `
+    <section class="card sql-workspace-export">
+      <div class="card-heading"><div><span class="step-number">03</span><h3>Export source data</h3></div><button class="secondary-button small" id="sql-export-all" type="button" disabled>Export All</button></div>
+      <label class="field field-wide"><span>Output folder</span><span class="path-control"><input id="sql-export-folder"><button class="browse-button" type="button" data-browse-target="sql-export-folder" data-browse-kind="directory">Chọn</button></span></label>
+    </section>
+    <section class="sql-workspace-output hidden" id="sql-workspace-output">
+      <div class="sql-analysis-heading"><div><span class="section-kicker">Database workspace</span><h3>Query Results & Source Data</h3></div><span class="soft-badge" id="sql-workspace-state">STALE</span></div>
+      <div class="sql-db-grid">
+        <section class="card sql-db-panel"><div class="card-heading"><div><span class="sql-result-icon">R</span><h3>Query Results</h3></div></div><div id="sql-query-results" class="sql-db-stack"></div></section>
+        <section class="card sql-db-panel"><div class="card-heading"><div><span class="sql-result-icon table-icon">S</span><h3>Sources</h3></div></div><div id="sql-source-list" class="sql-db-stack"></div></section>
+      </div>
+      <section class="card sql-db-panel sql-source-data-panel"><div class="card-heading"><div><span class="sql-result-icon condition-icon">D</span><h3>Source Data</h3></div></div><div id="sql-source-data" class="sql-db-stack"></div></section>
+    </section>`);
+}
+
 function bindTabs() {
   $$(".tab").forEach((button) => button.addEventListener("click", () => {
     const group = button.dataset.tabGroup;
     const tab = button.dataset.tab;
     $$(`.tab[data-tab-group="${group}"]`).forEach((item) => item.classList.toggle("active", item === button));
     $$(`[data-tab-panel^="${group}:"]`).forEach((panel) => panel.classList.toggle("active", panel.dataset.tabPanel === `${group}:${tab}`));
+    syncDatabaseCommonLayout(group, tab);
   }));
+  syncDatabaseCommonLayout("database", "csv");
+}
+
+function syncDatabaseCommonLayout(group, tab) {
+  if (group !== "database") return;
+  $("#db-common-connections")?.classList.toggle("compact-target", tab !== "sync");
 }
 
 function bindActivityPanel() {
@@ -160,6 +251,10 @@ function bindForms() {
   $("#sql-format").addEventListener("click", () => runSqlAction("sql_format"));
   $("#sql-analyze").addEventListener("click", () => runSqlAction("sql_analyze"));
   $("#copy-formatted-sql").addEventListener("click", copyFormattedSql);
+  $("#sql-run-current")?.addEventListener("click", () => runSqlExecute("current"));
+  $("#sql-run-all")?.addEventListener("click", () => runSqlExecute("all"));
+  $("#sql-write-mode")?.addEventListener("click", toggleSqlWriteMode);
+  $("#sql-export-all")?.addEventListener("click", () => exportSqlSources());
 
   $("#rename-exact-form").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -248,7 +343,7 @@ function bindForms() {
   });
   $("#db-sync-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!requireVerified("source") || !requireVerified("target")) return;
+    if (!requireVerified("main") || !requireVerified("target")) return;
     const allTables = checked("sync-all-tables");
     const tableNames = allTables ? state.sourceTables : state.selectedTables;
     if (!tableNames.length) {
@@ -275,7 +370,7 @@ function bindForms() {
     ].join("\n\n");
     if (await confirmAction("Xác nhận đồng bộ cơ sở dữ liệu", detail)) {
       startAction("db_sync", {
-        source_settings: getDbSettings("source"), target_settings: getDbSettings("target"), table_names: tableNames,
+        source_settings: getDbSettings("main"), target_settings: getDbSettings("target"), table_names: tableNames,
         record_limit: limit, keep_identity: checked("sync-keep-identity"), sync_mode: syncMode,
         batch_size: batchSize, delete_target_only: deleteTargetOnly,
         truncate_before_sync: syncMode === "truncate_table", confirmed: true,
@@ -365,6 +460,7 @@ function hydrateDefaults() {
   $("#utility-root").value = cwd;
   $("#excel-format-root").value = cwd;
   $("#db-csv-path").value = cwd;
+  $("#sql-export-folder").value = cwd;
   $("#folder-output").value = joinPath(cwd, state.bootstrap.folder_compare_file);
   $("#workflow-count").textContent = String(state.bootstrap.compare_workflows.filter((item) => item.default_enabled).length);
 }
@@ -397,10 +493,11 @@ function renderConnectionForms() {
 
     form.addEventListener("submit", (event) => event.preventDefault());
 
+    $$(`input, select`, form).forEach((input) => input.addEventListener("input", () => invalidateDbConnection(scope)));
     $$(`input, select`, form).forEach((input) => input.addEventListener("change", () => {
       if (input.id === `db-${scope}-type`) applyDatabaseType(scope, true);
       if (input.id === `db-${scope}-trusted`) syncAuthFields(scope);
-      setVerified(scope, false);
+      invalidateDbConnection(scope);
     }));
     $(`#db-${scope}-trusted`).addEventListener("change", () => syncAuthFields(scope));
     applyDatabaseType(scope, false);
@@ -409,7 +506,7 @@ function renderConnectionForms() {
 
   $$('[data-db-test]').forEach((button) => button.addEventListener("click", () => {
     const scope = button.dataset.dbTest;
-    startAction("db_test", { settings: getDbSettings(scope), role: scope, load_tables: scope === "source" });
+    startAction("db_test", { settings: getDbSettings(scope), role: scope, load_tables: scope === "main" });
   }));
   $$('[data-db-load]').forEach((button) => button.addEventListener("click", () => {
     const scope = button.dataset.dbLoad;
@@ -455,10 +552,24 @@ function setVerified(scope, verified) {
   const indicator = $(`[data-verified-state="${scope}"]`);
   indicator.textContent = verified ? "Đã kết nối" : "Chưa kiểm tra";
   indicator.classList.toggle("verified", verified);
-  if (scope === "source" && !verified) {
+  if (scope === "main" && !verified) {
     state.sourceTables = [];
     state.selectedTables = [];
     renderTables();
+  }
+}
+
+function invalidateDbConnection(scope) {
+  setVerified(scope, false);
+  if (scope === "main" || scope === "target") {
+    if (state.sqlWorkspace.writeToken) {
+      api("/api/sql-workspace/write-mode/disable", {
+        method: "POST",
+        body: { write_token: state.sqlWorkspace.writeToken },
+      }).catch(() => {});
+    }
+    disableSqlWriteModeLocal();
+    markSqlWorkspaceStale();
   }
 }
 
@@ -563,6 +674,8 @@ function refreshFixmeNoteOptions() {
     if (state.notes.some((note) => note.value === currentValue)) select.value = currentValue;
   });
   updateFixmeToolbarState();
+  updateSqlDirtyButtons();
+  if ($("#sql-export-all") && !state.sqlWorkspace.exportable) $("#sql-export-all").disabled = true;
 }
 
 function fixmeNoteOptionsHtml(placeholder, selectedValue = "") {
@@ -899,7 +1012,7 @@ function consumeJobResult(job) {
   }
   if (job.action === "db_test" && result.verified) {
     setVerified(result.role, true);
-    if (result.role === "source" && Array.isArray(result.tables)) {
+    if (result.role === "main" && Array.isArray(result.tables)) {
       state.sourceTables = result.tables;
       state.selectedTables = [];
       renderTables();
@@ -918,6 +1031,14 @@ function consumeJobResult(job) {
     if (job.action === "sql_analyze") renderSqlAnalysis(result);
     else $("#sql-analysis").classList.add("hidden");
   }
+  if (job.action === "db_sql_execute") {
+    renderSqlWorkspace(result);
+    if (result.analysis) renderSqlAnalysis(result.analysis);
+  }
+  if (job.action === "db_sql_update") {
+    state.sqlWorkspace.dirty = {};
+    markSqlWorkspaceStale();
+  }
 }
 
 function runSqlAction(action) {
@@ -928,6 +1049,128 @@ function runSqlAction(action) {
     return;
   }
   startAction(action, { sql, dialect: valueOf("sql-dialect") });
+}
+
+function runSqlExecute(mode) {
+  if (!requireVerified("main")) return;
+  const editor = $("#sql-input");
+  const sql = mode === "current" ? currentSqlSelection(editor) : valueOf("sql-input");
+  if (!sql.trim()) {
+    showToast("Vui lòng nhập hoặc chọn statement SQL cần chạy.", "error");
+    editor.focus();
+    return;
+  }
+  startAction("db_sql_execute", {
+    sql,
+    settings: getDbSettings("main"),
+    run_mode: mode,
+    write_token: state.sqlWorkspace.writeToken || "",
+  });
+}
+
+async function toggleSqlWriteMode() {
+  if (state.sqlWorkspace.writeToken) {
+    try {
+      await api("/api/sql-workspace/write-mode/disable", {
+        method: "POST",
+        body: { write_token: state.sqlWorkspace.writeToken },
+      });
+    } catch (_error) {
+      // Local token is temporary; clearing it is enough when the server already dropped it.
+    }
+    disableSqlWriteModeLocal();
+    showToast("Đã tắt Write mode.", "success");
+    return;
+  }
+  if (!requireVerified("main")) return;
+  const confirmed = await confirmAction(
+    "Bật Write mode cho SQL editor?",
+    "DDL/DML sẽ được phép chạy trong 30 phút cho Database 1 hiện tại. Batch Run all sẽ rollback nếu có lỗi khi database hỗ trợ transaction; một số DDL/MySQL/Oracle có thể implicit commit."
+  );
+  if (!confirmed) return;
+  try {
+    const result = await api("/api/sql-workspace/write-mode/enable", {
+      method: "POST",
+      body: { settings: getDbSettings("main") },
+    });
+    state.sqlWorkspace.writeToken = result.write_token || "";
+    state.sqlWorkspace.writeExpiresAt = result.expires_at || "";
+    updateSqlWriteModeButton();
+    showToast("Write mode đã bật.", "success");
+  } catch (error) {
+    showToast(error.message, "error", 7000);
+  }
+}
+
+function disableSqlWriteModeLocal() {
+  state.sqlWorkspace.writeToken = "";
+  state.sqlWorkspace.writeExpiresAt = "";
+  updateSqlWriteModeButton();
+}
+
+function updateSqlWriteModeButton() {
+  const button = $("#sql-write-mode");
+  if (!button) return;
+  const enabled = Boolean(state.sqlWorkspace.writeToken);
+  button.classList.toggle("danger-button", enabled);
+  button.classList.toggle("ghost-button", !enabled);
+  button.textContent = enabled ? "Write mode ON" : "Write mode OFF";
+}
+
+function markSqlWorkspaceStale() {
+  if (!state.sqlWorkspace.workspaceId) return;
+  state.sqlWorkspace.stale = true;
+  state.sqlWorkspace.exportable = false;
+  const badge = $("#sql-workspace-state");
+  if (badge) {
+    badge.classList.add("stale");
+    badge.textContent = "STALE";
+  }
+}
+
+function currentSqlSelection(editor) {
+  const start = editor.selectionStart || 0;
+  const end = editor.selectionEnd || 0;
+  if (end > start) return editor.value.slice(start, end);
+  const ranges = splitSqlStatements(editor.value);
+  const found = ranges.find((item) => start >= item.start && start <= item.end);
+  return found ? editor.value.slice(found.start, found.end) : editor.value;
+}
+
+function splitSqlStatements(sql) {
+  const ranges = [];
+  let start = 0;
+  let quote = "";
+  let lineComment = false;
+  let blockComment = false;
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+    const next = sql[index + 1] || "";
+    if (lineComment) {
+      if (char === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (char === "*" && next === "/") { blockComment = false; index += 1; }
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        if (next === quote) index += 1;
+        else quote = "";
+      }
+      continue;
+    }
+    if (char === "-" && next === "-") { lineComment = true; index += 1; continue; }
+    if (char === "/" && next === "*") { blockComment = true; index += 1; continue; }
+    if (char === "'" || char === '"' || char === "`") { quote = char; continue; }
+    if (char === ";") {
+      if (sql.slice(start, index).trim()) ranges.push({ start, end: index });
+      start = index + 1;
+    }
+  }
+  if (sql.slice(start).trim()) ranges.push({ start, end: sql.length });
+  return ranges;
 }
 
 async function copyFormattedSql() {
@@ -1039,6 +1282,218 @@ function sqlEmpty(message) {
   return `<div class="sql-empty">${escapeHtml(message)}</div>`;
 }
 
+function renderSqlWorkspace(result) {
+  state.sqlWorkspace.workspaceId = result.workspace_id || "";
+  state.sqlWorkspace.stale = false;
+  state.sqlWorkspace.dirty = {};
+  state.sqlWorkspace.rowTokens = {};
+  $("#sql-workspace-output").classList.remove("hidden");
+  state.sqlWorkspace.exportable = (result.sources || []).some((item) => item.lineage_status === "exact");
+  $("#sql-export-all").disabled = !state.sqlWorkspace.exportable;
+  const badge = $("#sql-workspace-state");
+  badge.textContent = result.transaction_status || "READY";
+  badge.classList.remove("stale");
+
+  renderSqlQueryResults(result.results || []);
+  renderSqlSourceList(result.sources || []);
+  renderSqlSourceData(result.sources || []);
+}
+
+function renderSqlQueryResults(results) {
+  const container = $("#sql-query-results");
+  if (!results.length) {
+    container.innerHTML = sqlEmpty("Không có result set.");
+    return;
+  }
+  container.innerHTML = results.map((item) => `
+    <article class="sql-db-card">
+      <header><strong>${escapeHtml(item.label || item.item_id)}</strong><span>${Number(item.row_count || 0)} rows</span></header>
+      ${renderSqlDataGrid(item.first_page || { columns: item.columns || [], rows: [] }, { editable: false })}
+    </article>`).join("");
+  bindSqlPageControls(container);
+}
+
+function renderSqlSourceList(sources) {
+  const container = $("#sql-source-list");
+  if (!sources.length) {
+    container.innerHTML = sqlEmpty("Analyze không tìm thấy source.");
+    return;
+  }
+  container.innerHTML = sources.map((source) => `
+    <article class="sql-source-card ${source.lineage_status !== "exact" ? "unsupported" : ""}">
+      <header><strong>${escapeHtml(source.label || source.relation_id)}</strong><span>${escapeHtml(source.relation_kind || "")}</span></header>
+      <small>${escapeHtml(source.scope_id || "")} · ${escapeHtml(source.lineage_status || "unsupported")}</small>
+      ${source.unsupported_reason ? `<p>${escapeHtml(source.unsupported_reason)}</p>` : ""}
+      <div class="sql-source-actions">
+        <button class="secondary-button small" type="button" data-sql-export="${escapeHtml(source.relation_id)}" ${source.lineage_status === "exact" ? "" : "disabled"}>Export CSV</button>
+        <button class="primary-button small" type="button" data-sql-update="${escapeHtml(source.relation_id)}" disabled>Update Data</button>
+      </div>
+    </article>`).join("");
+  $$("[data-sql-export]", container).forEach((button) => {
+    button.addEventListener("click", () => exportSqlSources([button.dataset.sqlExport]));
+  });
+  $$("[data-sql-update]", container).forEach((button) => {
+    button.addEventListener("click", () => updateSqlSource(button.dataset.sqlUpdate));
+  });
+}
+
+function renderSqlSourceData(sources) {
+  const container = $("#sql-source-data");
+  const exactSources = sources.filter((item) => item.lineage_status === "exact" && item.first_page);
+  if (!sources.length) {
+    container.innerHTML = sqlEmpty("Chưa có source data.");
+    return;
+  }
+  container.innerHTML = sources.map((source) => {
+    if (source.lineage_status !== "exact" || !source.first_page) {
+      return `<article class="sql-db-card unsupported"><header><strong>${escapeHtml(source.label || source.relation_id)}</strong><span>read-only</span></header>${sqlEmpty(source.unsupported_reason || "Không thể truy vết chính xác.")}</article>`;
+    }
+    rememberSqlRowTokens(source.relation_id, source.first_page.rows || []);
+    return `
+      <article class="sql-db-card" data-source-card="${escapeHtml(source.relation_id)}">
+        <header><strong>${escapeHtml(source.label || source.relation_id)}</strong><span>${Number(source.row_count || 0)} rows</span></header>
+        ${renderSqlDataGrid(source.first_page, { editable: source.updateable, relationId: source.relation_id })}
+      </article>`;
+  }).join("");
+  bindSqlGridEditing(container);
+  bindSqlPageControls(container);
+  if (!exactSources.length) {
+    state.sqlWorkspace.exportable = false;
+    $("#sql-export-all").disabled = true;
+  }
+}
+
+function renderSqlDataGrid(page, options = {}) {
+  const columns = Array.isArray(page.columns) ? page.columns : [];
+  const rows = Array.isArray(page.rows) ? page.rows : [];
+  if (!columns.length) return sqlEmpty("Không có metadata column.");
+  const headerIndexes = columns.map((column) => `<th style="${column.color ? `--usage-color:${escapeHtml(column.color)}` : ""}" class="${column.color ? "usage-column" : ""}">#${Number(column.index || 0)}</th>`).join("");
+  const headerNames = columns.map((column) => {
+    const title = column.join_tooltip ? ` title="${escapeHtml(column.join_tooltip)}"` : "";
+    return `<th${title} style="${column.color ? `--usage-color:${escapeHtml(column.color)}` : ""}" class="${column.color ? "usage-column" : ""}">
+      <span class="sql-col-name">${column.is_primary_key ? "🔑 " : ""}${escapeHtml(column.name || "")}</span>
+      <small>${escapeHtml(column.data_type || "")}${column.usage ? ` · ${escapeHtml(column.usage)}` : ""}</small>
+    </th>`;
+  }).join("");
+  const body = rows.length ? rows.map((row) => `
+    <tr>
+      ${columns.map((column, index) => renderSqlCell(row, column, index, options)).join("")}
+    </tr>`).join("") : `<tr><td colspan="${columns.length}">${sqlEmpty("Không có record trong page này.")}</td></tr>`;
+  const pageNumber = Number(page.page || 1);
+  const pageSize = Number(page.page_size || rows.length || 100);
+  const rowCount = Number(page.row_count || rows.length || 0);
+  const maxPage = Math.max(1, Math.ceil(rowCount / Math.max(1, pageSize)));
+  const pager = page.item_id && rowCount > pageSize ? `
+    <div class="sql-grid-pager">
+      <button class="ghost-button small" type="button" data-sql-page="${escapeHtml(page.item_id)}" data-page="${pageNumber - 1}" data-relation-id="${escapeHtml(options.relationId || "")}" data-editable="${options.editable ? "1" : "0"}" ${pageNumber <= 1 ? "disabled" : ""}>Prev</button>
+      <span>Page ${pageNumber} / ${maxPage}</span>
+      <button class="ghost-button small" type="button" data-sql-page="${escapeHtml(page.item_id)}" data-page="${pageNumber + 1}" data-relation-id="${escapeHtml(options.relationId || "")}" data-editable="${options.editable ? "1" : "0"}" ${pageNumber >= maxPage ? "disabled" : ""}>Next</button>
+    </div>` : "";
+  return `<div class="sql-grid-host"><div class="table-wrap sql-source-table-wrap"><table class="sql-source-table"><thead><tr>${headerIndexes}</tr><tr>${headerNames}</tr></thead><tbody>${body}</tbody></table></div>${pager}</div>`;
+}
+
+function renderSqlCell(row, column, index, options) {
+  const value = Array.isArray(row.values) ? row.values[index] ?? "" : "";
+  const style = column.color ? ` style="--usage-color:${escapeHtml(column.color)}"` : "";
+  const className = column.color ? "usage-column" : "";
+  if (options.editable && column.editable) {
+    return `<td${style} class="${className}"><input class="sql-cell-input" data-sql-edit="1" data-relation-id="${escapeHtml(options.relationId)}" data-row-number="${Number(row.row_number)}" data-column-name="${escapeHtml(column.name)}" value="${escapeHtml(value)}"></td>`;
+  }
+  return `<td${style} class="${className}"><span class="diff-value">${escapeHtml(value)}</span></td>`;
+}
+
+function rememberSqlRowTokens(relationId, rows) {
+  state.sqlWorkspace.rowTokens[relationId] = state.sqlWorkspace.rowTokens[relationId] || {};
+  rows.forEach((row) => {
+    state.sqlWorkspace.rowTokens[relationId][row.row_number] = row.row_token;
+  });
+}
+
+function bindSqlGridEditing(root) {
+  $$("[data-sql-edit]", root).forEach((input) => input.addEventListener("input", () => {
+    const relationId = input.dataset.relationId;
+    const rowNumber = input.dataset.rowNumber;
+    const columnName = input.dataset.columnName;
+    state.sqlWorkspace.dirty[relationId] = state.sqlWorkspace.dirty[relationId] || {};
+    state.sqlWorkspace.dirty[relationId][rowNumber] = state.sqlWorkspace.dirty[relationId][rowNumber] || {};
+    state.sqlWorkspace.dirty[relationId][rowNumber][columnName] = { value: input.value };
+    input.classList.add("dirty");
+    updateSqlDirtyButtons();
+  }));
+}
+
+function bindSqlPageControls(root) {
+  $$("[data-sql-page]", root).forEach((button) => button.addEventListener("click", async () => {
+    const page = Number(button.dataset.page || 1);
+    if (!state.sqlWorkspace.workspaceId || page < 1) return;
+    try {
+      const params = new URLSearchParams({
+        workspace_id: state.sqlWorkspace.workspaceId,
+        item_id: button.dataset.sqlPage,
+        page: String(page),
+      });
+      const result = await api(`/api/sql-workspace/page?${params}`);
+      const relationId = button.dataset.relationId || "";
+      if (relationId) rememberSqlRowTokens(relationId, result.rows || []);
+      const host = button.closest(".sql-grid-host");
+      const cardBeforeReplace = button.closest(".sql-db-card");
+      host.outerHTML = renderSqlDataGrid(result, {
+        editable: button.dataset.editable === "1",
+        relationId,
+      });
+      const card = relationId ? $(`[data-source-card="${cssEscape(relationId)}"]`) : cardBeforeReplace;
+      if (card) {
+        bindSqlGridEditing(card);
+        bindSqlPageControls(card);
+      }
+    } catch (error) {
+      showToast(error.message, "error", 7000);
+    }
+  }));
+}
+
+function updateSqlDirtyButtons() {
+  $$("[data-sql-update]").forEach((button) => {
+    const dirty = state.sqlWorkspace.dirty[button.dataset.sqlUpdate] || {};
+    button.disabled = document.body.classList.contains("is-busy") || !Object.keys(dirty).length;
+  });
+}
+
+async function exportSqlSources(relationIds = null) {
+  if (!state.sqlWorkspace.workspaceId) return;
+  const outputFolder = valueOf("sql-export-folder");
+  if (!outputFolder) {
+    showToast("Vui lòng chọn output folder để export CSV.", "error");
+    return;
+  }
+  if (!await confirmAction("Export source data SQL?", "CSV sẽ được ghi vào folder đã chọn. Nếu xác định được, mỗi source sẽ có thêm đúng một negative record ở dòng cuối file.")) return;
+  startAction("db_sql_export", {
+    workspace_id: state.sqlWorkspace.workspaceId,
+    settings: getDbSettings("main"),
+    output_folder: outputFolder,
+    relation_ids: relationIds,
+    confirmed: true,
+  });
+}
+
+async function updateSqlSource(relationId) {
+  const dirtyRows = state.sqlWorkspace.dirty[relationId] || {};
+  const rows = Object.entries(dirtyRows).map(([rowNumber, values]) => ({
+    row_number: Number(rowNumber),
+    row_token: state.sqlWorkspace.rowTokens[relationId]?.[rowNumber] || "",
+    values,
+  }));
+  if (!rows.length) return;
+  if (!await confirmAction("Update data vào database?", "Các row dirty của cùng table sẽ update trong một transaction. Nếu có conflict hoặc lỗi, toàn bộ nhóm sẽ rollback.")) return;
+  startAction("db_sql_update", {
+    workspace_id: state.sqlWorkspace.workspaceId,
+    settings: getDbSettings("main"),
+    relation_id: relationId,
+    rows,
+    confirmed: true,
+  });
+}
+
 function summaryMessage(job) {
   const result = job.result || {};
   if (job.action === "compare") return `Đã xử lý ${result.processed_count || 0} case, tạo ${result.workbook_count || 0} workbook và tìm thấy ${result.fixme_count || 0} FIXME.`;
@@ -1048,6 +1503,9 @@ function summaryMessage(job) {
   if (job.action === "sql_analyze") return `Đã phân tích ${result.statement_count || 0} statement: ${result.tables?.length || 0} table/reference, ${result.conditions?.length || 0} điều kiện, ${result.subqueries?.length || 0} subquery.`;
   if (job.action === "db_test") return "Kết nối cơ sở dữ liệu thành công.";
   if (job.action === "db_list_databases") return `Đã tải ${result.databases?.length || 0} cơ sở dữ liệu.`;
+  if (job.action === "db_sql_execute") return `SQL Workspace đã chạy ${result.statements?.length || 0} statement, ${result.results?.length || 0} result set, ${result.sources?.length || 0} source.`;
+  if (job.action === "db_sql_export") return `Đã export ${result.files?.length || 0} file CSV; lỗi ${result.error_count || 0}.`;
+  if (job.action === "db_sql_update") return `Đã update ${result.updated_count || 0} row; ${result.conflicts?.length || 0} conflict.`;
   if (job.action === "db_sync") {
     const retained = result.retained_target_only_count
       ? `, giữ lại ${result.retained_target_only_count} record chỉ có ở đích`
@@ -1073,7 +1531,7 @@ function setJobVisual(kind, text) {
 
 function setBusy(busy) {
   document.body.classList.toggle("is-busy", busy);
-  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #find-empty, #delete-empty, #sql-format, #sql-analyze, #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes').forEach((button) => {
+  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes').forEach((button) => {
     button.disabled = busy || (button.id === "delete-excel-format-preset" && !valueOf("excel-format-preset"));
   });
   updateFixmeToolbarState();
@@ -1208,6 +1666,10 @@ function valueOf(id) { return $(`#${id}`)?.value?.trim() || ""; }
 function checked(id) { return Boolean($(`#${id}`)?.checked); }
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]));
+}
+function cssEscape(value) {
+  if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(String(value));
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }
 function joinPath(parent, child) {
   const separator = parent.includes("\\") ? "\\" : "/";

@@ -175,6 +175,19 @@ def analyze_sql(sql_text: str, dialect: str = "", log: Logger | None = None) -> 
     return result
 
 
+def parse_sql_expressions(sql_text: str, dialect: str = "") -> list[exp.Expression]:
+    return _parse_sql(sql_text, _normalize_dialect(dialect))
+
+
+def normalize_sql_dialect(dialect: str) -> str:
+    return _normalize_dialect(dialect)
+
+
+def render_sql_expression(expression: exp.Expression, dialect: str = "", pretty: bool = False) -> str:
+    normalized = _normalize_dialect(dialect)
+    return _sql(expression, normalized, pretty=pretty)
+
+
 def _parse_sql(sql_text: str, dialect: str) -> list[exp.Expression]:
     value = str(sql_text).strip()
     if not value:

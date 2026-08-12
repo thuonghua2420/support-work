@@ -86,12 +86,23 @@ class ExcelImageFormatConfig:
 
 
 @dataclass(frozen=True)
+class DatabaseWorkspaceConfig:
+    page_size: int
+    max_page_size: int
+    query_timeout_seconds: int
+    write_mode_timeout_minutes: int
+    export_batch_size: int
+    workspace_spool_limit_mb: int
+
+
+@dataclass(frozen=True)
 class AppConfig:
     folders: FolderConfig
     workbooks: WorkbookConfig
     excel_headers: ExcelHeaderConfig
     compare_workflows: tuple[CompareWorkflowConfig, ...]
     excel_image_format: ExcelImageFormatConfig
+    database_workspace: DatabaseWorkspaceConfig
 
 
 def load_app_config(config_path: str | Path | None = None) -> AppConfig:
@@ -208,12 +219,49 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
         right_border_column=_get_int(parser, "excel_image_format", "right_border_column", 38),
         bottom_border_last_column=_get_int(parser, "excel_image_format", "bottom_border_last_column", 38),
     )
+    database_workspace = DatabaseWorkspaceConfig(
+        page_size=_get_bounded_int(parser, "database_workspace", "page_size", 100, 1, 500),
+        max_page_size=_get_bounded_int(parser, "database_workspace", "max_page_size", 500, 1, 5000),
+        query_timeout_seconds=_get_bounded_int(
+            parser,
+            "database_workspace",
+            "query_timeout_seconds",
+            120,
+            0,
+            86400,
+        ),
+        write_mode_timeout_minutes=_get_bounded_int(
+            parser,
+            "database_workspace",
+            "write_mode_timeout_minutes",
+            30,
+            1,
+            1440,
+        ),
+        export_batch_size=_get_bounded_int(
+            parser,
+            "database_workspace",
+            "export_batch_size",
+            5000,
+            100,
+            100000,
+        ),
+        workspace_spool_limit_mb=_get_bounded_int(
+            parser,
+            "database_workspace",
+            "workspace_spool_limit_mb",
+            512,
+            16,
+            10240,
+        ),
+    )
     return AppConfig(
         folders=folders,
         workbooks=workbooks,
         excel_headers=excel_headers,
         compare_workflows=workflows,
         excel_image_format=excel_image_format,
+        database_workspace=database_workspace,
     )
 
 
@@ -262,6 +310,20 @@ def _get_int(parser: configparser.ConfigParser, section: str, option: str, fallb
         return parser.getint(section, option, fallback=fallback)
     except ValueError:
         return fallback
+
+
+def _get_bounded_int(
+    parser: configparser.ConfigParser,
+    section: str,
+    option: str,
+    fallback: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    value = _get_int(parser, section, option, fallback)
+    if value < minimum or value > maximum:
+        return fallback
+    return value
 
 
 def _get_float(parser: configparser.ConfigParser, section: str, option: str, fallback: float) -> float:

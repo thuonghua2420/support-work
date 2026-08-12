@@ -47,6 +47,7 @@ from .fixme_replacements import apply_fixme_replacements
 from .folder_compare import compare_csv_folders
 from .processor import process_root
 from .sql_tools import analyze_sql, format_sql
+from .sql_database_workspace import SqlDatabaseWorkspaceManager
 
 APP_TITLE = "AutoCompare"
 DEFAULT_HOST = "127.0.0.1"
@@ -178,6 +179,7 @@ class AutoCompareWebApplication:
         self.config: AppConfig = load_app_config()
         self.note_store = FixmeNoteStore()
         self.excel_format_preset_store = ExcelFormatPresetStore()
+        self.sql_workspace = SqlDatabaseWorkspaceManager(self.config.database_workspace)
         self.jobs = JobManager()
         self._state_lock = threading.Lock()
         self._fixme_entries: list[WorkbookFixmeEntry] = []
@@ -206,6 +208,7 @@ class AutoCompareWebApplication:
                 }
                 for database_type in database_type_options()
             },
+            "database_workspace": asdict(self.config.database_workspace),
             "sqlserver_drivers": get_available_sqlserver_drivers(),
             "notes": [_note_to_dict(note) for note in notes],
             "excel_format_presets": [_excel_format_preset_to_dict(item) for item in excel_format_presets],
@@ -245,12 +248,19 @@ class AutoCompareWebApplication:
         return [_excel_format_preset_to_dict(item) for item in presets]
 
     def start_action(self, action: str, payload: dict[str, Any]) -> WebJob:
-        if action not in self.ACTION_LABELS:
+        extra_labels = {
+            "db_sql_execute": "Dang chay SQL Workspace...",
+            "db_sql_export": "Dang export source data SQL...",
+            "db_sql_update": "Dang update data tu SQL grid...",
+        }
+        action_labels = {**self.ACTION_LABELS, **extra_labels}
+        confirmed_actions = set(self.CONFIRMED_ACTIONS) | {"db_sql_export", "db_sql_update"}
+        if action not in action_labels:
             raise ValueError(f"Tác vụ không được hỗ trợ: {action}")
-        if action in self.CONFIRMED_ACTIONS and payload.get("confirmed") is not True:
+        if action in confirmed_actions and payload.get("confirmed") is not True:
             raise PermissionError("Tác vụ này cần được xác nhận rõ ràng trước khi chạy.")
         operation = self._operation(action, payload)
-        return self.jobs.start(action, self.ACTION_LABELS[action], operation)
+        return self.jobs.start(action, action_labels[action], operation)
 
     def list_files(self, path_value: str, kind: str, extensions: list[str]) -> dict[str, Any]:
         requested = Path(path_value).expanduser() if path_value else Path.cwd()
@@ -407,6 +417,28 @@ class AutoCompareWebApplication:
                 )
             ),
             "db_sync": lambda log: self._database_sync(payload, log),
+            "db_sql_execute": lambda log: self.sql_workspace.execute(
+                _text(payload, "sql"),
+                _db_settings(payload.get("settings")),
+                run_mode=str(payload.get("run_mode", "all")),
+                write_token=str(payload.get("write_token", "")),
+                log=log,
+            ),
+            "db_sql_export": lambda log: self.sql_workspace.export_sources(
+                _text(payload, "workspace_id"),
+                _db_settings(payload.get("settings")),
+                _text(payload, "output_folder"),
+                relation_ids=payload.get("relation_ids"),
+                log=log,
+            ),
+            "db_sql_update": lambda log: self.sql_workspace.update_source_rows(
+                _text(payload, "workspace_id"),
+                _db_settings(payload.get("settings")),
+                _text(payload, "relation_id"),
+                payload.get("rows") if isinstance(payload.get("rows"), list) else [],
+                confirmed=payload.get("confirmed") is True,
+                log=log,
+            ),
             "apply_fixmes": lambda log: self._apply_fixmes(payload, log),
         }
         return operations[action]
@@ -568,6 +600,17 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
                 extensions = query.get("ext", [])
                 self._send_json(self.app.list_files(path_value, kind, extensions))
                 return
+            if parsed.path == "/api/sql-workspace/page":
+                query = parse_qs(parsed.query)
+                self._send_json(
+                    self.app.sql_workspace.get_page(
+                        query.get("workspace_id", [""])[0],
+                        query.get("item_id", [""])[0],
+                        page=_query_int(query, "page") or 1,
+                        page_size=_query_int(query, "page_size") or None,
+                    )
+                )
+                return
             self._serve_static(parsed.path)
         except Exception as exc:
             self._send_error_json(exc)
@@ -580,6 +623,12 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
                 action = _text(payload, "action")
                 job = self.app.start_action(action, payload)
                 self._send_json({"job": job.snapshot()}, HTTPStatus.ACCEPTED)
+                return
+            if parsed.path == "/api/sql-workspace/write-mode/enable":
+                self._send_json(self.app.sql_workspace.enable_write_mode(_db_settings(payload.get("settings"))))
+                return
+            if parsed.path == "/api/sql-workspace/write-mode/disable":
+                self._send_json(self.app.sql_workspace.disable_write_mode(str(payload.get("write_token", ""))))
                 return
             if parsed.path == "/api/notes/save":
                 self._send_json({"notes": self.app.save_note(payload)})
@@ -605,7 +654,7 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
         if content_type != "application/json":
             raise ValueError("API chỉ chấp nhận nội dung application/json.")
         length = int(self.headers.get("Content-Length", "0"))
-        if length <= 0 or length > 1_000_000:
+        if length <= 0 or length > 10_000_000:
             raise ValueError("Nội dung request trống hoặc quá lớn.")
         data = json.loads(self.rfile.read(length).decode("utf-8"))
         if not isinstance(data, dict):

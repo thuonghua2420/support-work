@@ -184,6 +184,23 @@ Workflow này tiếp tục dùng `copy_ut_files.py`:
 - Nếu đích đã có CSV, công cụ so sánh value/raw format và ghi log trước khi ghi đè.
 - Log được tạo trong `copy_logs` cạnh `copy_ut_files.py`.
 
+## SQL Workspace trong Database
+
+Trang Database hiện có vùng kết nối chung phía trên các tab:
+
+- **Database 1** dùng cho CSV import/export, SQL Workspace và làm nguồn đồng bộ.
+- **Database 2** chỉ dùng làm database đích khi đồng bộ.
+
+Tab **SQL Workspace** kế thừa formatter/analyzer cũ, đồng thời có thể chạy SQL trực tiếp trên Database 1. `Format` và `Analyze` vẫn chạy khi chưa kết nối DB. `Run current` chạy vùng đang bôi đen hoặc statement tại caret; `Run all` chạy toàn bộ statement theo thứ tự. Mặc định backend chỉ cho statement đọc. DDL/DML cần bật **Write mode**, token tạm thời gắn với fingerprint của Database 1 và tự hết hạn theo `[database_workspace].write_mode_timeout_minutes`; đổi connection sẽ hủy verified state, tắt Write mode và đánh dấu kết quả SQL cũ là stale.
+
+Kết quả query được đọc bằng `fetchmany()` và spool tạm theo workspace để phân trang, không `fetchall()` toàn bộ result set. Source Data chỉ hiển thị record khi module lineage chứng minh được query rewrite exact; nếu gặp aggregate, CTE/derived phức tạp, correlated subquery hoặc cấu trúc chưa hỗ trợ thì card vẫn hiện nhưng không fallback sang toàn table.
+
+Source grid hiển thị header hai tầng gồm index column, icon key cho primary key, datatype và màu usage: JOIN ưu tiên cao nhất, WHERE màu xanh lá, SELECT màu vàng. Join group được hợp nhất bắc cầu, ví dụ `A.x = B.y` và `A.x = C.z` sẽ tô cùng màu cho cả ba column. Hover vào column JOIN hiển thị các column cùng group.
+
+Export source CSV ghi theo chuẩn DBeaver: `NULL` là ô trống không quote, empty string là `""`, string được quote, numeric không quote và CRLF. Khi xác định được complement exact, CSV có thêm đúng một negative record ở dòng cuối nhưng record này không hiển thị trên web. Inline Update chỉ bật cho base table có đầy đủ primary key; view/CTE/subquery/table không PK là read-only. Update dùng parameter, kiểm tra hash toàn row trước khi ghi và rollback toàn bộ nhóm nếu có conflict.
+
+`autocompare_config.ini` có `[database_workspace]` để chỉnh page size, timeout, batch export và giới hạn spool tạm.
+
 ## Test
 
 ```bat

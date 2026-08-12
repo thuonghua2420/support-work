@@ -46,6 +46,7 @@
 - Use `database_io.py` for multi-database connection, metadata, normalize, import, and export workflows.
 - Supported built-in adapters: SQL Server, MySQL, PostgreSQL, Oracle.
 - Do not build SQL in `gui.py`; keep dialect behavior inside adapters.
+- Use `sql_database_workspace.py` for live SQL execution/source data/export/update; keep `sql_tools.py` parser-only and web assets as render/orchestration only.
 - Real DB writes must be triggered only from an explicit user action and confirmation.
 - Scan all CSV files recursively under the selected folder.
 - Map table name from CSV file stem.
