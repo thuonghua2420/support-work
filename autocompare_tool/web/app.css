@@ -205,12 +205,20 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .wide-tool { max-width: 950px; }
 
 .database-tabs { margin-bottom: 20px; }
-.db-common-connections { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-bottom: 18px; }
-.db-common-card { padding: 20px; }
-.db-common-connections.compact-target { grid-template-columns: minmax(0, 1fr) minmax(220px, .32fr); }
-.db-common-connections.compact-target [data-db-scope="target"] .connection-fields,
-.db-common-connections.compact-target [data-db-scope="target"] .two-buttons { display: none; }
-.db-common-connections.compact-target [data-db-scope="target"] { align-self: start; }
+.db-connection-hub { display: flex; align-items: center; align-self: center; gap: 8px; margin-left: auto; padding: 8px; border: 1px solid #d8e4f0; border-radius: 16px; background: rgba(255,255,255,.88); box-shadow: 0 12px 30px rgba(28,48,74,.08); backdrop-filter: blur(10px); }
+.db-connection-chip { display: flex; align-items: center; gap: 8px; min-width: 145px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 11px; background: #f8fbfe; transition: .16s ease; }
+.db-connection-chip.verified { border-color: #c8ebdd; background: var(--green-soft); }
+.db-connection-chip .source-target { width: 24px; height: 24px; border-radius: 7px; font-size: 10px; }
+.db-connection-chip strong, .db-connection-chip small { display: block; }
+.db-connection-chip strong { color: #263f5c; font-size: 11px; }
+.db-connection-chip small { margin-top: 2px; color: #7d8b9c; font-size: 9px; font-weight: 750; text-transform: uppercase; }
+.db-connection-chip small.verified { color: var(--green); }
+.db-connection-hub.sync-mode { border-color: #cdddf3; background: linear-gradient(145deg, rgba(255,255,255,.95), #f4f8ff); }
+.db-connection-modal { width: min(1120px, calc(100vw - 30px)); }
+.db-connection-modal header p { max-width: 780px; margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.db-connection-dialog-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 18px; background: #f6f9fc; }
+.db-dialog-card { padding: 20px; box-shadow: none; }
+.database-layout.database-layout-full { grid-template-columns: minmax(0, 1fr); max-width: 980px; }
 .database-layout { display: grid; grid-template-columns: minmax(320px, .76fr) minmax(460px, 1.24fr); gap: 18px; align-items: start; }
 .connection-card { padding: 24px; }
 .connection-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin-bottom: 18px; }
@@ -423,7 +431,10 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
   .nav-item { grid-template-columns: 32px 1fr; padding-inline: 8px; }
   .choice-grid { grid-template-columns: 1fr; }
   .choice-card { min-height: 82px; }
-  .db-common-connections { grid-template-columns: 1fr; }
+  .db-connection-hub { flex-wrap: wrap; width: 100%; margin-top: 16px; margin-left: 0; }
+  .db-connection-chip { flex: 1 1 155px; }
+  .db-connection-hub .secondary-button { flex: 1 1 150px; }
+  .db-connection-dialog-body { grid-template-columns: 1fr; }
   .database-layout { grid-template-columns: 1fr; }
   .sync-connections { grid-template-columns: 1fr; }
   .sync-direction { margin: -5px auto; transform: rotate(90deg); }
@@ -450,6 +461,11 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
   .content { padding: 25px 16px 135px; }
   .page-intro { display: block; }
   .metric-card, .visual-chip { margin-top: 16px; min-width: 0; }
+  .db-connection-hub { display: grid; grid-template-columns: 1fr; }
+  .db-connection-chip, .db-connection-hub .secondary-button { width: 100%; }
+  .db-connection-modal { width: calc(100vw - 18px); }
+  .db-connection-dialog-body { padding: 12px; }
+  .db-dialog-card { padding: 16px; }
   .choice-grid, .two-column, .tool-grid, .table-picker, .connection-fields, .flow-fields { grid-template-columns: 1fr; }
   .browse-button { padding-inline: 10px; }
   .flow-arrow { margin: 0 auto; transform: rotate(90deg); }

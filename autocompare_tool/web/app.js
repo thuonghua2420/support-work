@@ -98,7 +98,7 @@ function prepareDatabaseWorkspaceLayout() {
 
   const databasePage = $("#page-database");
   const tabs = $(".database-tabs", databasePage);
-  if (!databasePage || !tabs || $("#db-common-connections")) return;
+  if (!databasePage || !tabs || $("#db-connection-hub")) return;
 
   const sqlTab = document.createElement("button");
   sqlTab.className = "tab";
@@ -109,23 +109,50 @@ function prepareDatabaseWorkspaceLayout() {
   const syncTab = $('.tab[data-tab-group="database"][data-tab="sync"]', tabs);
   tabs.insertBefore(sqlTab, syncTab || null);
 
-  const common = document.createElement("section");
-  common.className = "db-common-connections";
-  common.id = "db-common-connections";
-  common.innerHTML = `
-    <form class="card connection-card db-common-card" data-db-scope="main">
-      <div class="card-heading"><div><span class="source-target source">1</span><h3>Database 1</h3></div><span class="connection-state" data-verified-state="main">Chưa kiểm tra</span></div>
-      <div class="connection-fields"></div>
-      <div class="two-buttons"><button class="ghost-button" data-db-load="main" type="button">Tải CSDL</button><button class="secondary-button" data-db-test="main" type="button">Test & tải table</button></div>
-    </form>
-    <form class="card connection-card db-common-card" data-db-scope="target">
-      <div class="card-heading"><div><span class="source-target target">2</span><h3>Database 2</h3></div><span class="connection-state" data-verified-state="target">Chưa kiểm tra</span></div>
-      <div class="connection-fields"></div>
-      <div class="two-buttons"><button class="ghost-button" data-db-load="target" type="button">Tải CSDL</button><button class="secondary-button" data-db-test="target" type="button">Test kết nối</button></div>
-    </form>`;
-  databasePage.insertBefore(common, tabs);
+  const intro = $(".page-intro", databasePage);
+  if (intro) {
+    const hub = document.createElement("div");
+    hub.className = "db-connection-hub";
+    hub.id = "db-connection-hub";
+    hub.innerHTML = `
+      <div class="db-connection-chip" data-db-chip="main">
+        <span class="source-target source">1</span>
+        <span><strong>Database 1</strong><small data-verified-state="main">Chưa kiểm tra</small></span>
+      </div>
+      <div class="db-connection-chip" data-db-chip="target">
+        <span class="source-target target">2</span>
+        <span><strong>Database 2</strong><small data-verified-state="target">Chưa kiểm tra</small></span>
+      </div>
+      <button class="secondary-button small" id="db-open-connections" type="button">Kết nối CSDL</button>`;
+    intro.appendChild(hub);
+  }
+
+  const dialog = document.createElement("dialog");
+  dialog.className = "modal db-connection-modal";
+  dialog.id = "db-connection-dialog";
+  dialog.innerHTML = `
+    <div class="modal-shell">
+      <header>
+        <div><span class="section-kicker">Database connection</span><h3>Kết nối dùng chung</h3><p>Database 1 dùng cho CSV, SQL Workspace và nguồn đồng bộ. Database 2 chỉ dùng làm đích khi đồng bộ.</p></div>
+        <button class="icon-button" id="db-close-connections" type="button" aria-label="Đóng">×</button>
+      </header>
+      <div class="db-connection-dialog-body">
+        <form class="card connection-card db-dialog-card" data-db-scope="main">
+          <div class="card-heading"><div><span class="source-target source">1</span><h3>Database 1</h3></div><span class="connection-state" data-verified-state="main">Chưa kiểm tra</span></div>
+          <div class="connection-fields"></div>
+          <div class="two-buttons"><button class="ghost-button" data-db-load="main" type="button">Tải CSDL</button><button class="secondary-button" data-db-test="main" type="button">Test & tải table</button></div>
+        </form>
+        <form class="card connection-card db-dialog-card" data-db-scope="target">
+          <div class="card-heading"><div><span class="source-target target">2</span><h3>Database 2</h3></div><span class="connection-state" data-verified-state="target">Chưa kiểm tra</span></div>
+          <div class="connection-fields"></div>
+          <div class="two-buttons"><button class="ghost-button" data-db-load="target" type="button">Tải CSDL</button><button class="secondary-button" data-db-test="target" type="button">Test kết nối</button></div>
+        </form>
+      </div>
+    </div>`;
+  databasePage.appendChild(dialog);
 
   $("#db-main-form")?.remove();
+  $(".database-layout", databasePage)?.classList.add("database-layout-full");
   $(".sync-connections")?.remove();
 
   const sqlPage = $("#page-sql-studio");
@@ -179,7 +206,7 @@ function bindTabs() {
 
 function syncDatabaseCommonLayout(group, tab) {
   if (group !== "database") return;
-  $("#db-common-connections")?.classList.toggle("compact-target", tab !== "sync");
+  $("#db-connection-hub")?.classList.toggle("sync-mode", tab === "sync");
 }
 
 function bindActivityPanel() {
@@ -406,6 +433,13 @@ function bindForms() {
 }
 
 function bindDialogs() {
+  const dbDialog = $("#db-connection-dialog");
+  $("#db-open-connections")?.addEventListener("click", () => dbDialog?.showModal());
+  $("#db-close-connections")?.addEventListener("click", () => dbDialog?.close());
+  dbDialog?.addEventListener("click", (event) => {
+    if (event.target === dbDialog) dbDialog.close();
+  });
+
   $("#manage-notes").addEventListener("click", () => { renderNotes(); $("#notes-dialog").showModal(); });
   $("#close-notes").addEventListener("click", () => $("#notes-dialog").close());
   $("#note-form").addEventListener("submit", async (event) => {
@@ -549,9 +583,11 @@ function getDbSettings(scope) {
 
 function setVerified(scope, verified) {
   state.dbVerified[scope] = verified;
-  const indicator = $(`[data-verified-state="${scope}"]`);
-  indicator.textContent = verified ? "Đã kết nối" : "Chưa kiểm tra";
-  indicator.classList.toggle("verified", verified);
+  $$(`[data-verified-state="${scope}"]`).forEach((indicator) => {
+    indicator.textContent = verified ? "Đã kết nối" : "Chưa kiểm tra";
+    indicator.classList.toggle("verified", verified);
+  });
+  $$(`[data-db-chip="${scope}"]`).forEach((chip) => chip.classList.toggle("verified", verified));
   if (scope === "main" && !verified) {
     state.sourceTables = [];
     state.selectedTables = [];

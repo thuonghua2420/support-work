@@ -186,7 +186,7 @@ Workflow này tiếp tục dùng `copy_ut_files.py`:
 
 ## SQL Workspace trong Database
 
-Trang Database hiện có vùng kết nối chung phía trên các tab:
+Trang Database dùng một hub kết nối nhỏ ở phần tiêu đề; bấm **Kết nối CSDL** để mở popup cấu hình dùng chung cho cả ba tab:
 
 - **Database 1** dùng cho CSV import/export, SQL Workspace và làm nguồn đồng bộ.
 - **Database 2** chỉ dùng làm database đích khi đồng bộ.
