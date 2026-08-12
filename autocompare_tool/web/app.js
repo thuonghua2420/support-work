@@ -8,6 +8,7 @@ const state = {
   fixmeFilters: {},
   fixmeSelections: {},
   fixmeCheckedRows: new Set(),
+  fixmeSort: { field: "", direction: "asc" },
   job: null,
   jobCursor: 0,
   handledJobs: new Set(),
@@ -412,6 +413,7 @@ function bindForms() {
   $("#clear-selected-tables").addEventListener("click", () => { state.selectedTables = []; renderTables(); });
   $$("[data-fixme-filter]").forEach((control) => control.addEventListener("input", updateFixmeFilter));
   $$("[data-fixme-filter]").forEach((control) => control.addEventListener("change", updateFixmeFilter));
+  $$("[data-fixme-sort]").forEach((button) => button.addEventListener("click", () => updateFixmeSort(button.dataset.fixmeSort)));
   $("#fixme-bulk-note").addEventListener("change", updateFixmeToolbarState);
   $("#fixme-bulk-scope").addEventListener("change", updateFixmeToolbarState);
   $("#fixme-select-filtered").addEventListener("click", selectFilteredFixmeRows);
@@ -660,26 +662,27 @@ function renderFixmes() {
   $("#fixme-empty").classList.toggle("hidden", state.fixmes.length > 0);
   $("#fixme-table-wrap").classList.toggle("hidden", state.fixmes.length === 0);
   $("#fixme-tools").classList.toggle("hidden", state.fixmes.length === 0);
-  const filteredEntries = filteredFixmes();
+  const filteredEntries = sortedFixmes(filteredFixmes());
+  updateFixmeSortHeaders();
   $("#fixme-body").innerHTML = filteredEntries.length ? filteredEntries.map((entry) => `
     <tr>
       <td class="select-column"><input class="fixme-row-check" type="checkbox" data-fixme-check-index="${entry.index}" ${state.fixmeCheckedRows.has(String(entry.index)) ? "checked" : ""}></td>
       <td>${escapeHtml(entry.case_folder_name)}</td>
-      <td><span class="cell-stack"><strong title="${escapeHtml(entry.workbook_path)}">${escapeHtml(entry.workbook_name)}</strong><small>${escapeHtml(parentPath(entry.workbook_path) || "")}</small></span></td>
-      <td>${fixmeSheetCellHtml(entry)}</td>
-      <td>${escapeHtml(entry.csv_file_name)}</td>
+      <td>${fixmeWorkbookHtml(entry)}</td>
+      <td>${escapeHtml(fixmeCsvSheetName(entry))}</td>
       <td>${escapeHtml(entry.column_name)}</td>
       <td><span class="diff-value">${escapeHtml(entry.left_value)}</span></td>
       <td><span class="diff-value">${escapeHtml(entry.right_value)}</span></td>
       <td>${escapeHtml(entry.record_number)}</td>
       <td><select data-fixme-index="${entry.index}">${fixmeNoteOptionsHtml("Chọn ghi chú", state.fixmeSelections[entry.index])}</select></td>
-    </tr>`).join("") : `<tr class="fixme-empty-row"><td colspan="10">Không có dòng phù hợp với filter hiện tại.</td></tr>`;
+    </tr>`).join("") : `<tr class="fixme-empty-row"><td colspan="9">Không có dòng phù hợp với filter hiện tại.</td></tr>`;
 
   $$('select[data-fixme-index]').forEach((select) => {
     select.addEventListener("change", () => {
       if (select.value) state.fixmeSelections[select.dataset.fixmeIndex] = select.value;
       else delete state.fixmeSelections[select.dataset.fixmeIndex];
-      updateFixmeToolbarState(filteredEntries);
+      if (state.fixmeSort.field === "note" || state.fixmeFilters.note) renderFixmes();
+      else updateFixmeToolbarState(filteredEntries);
     });
   });
   $$("[data-fixme-check-index]").forEach((checkbox) => {
@@ -720,10 +723,12 @@ function fixmeNoteOptionsHtml(placeholder, selectedValue = "") {
   )].join("");
 }
 
-function fixmeSheetCellHtml(entry) {
-  const sourceSheet = entry.source_sheet_name || "";
-  const sourceText = sourceSheet && sourceSheet !== entry.sheet_name ? `Nguồn: ${sourceSheet}` : "";
-  return `<span class="cell-stack"><strong>${escapeHtml(entry.sheet_name)}</strong><small>${escapeHtml([entry.fixme_cell, sourceText].filter(Boolean).join(" · "))}</small></span>`;
+function fixmeWorkbookHtml(entry) {
+  return `<span class="cell-stack"><strong>${escapeHtml(entry.workbook_name)}</strong></span>`;
+}
+
+function fixmeCsvSheetName(entry) {
+  return String(entry.csv_file_name || "").replace(/\.csv$/i, "");
 }
 
 function filteredFixmes() {
@@ -733,8 +738,43 @@ function filteredFixmes() {
   }));
 }
 
+function sortedFixmes(entries) {
+  const field = state.fixmeSort.field;
+  if (!field) return entries;
+  const direction = state.fixmeSort.direction === "desc" ? -1 : 1;
+  return entries
+    .map((entry, order) => ({ entry, order }))
+    .sort((left, right) => {
+      const compared = compareFixmeSortValues(fixmeFieldValue(left.entry, field), fixmeFieldValue(right.entry, field), field);
+      return compared ? compared * direction : left.order - right.order;
+    })
+    .map((item) => item.entry);
+}
+
+function compareFixmeSortValues(leftValue, rightValue, field) {
+  const leftText = String(leftValue ?? "").trim();
+  const rightText = String(rightValue ?? "").trim();
+  if (field === "record_number") {
+    const leftNumber = Number(leftText);
+    const rightNumber = Number(rightText);
+    if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) return leftNumber - rightNumber;
+  }
+  const leftNumber = parseSortableNumber(leftText);
+  const rightNumber = parseSortableNumber(rightText);
+  if (leftNumber !== null && rightNumber !== null) return leftNumber - rightNumber;
+  return leftText.localeCompare(rightText, "vi", { numeric: true, sensitivity: "base" });
+}
+
+function parseSortableNumber(value) {
+  const normalized = String(value ?? "").trim().replace(/,/g, "");
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : null;
+}
+
 function fixmeFieldValue(entry, field) {
   if (field === "note") return state.fixmeSelections[entry.index] || "";
+  if (field === "csv_sheet_name") return fixmeCsvSheetName(entry);
   return entry[field] ?? "";
 }
 
@@ -749,6 +789,28 @@ function updateFixmeFilter(event) {
   if (value) state.fixmeFilters[field] = value;
   else delete state.fixmeFilters[field];
   renderFixmes();
+}
+
+function updateFixmeSort(field) {
+  if (!field) return;
+  if (state.fixmeSort.field === field) {
+    state.fixmeSort.direction = state.fixmeSort.direction === "asc" ? "desc" : "asc";
+  } else {
+    state.fixmeSort = { field, direction: "asc" };
+  }
+  renderFixmes();
+}
+
+function updateFixmeSortHeaders() {
+  $$("[data-fixme-sort]").forEach((button) => {
+    const active = button.dataset.fixmeSort === state.fixmeSort.field;
+    const direction = active ? state.fixmeSort.direction : "";
+    button.classList.toggle("active", active);
+    button.classList.toggle("asc", direction === "asc");
+    button.classList.toggle("desc", direction === "desc");
+    button.setAttribute("aria-sort", active ? (direction === "desc" ? "descending" : "ascending") : "none");
+    button.title = active ? `Đang sort ${direction === "desc" ? "giảm dần" : "tăng dần"}` : "Bấm để sort tăng dần";
+  });
 }
 
 function clearFixmeFilters() {

@@ -100,22 +100,20 @@
                 <thead>
                   <tr>
                     <th class="select-column"><input id="fixme-check-visible" type="checkbox" title="Chọn/bỏ chọn các dòng đang lọc"></th>
-                    <th>Case</th>
-                    <th>Workbook</th>
-                    <th>Sheet</th>
-                    <th>CSV</th>
-                    <th>Column</th>
-                    <th>Giá trị trái</th>
-                    <th>Giá trị phải</th>
-                    <th>Record</th>
-                    <th>Ghi chú</th>
+                    <th><button class="sort-header" data-fixme-sort="case_folder_name" type="button">Case</button></th>
+                    <th><button class="sort-header" data-fixme-sort="workbook_name" type="button">Workbook</button></th>
+                    <th><button class="sort-header" data-fixme-sort="csv_sheet_name" type="button">Sheet</button></th>
+                    <th><button class="sort-header" data-fixme-sort="column_name" type="button">Column</button></th>
+                    <th><button class="sort-header" data-fixme-sort="left_value" type="button">Giá trị trái</button></th>
+                    <th><button class="sort-header" data-fixme-sort="right_value" type="button">Giá trị phải</button></th>
+                    <th><button class="sort-header" data-fixme-sort="record_number" type="button">Record</button></th>
+                    <th><button class="sort-header" data-fixme-sort="note" type="button">Ghi chú</button></th>
                   </tr>
                   <tr class="fixme-filter-row">
                     <th><button class="icon-button tiny" id="fixme-clear-filters" type="button" title="Xóa tất cả filter">×</button></th>
                     <th><input data-fixme-filter="case_folder_name" placeholder="Lọc"></th>
                     <th><input data-fixme-filter="workbook_name" placeholder="Lọc"></th>
-                    <th><input data-fixme-filter="sheet_name" placeholder="Lọc"></th>
-                    <th><input data-fixme-filter="csv_file_name" placeholder="Lọc"></th>
+                    <th><input data-fixme-filter="csv_sheet_name" placeholder="Lọc"></th>
                     <th><input data-fixme-filter="column_name" placeholder="Lọc"></th>
                     <th><input data-fixme-filter="left_value" placeholder="Lọc"></th>
                     <th><input data-fixme-filter="right_value" placeholder="Lọc"></th>

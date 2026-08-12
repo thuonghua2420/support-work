@@ -159,9 +159,14 @@ button:disabled { opacity: .5; cursor: not-allowed; transform: none !important; 
 .fixme-summary small { color: #7b8a9d; font-size: 10px; }
 .fixme-bulk-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .fixme-bulk-actions select { min-height: 36px; min-width: 145px; padding: 7px 9px; font-size: 10px; }
-.fixme-table { min-width: 1380px; }
+.fixme-table { min-width: 1260px; }
 .fixme-table .select-column { width: 42px; min-width: 42px; text-align: center; }
 .fixme-table .select-column input, .fixme-row-check { width: 15px; min-height: 15px; accent-color: var(--blue); }
+.sort-header { display: inline-flex; align-items: center; gap: 5px; width: 100%; min-height: 0; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; font-weight: inherit; letter-spacing: inherit; text-align: left; text-transform: inherit; cursor: pointer; }
+.sort-header::after { content: "↕"; color: #9aa8b8; font-size: 9px; font-weight: 800; }
+.sort-header.asc::after { content: "↑"; color: var(--blue); }
+.sort-header.desc::after { content: "↓"; color: var(--blue); }
+.sort-header.active { color: var(--blue); }
 .fixme-filter-row th { top: 36px; z-index: 2; padding: 7px 8px; background: #f8fbfe; }
 .fixme-filter-row input, .fixme-filter-row select { width: 100%; min-height: 29px; padding: 5px 7px; border: 1px solid #d0dbe8; border-radius: 7px; background: white; color: #31465f; font-size: 10px; text-transform: none; letter-spacing: 0; }
 .fixme-filter-row .icon-button { margin: 0 auto; }
