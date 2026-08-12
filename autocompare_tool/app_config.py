@@ -53,11 +53,45 @@ class CompareWorkflowConfig:
 
 
 @dataclass(frozen=True)
+class ExcelImageFormatConfig:
+    excluded_sheet_markers: tuple[str, ...]
+    shape_name_markers: tuple[str, ...]
+    input_marker: str
+    steps_marker: str
+    output_marker: str
+    marker_column: int
+    right_group_start_column: int
+    left_anchor_column: int
+    right_anchor_column: int
+    left_width_range: str
+    right_width_range: str
+    first_row_height: float
+    first_column_width: float
+    image_row_padding: int
+    value_scan_column_count: int
+    draw_borders: bool
+    draw_background: bool
+    draw_header: bool
+    header_fill_range: str
+    left_header_range: str
+    right_header_range: str
+    left_header_text: str
+    right_header_text: str
+    header_fill_color: int
+    header_font_size: float
+    border_start_row: int
+    separator_column: int
+    right_border_column: int
+    bottom_border_last_column: int
+
+
+@dataclass(frozen=True)
 class AppConfig:
     folders: FolderConfig
     workbooks: WorkbookConfig
     excel_headers: ExcelHeaderConfig
     compare_workflows: tuple[CompareWorkflowConfig, ...]
+    excel_image_format: ExcelImageFormatConfig
 
 
 def load_app_config(config_path: str | Path | None = None) -> AppConfig:
@@ -126,7 +160,61 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
             include_left_only_files=True,
         ),
     )
-    return AppConfig(folders=folders, workbooks=workbooks, excel_headers=excel_headers, compare_workflows=workflows)
+    excel_image_format = ExcelImageFormatConfig(
+        excluded_sheet_markers=_get_list(
+            parser,
+            "excel_image_format",
+            "excluded_sheet_markers",
+            (
+                "変更履歴",
+                "サンプル",
+                "å¤‰æ›´å±¥æ­´",
+                "ã‚µãƒ³ãƒ—ãƒ«",
+                "â€¢ÃÂXâ€”Å¡â€”Ã°",
+                "Æ’TÆ’â€œÆ’vÆ’â€¹",
+            ),
+        ),
+        shape_name_markers=_get_list(
+            parser,
+            "excel_image_format",
+            "shape_name_markers",
+            ("picture", "図", "Â}"),
+        ),
+        input_marker=_get(parser, "excel_image_format", "input_marker", "Input"),
+        steps_marker=_get(parser, "excel_image_format", "steps_marker", "Steps"),
+        output_marker=_get(parser, "excel_image_format", "output_marker", "Output"),
+        marker_column=_get_int(parser, "excel_image_format", "marker_column", 1),
+        right_group_start_column=_get_int(parser, "excel_image_format", "right_group_start_column", 19),
+        left_anchor_column=_get_int(parser, "excel_image_format", "left_anchor_column", 2),
+        right_anchor_column=_get_int(parser, "excel_image_format", "right_anchor_column", 21),
+        left_width_range=_get(parser, "excel_image_format", "left_width_range", "C1:S1"),
+        right_width_range=_get(parser, "excel_image_format", "right_width_range", "V1:AL1"),
+        first_row_height=_get_float(parser, "excel_image_format", "first_row_height", 25.5),
+        first_column_width=_get_float(parser, "excel_image_format", "first_column_width", 8.29),
+        image_row_padding=_get_int(parser, "excel_image_format", "image_row_padding", 2),
+        value_scan_column_count=_get_int(parser, "excel_image_format", "value_scan_column_count", 10),
+        draw_borders=_get_bool(parser, "excel_image_format", "draw_borders", True),
+        draw_background=_get_bool(parser, "excel_image_format", "draw_background", False),
+        draw_header=_get_bool(parser, "excel_image_format", "draw_header", False),
+        header_fill_range=_get(parser, "excel_image_format", "header_fill_range", "A1:AJ1"),
+        left_header_range=_get(parser, "excel_image_format", "left_header_range", "A1:R1"),
+        right_header_range=_get(parser, "excel_image_format", "right_header_range", "S1:AJ1"),
+        left_header_text=_get(parser, "excel_image_format", "left_header_text", "新システム"),
+        right_header_text=_get(parser, "excel_image_format", "right_header_text", "現行システム"),
+        header_fill_color=_get_int(parser, "excel_image_format", "header_fill_color", 11389944),
+        header_font_size=_get_float(parser, "excel_image_format", "header_font_size", 22),
+        border_start_row=_get_int(parser, "excel_image_format", "border_start_row", 5),
+        separator_column=_get_int(parser, "excel_image_format", "separator_column", 20),
+        right_border_column=_get_int(parser, "excel_image_format", "right_border_column", 38),
+        bottom_border_last_column=_get_int(parser, "excel_image_format", "bottom_border_last_column", 38),
+    )
+    return AppConfig(
+        folders=folders,
+        workbooks=workbooks,
+        excel_headers=excel_headers,
+        compare_workflows=workflows,
+        excel_image_format=excel_image_format,
+    )
 
 
 def default_config_path() -> Path:
@@ -147,5 +235,37 @@ def _get(parser: configparser.ConfigParser, section: str, option: str, fallback:
     return parser.get(section, option, fallback=fallback).strip()
 
 
+def _get_list(
+    parser: configparser.ConfigParser,
+    section: str,
+    option: str,
+    fallback: tuple[str, ...],
+) -> tuple[str, ...]:
+    if not parser.has_option(section, option):
+        return fallback
+    raw_value = parser.get(section, option, fallback="")
+    values: list[str] = []
+    for line in raw_value.splitlines():
+        cleaned_line = line.strip()
+        if not cleaned_line or cleaned_line.startswith("#"):
+            continue
+        values.extend(part.strip() for part in cleaned_line.split(",") if part.strip())
+    return tuple(values) or fallback
+
+
 def _get_bool(parser: configparser.ConfigParser, section: str, option: str, fallback: bool) -> bool:
     return parser.getboolean(section, option, fallback=fallback)
+
+
+def _get_int(parser: configparser.ConfigParser, section: str, option: str, fallback: int) -> int:
+    try:
+        return parser.getint(section, option, fallback=fallback)
+    except ValueError:
+        return fallback
+
+
+def _get_float(parser: configparser.ConfigParser, section: str, option: str, fallback: float) -> float:
+    try:
+        return parser.getfloat(section, option, fallback=fallback)
+    except ValueError:
+        return fallback

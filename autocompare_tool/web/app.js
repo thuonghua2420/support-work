@@ -133,7 +133,10 @@ function bindForms() {
     const message = overwriteOriginal
       ? `CẢNH BÁO: Mọi workbook bên dưới “${root}” sẽ được format và lưu trực tiếp. Thao tác này không thể hoàn tác tự động.`
       : `Workbook sẽ được copy vào “${joinPath(root, "Formatted")}” rồi format. File kết quả cùng tên đã tồn tại có thể bị ghi đè.`;
-    const formatDetails = `\n\nFont: ${fontName}, size ${fontSize}; ${ruleCount} quy tắc giữ nguyên cỡ chữ. Mọi sheet sẽ trở về A1 và scroll về đầu.`;
+    const imageDetails = checked("excel-format-run-image")
+      ? "Có căn ảnh theo vùng Input/Steps/Output."
+      : "Không căn ảnh, chỉ format font/view workbook.";
+    const formatDetails = `\n\nFont: ${fontName}, size ${fontSize}; ${ruleCount} quy tắc giữ nguyên cỡ chữ. ${imageDetails} Mọi sheet sẽ trở về A1 và scroll về đầu.`;
     if (await confirmAction(title, message + formatDetails)) {
       startAction("format_excel_images", {
         root,

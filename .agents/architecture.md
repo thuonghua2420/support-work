@@ -11,7 +11,7 @@ run.bat
       -> app_config.py      -> autocompare_config.ini
       -> processor.py       -> excel_writer.py -> compare.py -> csv_table.py
       -> folder_compare.py  -> excel_writer.py -> compare.py -> csv_table.py
-      -> excel_image_formatter.py -> Microsoft Excel Desktop COM -> workbook VBA
+      -> excel_image_formatter.py -> Microsoft Excel Desktop COM
       -> excel_format_presets.py -> excel_format_presets.json
       -> sql_tools.py       -> SQLGlot parser/AST
       -> file_utilities.py
@@ -150,16 +150,16 @@ Owns:
 - Recursive discovery of `.xlsx`, `.xls`, `.xlsb`, and `.xlsm` workbooks.
 - Safe-copy output under `Formatted` or explicit in-place overwrite mode.
 - One hidden Microsoft Excel COM session per batch.
-- Direct invocation of each workbook's public `FixForMatUTR` VBA routine on eligible sheets.
+- Native image layout based on the bundled VBA sample: collect picture shapes, split left/right by column, pair by vertical overlap, keep pairs inside Input/Steps/Output regions, resize to configured widths, and insert rows when needed to avoid overlaps.
 - Workbook-wide font/font-size formatting, row exclusions, A1 selection, scroll reset, and first-sheet activation.
 
 Rules:
 
 - Use Excel Desktop automation rather than `openpyxl` so images, VBA projects, and form buttons remain intact.
-- Skip temporary `~$` workbooks, the output tree, and history/sample sheets excluded by the source VBA.
-- Apply general font/view formatting to every worksheet; special-sheet exclusions affect only the image macro.
+- Skip temporary `~$` workbooks, the output tree, and history/sample sheets excluded by configured markers.
+- Apply general font/view formatting to every worksheet; special-sheet exclusions affect only the image layout step.
 - Treat a plain exclusion as an exact, case-insensitive value anywhere in a row; treat `(Text, A1)` as a value check at one explicit cell.
-- Do not weaken Excel macro security settings from Python.
+- Keep image-layout markers, dimensions, borders, and optional header/background settings in `[excel_image_format]` of `autocompare_config.ini`.
 
 ### `autocompare_tool/excel_format_presets.py`
 

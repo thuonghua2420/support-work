@@ -44,7 +44,7 @@ Giao diện Tkinter cũ vẫn có thể mở tạm thời bằng:
 - **So sánh 2 folder CSV**: quét đệ quy hai folder bất kỳ và tạo một workbook tổng hợp, bao gồm file chỉ tồn tại ở một phía.
 - **Tiện ích file**: đổi tên, xóa, di chuyển file/folder, đổi tên sheet Excel và tìm/xóa folder trống.
 - **Sao chép file UT**: chạy logic tương thích từ `copy_ut_files.py` và tạo log chi tiết trong `copy_logs`.
-- **Format ảnh Excel**: chạy macro `FixForMatUTR` trong hàng loạt workbook có macro, giữ nguyên ảnh, VBA và button.
+- **Format ảnh Excel**: resize và sắp xếp ảnh trong workbook theo vùng Input/Steps/Output, đồng thời giữ nguyên ảnh, VBA và button.
 - **SQL Studio**: format SQL và phân tích table/alias, điều kiện, CTE, subquery, SELECT expression theo cây cú pháp.
 - **CSV ↔ Database**: test kết nối, chuẩn hóa CSV, import CSV và export table cho SQL Server, MySQL, PostgreSQL và Oracle.
 - **Đồng bộ 2 CSDL**: đồng bộ chênh lệch theo primary key, insert thêm hoặc truncate rồi đồng bộ lại.
@@ -53,7 +53,7 @@ Các thao tác xóa, import, export và đồng bộ luôn yêu cầu xác nhậ
 
 ## Format ảnh và workbook Excel
 
-Chọn folder chứa workbook `.xlsx`, `.xlsm`, `.xlsb` hoặc `.xls`. Công cụ áp dụng font và cỡ chữ cho toàn bộ sheet, đưa mỗi sheet về ô `A1`, kéo thanh cuộn ngang/dọc về đầu và chọn sheet đầu tiên trước khi lưu. Với file có macro, có thể bật thêm bước gọi public macro `FixForMatUTR` theo `sampleformatimage/sample.vba` để format ảnh; file `.xlsx` vẫn được format font/view nhưng tự bỏ qua bước macro.
+Chọn folder chứa workbook `.xlsx`, `.xlsm`, `.xlsb` hoặc `.xls`. Công cụ áp dụng font và cỡ chữ cho toàn bộ sheet, đưa mỗi sheet về ô `A1`, kéo thanh cuộn ngang/dọc về đầu và chọn sheet đầu tiên trước khi lưu. Khi bật căn ảnh, công cụ dùng logic tham khảo từ `sampleformatimage/sample.vba` để resize ảnh, tách ảnh trái/phải, ghép theo row overlap và sắp xếp lại trong các vùng `Input`, `Steps`, `Output` để ảnh không đè lên nhau. Logic này chạy trực tiếp qua Excel COM nên `.xlsx` cũng căn ảnh được, không cần workbook chứa macro.
 
 Ô **Giữ nguyên size cho các row** nhận nhiều quy tắc, mỗi quy tắc một dòng:
 
@@ -64,7 +64,9 @@ Font name vẫn được áp dụng cho các row này; phần loại trừ chỉ
 
 Mặc định workbook được copy theo đúng cấu trúc folder vào thư mục con `Formatted` rồi mới xử lý. Chỉ chọn **Ghi đè file gốc** khi đã có backup. Cả hai chế độ đều yêu cầu xác nhận vì kết quả cũ cùng tên có thể bị ghi đè.
 
-Tính năng này cần Microsoft Excel Desktop trên máy Windows. Ứng dụng không tự hạ mức bảo mật macro; workbook phải được Excel cho phép chạy macro. Dùng Excel COM thay vì `openpyxl` để không làm mất VBA, ảnh hoặc button có sẵn. Các preset cá nhân được lưu trong `excel_format_presets.json` và file này không được commit vào Git.
+Các marker sheet/shape/vùng ảnh và thông số layout như cột ảnh trái/phải, range width, border/header được cấu hình trong `[excel_image_format]` của `autocompare_config.ini`. Các chuỗi Nhật bị mojibake từ `sample.vba` được giữ trong config để dễ chỉnh khi gặp workbook khác encoding.
+
+Tính năng này cần Microsoft Excel Desktop trên máy Windows. Dùng Excel COM thay vì `openpyxl` để không làm mất VBA, ảnh hoặc button có sẵn. Các preset cá nhân được lưu trong `excel_format_presets.json` và file này không được commit vào Git.
 
 ## SQL Studio
 
@@ -87,6 +89,7 @@ Trình duyệt web không cho phép website đọc đường dẫn tuyệt đố
 - `[workbooks]`: tên các workbook được tạo.
 - `[excel_headers]`: header/text trong file compare Excel, gồm `FIXME`.
 - `[compare_workflows]`: trạng thái mặc định của các luồng so sánh.
+- `[excel_image_format]`: marker và thông số layout cho chức năng căn ảnh Excel.
 
 Giá trị ghi chú FIXME do người dùng tạo được lưu tại `fixme_notes.json`.
 
