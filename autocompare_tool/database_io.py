@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time as time_module
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -18,6 +19,7 @@ from .dbeaver_csv import (
 )
 
 Logger = Callable[[str], None]
+SYNC_PROGRESS_PREFIX = "__SYNC_PROGRESS__"
 
 DATABASE_SQLSERVER = "sqlserver"
 DATABASE_MYSQL = "mysql"
@@ -1331,7 +1333,8 @@ def sync_database_tables(
             logger(message)
             return summary
 
-        for raw_table_name in tables:
+        total_tables = len(tables)
+        for table_index, raw_table_name in enumerate(tables, start=1):
             _sync_one_table(
                 source_connection,
                 target_connection,
@@ -1349,6 +1352,8 @@ def sync_database_tables(
                 batch_size=parsed_batch_size,
                 delete_target_only=delete_target_only,
                 target_read_connection=target_read_connection,
+                table_index=table_index,
+                total_tables=total_tables,
             )
     finally:
         if target_read_connection is not None and target_read_connection is not target_connection:
@@ -1731,6 +1736,8 @@ def _sync_one_table(
     batch_size: int = DEFAULT_SYNC_BATCH_SIZE,
     delete_target_only: bool = True,
     target_read_connection=None,
+    table_index: int = 1,
+    total_tables: int = 1,
 ) -> None:
     schema, table_name = _split_table_name(raw_table_name)
     try:
@@ -1749,6 +1756,10 @@ def _sync_one_table(
             logger(message)
             return
 
+        source_total_rows = _count_table_rows(source_adapter, source_connection, source_metadata)
+        if record_limit is not None and source_total_rows is not None:
+            source_total_rows = min(source_total_rows, record_limit)
+
         if mode == SYNC_MODE_INCREMENTAL:
             result = _sync_one_table_incremental(
                 source_connection,
@@ -1764,6 +1775,10 @@ def _sync_one_table(
                 keep_identity,
                 batch_size,
                 delete_target_only,
+                logger=logger,
+                source_total_rows=source_total_rows,
+                table_index=table_index,
+                total_tables=total_tables,
             )
             summary.table_results.append(result)
             if skipped_columns:
@@ -1782,8 +1797,22 @@ def _sync_one_table(
         source_cursor = source_connection.cursor()
         source_sql = _build_sync_select_sql(source_adapter, source_metadata, source_columns)
         source_adapter.execute(source_cursor, source_sql)
-        rows = source_cursor.fetchmany(record_limit) if record_limit is not None else source_cursor.fetchall()
+        remaining = record_limit
+        first_fetch_size = batch_size if remaining is None else min(batch_size, remaining)
+        rows = source_cursor.fetchmany(first_fetch_size)
         insert_rows = [tuple(row[index] for index, _column in enumerate(source_columns)) for row in rows]
+        inserted_count = len(insert_rows)
+        started_at = time_module.monotonic()
+        _log_sync_progress(
+            logger,
+            table_name=raw_table_name,
+            current=0,
+            total=source_total_rows,
+            table_index=table_index,
+            total_tables=total_tables,
+            mode=mode,
+            started_at=started_at,
+        )
 
         target_cursor = target_connection.cursor()
         insert_sql = target_adapter.insert_sql(target_metadata, target_columns, keep_identity)
@@ -1796,6 +1825,42 @@ def _sync_one_table(
             try:
                 if insert_rows:
                     target_adapter.executemany(target_cursor, insert_sql, insert_rows)
+                    if remaining is not None:
+                        remaining -= len(insert_rows)
+                    if inserted_count >= 100:
+                        _log_sync_progress(
+                            logger,
+                            table_name=raw_table_name,
+                            current=inserted_count,
+                            total=source_total_rows,
+                            table_index=table_index,
+                            total_tables=total_tables,
+                            mode=mode,
+                            started_at=started_at,
+                            inserted=inserted_count,
+                        )
+                while rows and (remaining is None or remaining > 0):
+                    fetch_size = batch_size if remaining is None else min(batch_size, remaining)
+                    rows = source_cursor.fetchmany(fetch_size)
+                    if not rows:
+                        break
+                    insert_rows = [tuple(row[index] for index, _column in enumerate(source_columns)) for row in rows]
+                    target_adapter.executemany(target_cursor, insert_sql, insert_rows)
+                    inserted_count += len(insert_rows)
+                    if remaining is not None:
+                        remaining -= len(insert_rows)
+                    if inserted_count == 100 or inserted_count % max(batch_size, 1000) == 0:
+                        _log_sync_progress(
+                            logger,
+                            table_name=raw_table_name,
+                            current=inserted_count,
+                            total=source_total_rows,
+                            table_index=table_index,
+                            total_tables=total_tables,
+                            mode=mode,
+                            started_at=started_at,
+                            inserted=inserted_count,
+                        )
             except Exception as exc:
                 sync_error = exc
             try:
@@ -1810,19 +1875,34 @@ def _sync_one_table(
         except Exception:
             target_connection.rollback()
             raise
+        finally:
+            _close_cursor(source_cursor)
+            _close_cursor(target_cursor)
 
         if skipped_columns:
             logger(f"{raw_table_name} -> bỏ qua column không insert: {', '.join(skipped_columns)}")
         summary.table_results.append(
             DatabaseSyncResult(
                 table_name=target_metadata.name,
-                row_count=len(insert_rows),
+                row_count=inserted_count,
                 skipped_columns=tuple(skipped_columns),
-                source_row_count=len(insert_rows),
-                inserted_count=len(insert_rows),
+                source_row_count=inserted_count,
+                inserted_count=inserted_count,
             )
         )
-        logger(f"{raw_table_name} -> đã đồng bộ {len(insert_rows)} dòng vào {target_metadata.schema}.{target_metadata.name}")
+        _log_sync_progress(
+            logger,
+            table_name=raw_table_name,
+            current=inserted_count,
+            total=source_total_rows,
+            table_index=table_index,
+            total_tables=total_tables,
+            mode=mode,
+            started_at=started_at,
+            inserted=inserted_count,
+            done=True,
+        )
+        logger(f"{raw_table_name} -> đã đồng bộ {inserted_count} dòng vào {target_metadata.schema}.{target_metadata.name}")
     except Exception as exc:
         message = f"LỖI {raw_table_name}: {exc}"
         summary.errors.append(message)
@@ -1843,6 +1923,10 @@ def _sync_one_table_incremental(
     keep_identity: bool,
     batch_size: int,
     delete_target_only: bool,
+    logger: Logger | None = None,
+    source_total_rows: int | None = None,
+    table_index: int = 1,
+    total_tables: int = 1,
 ) -> DatabaseSyncResult:
     batch_size = _parse_sync_batch_size(batch_size)
     source_key_columns, target_key_columns, key_indexes = _build_delta_key_columns(
@@ -1890,6 +1974,20 @@ def _sync_one_table_incremental(
     delete_rows: list[tuple[object, ...]] = []
     identity_active = False
     operation_error: Exception | None = None
+    progress_logger = logger or (lambda _message: None)
+    started_at = time_module.monotonic()
+    next_progress_mark = 100
+    progress_step = max(batch_size, 1000)
+    _log_sync_progress(
+        progress_logger,
+        table_name=source_metadata.name,
+        current=0,
+        total=source_total_rows,
+        table_index=table_index,
+        total_tables=total_tables,
+        mode=SYNC_MODE_INCREMENTAL,
+        started_at=started_at,
+    )
 
     def flush_changes() -> None:
         nonlocal identity_active
@@ -1980,6 +2078,22 @@ def _sync_one_table_incremental(
 
             if len(insert_rows) + len(update_rows) + len(delete_rows) >= batch_size:
                 flush_changes()
+            if source_row_count >= next_progress_mark:
+                _log_sync_progress(
+                    progress_logger,
+                    table_name=source_metadata.name,
+                    current=source_row_count,
+                    total=source_total_rows,
+                    table_index=table_index,
+                    total_tables=total_tables,
+                    mode=SYNC_MODE_INCREMENTAL,
+                    started_at=started_at,
+                    inserted=inserted_count,
+                    updated=updated_count,
+                    deleted=deleted_count,
+                    unchanged=unchanged_count,
+                )
+                next_progress_mark += progress_step
 
         flush_changes()
     except Exception as exc:
@@ -2006,6 +2120,22 @@ def _sync_one_table_incremental(
         _close_cursor(target_read_cursor)
         _close_cursor(target_write_cursor)
 
+    _log_sync_progress(
+        progress_logger,
+        table_name=source_metadata.name,
+        current=source_row_count,
+        total=source_total_rows,
+        table_index=table_index,
+        total_tables=total_tables,
+        mode=SYNC_MODE_INCREMENTAL,
+        started_at=started_at,
+        inserted=inserted_count,
+        updated=updated_count,
+        deleted=deleted_count,
+        unchanged=unchanged_count,
+        done=True,
+    )
+
     return DatabaseSyncResult(
         table_name=target_metadata.name,
         row_count=inserted_count + updated_count + deleted_count,
@@ -2018,6 +2148,60 @@ def _sync_one_table_incremental(
         unchanged_count=unchanged_count,
         retained_target_only_count=retained_target_only_count,
     )
+
+
+def _count_table_rows(adapter: DatabaseAdapter, connection, metadata: TableMetadata) -> int | None:
+    cursor = connection.cursor()
+    try:
+        adapter.execute(cursor, f"SELECT COUNT(*) FROM {adapter.qualified_table(metadata)}")
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return int(row[0])
+    except Exception:
+        return None
+    finally:
+        _close_cursor(cursor)
+
+
+def _log_sync_progress(
+    logger: Logger,
+    *,
+    table_name: str,
+    current: int,
+    total: int | None,
+    table_index: int,
+    total_tables: int,
+    mode: str,
+    started_at: float,
+    inserted: int = 0,
+    updated: int = 0,
+    deleted: int = 0,
+    unchanged: int = 0,
+    done: bool = False,
+) -> None:
+    elapsed = max(0.001, time_module.monotonic() - started_at)
+    speed = current / elapsed if current >= 100 else None
+    eta_seconds = None
+    if speed and total is not None and total > current:
+        eta_seconds = int((total - current) / speed)
+    payload = {
+        "table": table_name,
+        "current": current,
+        "total": total,
+        "table_index": table_index,
+        "total_tables": total_tables,
+        "mode": mode,
+        "elapsed_seconds": round(elapsed, 3),
+        "speed_rows_per_second": round(speed, 2) if speed else None,
+        "eta_seconds": eta_seconds,
+        "inserted": inserted,
+        "updated": updated,
+        "deleted": deleted,
+        "unchanged": unchanged,
+        "done": done,
+    }
+    logger(f"{SYNC_PROGRESS_PREFIX}{json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}")
 
 
 def _build_delta_key_columns(

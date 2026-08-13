@@ -365,6 +365,16 @@
                 <div><label class="field"><span>Lọc table nguồn</span><input id="sync-table-filter" placeholder="Nhập một phần tên table..."></label><div class="available-tables" id="available-tables"><p>Test kết nối nguồn để tải danh sách table.</p></div></div>
                 <div class="selected-tables"><span>Table đã chọn</span><div id="selected-tables"><p>Chưa chọn table.</p></div><button class="text-button" id="clear-selected-tables" type="button">Bỏ chọn tất cả</button></div>
               </div>
+              <div class="sync-progress-panel hidden" id="sync-progress-panel">
+                <div class="sync-progress-head"><strong id="sync-progress-title">Sync progress</strong><span id="sync-progress-percent">0%</span></div>
+                <div class="sync-progress-track"><span id="sync-progress-bar"></span></div>
+                <div class="sync-progress-grid">
+                  <span><b id="sync-progress-records">0 / ?</b><small>Record nguồn</small></span>
+                  <span><b id="sync-progress-speed">--</b><small>Tốc độ sau 100 record</small></span>
+                  <span><b id="sync-progress-eta">--</b><small>ETA</small></span>
+                  <span><b id="sync-progress-change">0</b><small>Insert / Update / Delete</small></span>
+                </div>
+              </div>
               <fieldset class="import-mode-fieldset">
                 <legend>Phương thức đồng bộ</legend>
                 <div class="import-mode-grid">

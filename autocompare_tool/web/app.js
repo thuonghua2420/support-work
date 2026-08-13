@@ -17,6 +17,7 @@ const state = {
   databaseNames: { main: [], source: [], target: [] },
   sourceTables: [],
   selectedTables: [],
+  syncProgress: null,
   sqlWorkspace: {
     workspaceId: "",
     writeToken: "",
@@ -151,6 +152,15 @@ function prepareDatabaseWorkspaceLayout() {
       </div>
     </div>`;
   databasePage.appendChild(dialog);
+  const dialogHeader = $("header", dialog);
+  const closeButton = $("#db-close-connections", dialog);
+  if (dialogHeader && closeButton && !$("#db-switch-connections", dialog)) {
+    const actions = document.createElement("div");
+    actions.className = "db-dialog-header-actions";
+    actions.innerHTML = `<button class="secondary-button small" id="db-switch-connections" type="button">Switch DB 1 ⇄ DB 2</button>`;
+    actions.appendChild(closeButton);
+    dialogHeader.appendChild(actions);
+  }
 
   $("#db-main-form")?.remove();
   $(".database-layout", databasePage)?.classList.add("database-layout-full");
@@ -398,6 +408,7 @@ function bindForms() {
         : (limit ? `Mỗi table chỉ đồng bộ tối đa ${limit} record.` : "Đồng bộ toàn bộ record trong mỗi table."),
     ].join("\n\n");
     if (await confirmAction("Xác nhận đồng bộ cơ sở dữ liệu", detail)) {
+      resetSyncProgress(tableNames);
       startAction("db_sync", {
         source_settings: getDbSettings("main"), target_settings: getDbSettings("target"), table_names: tableNames,
         record_limit: limit, keep_identity: checked("sync-keep-identity"), sync_mode: syncMode,
@@ -439,6 +450,7 @@ function bindDialogs() {
   const dbDialog = $("#db-connection-dialog");
   $("#db-open-connections")?.addEventListener("click", () => dbDialog?.showModal());
   $("#db-close-connections")?.addEventListener("click", () => dbDialog?.close());
+  $("#db-switch-connections")?.addEventListener("click", switchMainAndTargetDatabases);
   dbDialog?.addEventListener("click", (event) => {
     if (event.target === dbDialog) dbDialog.close();
   });
@@ -582,6 +594,53 @@ function getDbSettings(scope) {
     trust_server_certificate: true,
     encrypt: true,
   };
+}
+
+function setDbSettings(scope, settings) {
+  $(`#db-${scope}-type`).value = settings.database_type || "";
+  applyDatabaseType(scope, false);
+  $(`#db-${scope}-host`).value = settings.host || "";
+  $(`#db-${scope}-port`).value = settings.port || "";
+  $(`#db-${scope}-database`).value = settings.database || "";
+  $(`#db-${scope}-schema`).value = settings.schema || "";
+  $(`#db-${scope}-driver`).value = settings.driver || "";
+  $(`#db-${scope}-username`).value = settings.username || "";
+  $(`#db-${scope}-password`).value = settings.password || "";
+  $(`#db-${scope}-trusted`).checked = !!settings.trusted_connection;
+  syncAuthFields(scope);
+}
+
+function switchMainAndTargetDatabases() {
+  const mainSettings = getDbSettings("main");
+  const targetSettings = getDbSettings("target");
+  const mainVerified = state.dbVerified.main;
+  const targetVerified = state.dbVerified.target;
+  const mainDatabases = state.databaseNames.main || [];
+  const targetDatabases = state.databaseNames.target || [];
+
+  setDbSettings("main", targetSettings);
+  setDbSettings("target", mainSettings);
+  state.databaseNames.main = targetDatabases;
+  state.databaseNames.target = mainDatabases;
+  renderDatabaseNameList("main");
+  renderDatabaseNameList("target");
+  state.sourceTables = [];
+  state.selectedTables = [];
+  renderTables();
+  setVerified("main", targetVerified);
+  setVerified("target", mainVerified);
+  disableSqlWriteModeLocal();
+  markSqlWorkspaceStale();
+  showToast("Đã switch Database 1 và Database 2.", "success");
+  if (targetVerified) {
+    startAction("db_test", { settings: getDbSettings("main"), role: "main", load_tables: true });
+  }
+}
+
+function renderDatabaseNameList(scope) {
+  const list = $(`#db-${scope}-database-list`);
+  if (!list) return;
+  list.innerHTML = (state.databaseNames[scope] || []).map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
 }
 
 function setVerified(scope, verified) {
@@ -1040,6 +1099,85 @@ function renderTables() {
   $("#selected-table-count").textContent = `${count} table`;
 }
 
+function resetSyncProgress(tableNames = []) {
+  state.syncProgress = {
+    tableNames,
+    current: 0,
+    total: null,
+    speedRowsPerSecond: null,
+    etaSeconds: null,
+    inserted: 0,
+    updated: 0,
+    deleted: 0,
+    table: "",
+    tableIndex: 0,
+    totalTables: tableNames.length || 0,
+  };
+  renderSyncProgress();
+}
+
+function consumeSyncProgressLog(line) {
+  const prefix = "__SYNC_PROGRESS__";
+  if (!line.startsWith(prefix)) return false;
+  try {
+    const payload = JSON.parse(line.slice(prefix.length));
+    state.syncProgress = {
+      ...(state.syncProgress || {}),
+      table: payload.table || "",
+      current: Number(payload.current || 0),
+      total: typeof payload.total === "number" ? payload.total : null,
+      tableIndex: Number(payload.table_index || 0),
+      totalTables: Number(payload.total_tables || 0),
+      speedRowsPerSecond: typeof payload.speed_rows_per_second === "number" ? payload.speed_rows_per_second : null,
+      etaSeconds: typeof payload.eta_seconds === "number" ? payload.eta_seconds : null,
+      inserted: Number(payload.inserted || 0),
+      updated: Number(payload.updated || 0),
+      deleted: Number(payload.deleted || 0),
+      unchanged: Number(payload.unchanged || 0),
+      done: !!payload.done,
+    };
+    renderSyncProgress();
+  } catch (_error) {
+    return false;
+  }
+  return true;
+}
+
+function renderSyncProgress() {
+  const panel = $("#sync-progress-panel");
+  if (!panel || !state.syncProgress) return;
+  const progress = state.syncProgress;
+  panel.classList.remove("hidden");
+  const total = progress.total;
+  const current = progress.current || 0;
+  const percent = total ? Math.min(100, Math.round((current / total) * 100)) : 0;
+  $("#sync-progress-title").textContent = progress.table
+    ? `Table ${progress.tableIndex || "?"}/${progress.totalTables || "?"}: ${progress.table}`
+    : "Sync progress";
+  $("#sync-progress-percent").textContent = total ? `${percent}%` : "Đang tính...";
+  $("#sync-progress-bar").style.width = total ? `${percent}%` : "6%";
+  $("#sync-progress-records").textContent = `${formatNumber(current)} / ${total == null ? "?" : formatNumber(total)}`;
+  $("#sync-progress-speed").textContent = progress.speedRowsPerSecond
+    ? `${formatNumber(progress.speedRowsPerSecond)} rows/s`
+    : "Sau 100 rows";
+  $("#sync-progress-eta").textContent = progress.etaSeconds == null ? "--" : formatDuration(progress.etaSeconds);
+  $("#sync-progress-change").textContent = `${formatNumber(progress.inserted || 0)} / ${formatNumber(progress.updated || 0)} / ${formatNumber(progress.deleted || 0)}`;
+}
+
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString("vi-VN", { maximumFractionDigits: 2 });
+}
+
+function formatDuration(totalSeconds) {
+  const seconds = Math.max(0, Math.round(Number(totalSeconds || 0)));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remain = seconds % 60;
+  if (hours) return `${hours}h ${minutes}m ${remain}s`;
+  if (minutes) return `${minutes}m ${remain}s`;
+  return `${remain}s`;
+}
+
 async function startAction(action, payload) {
   if (state.job && ["queued", "running"].includes(state.job.state)) {
     showToast("Một tác vụ khác đang chạy. Vui lòng chờ hoàn tất.", "error");
@@ -1119,8 +1257,7 @@ function consumeJobResult(job) {
   }
   if (job.action === "db_list_databases" && Array.isArray(result.databases)) {
     state.databaseNames[result.role] = result.databases;
-    const list = $(`#db-${result.role}-database-list`);
-    list.innerHTML = result.databases.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
+    renderDatabaseNameList(result.role);
     if (!valueOf(`db-${result.role}-database`) && result.databases.length) $(`#db-${result.role}-database`).value = result.databases[0];
   }
   if (job.action === "sql_format" || job.action === "sql_analyze" || job.action === "sql_load_excel") {
@@ -1658,7 +1795,7 @@ function setJobVisual(kind, text) {
 
 function setBusy(busy) {
   document.body.classList.toggle("is-busy", busy);
-  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes').forEach((button) => {
+  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #db-switch-connections, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes').forEach((button) => {
     button.disabled = busy || (button.id === "delete-excel-format-preset" && !valueOf("excel-format-preset"));
   });
   updateFixmeToolbarState();
@@ -1666,8 +1803,10 @@ function setBusy(busy) {
 
 function appendLogs(lines) {
   const log = $("#activity-log");
+  const visibleLines = lines.filter((line) => !consumeSyncProgressLog(line));
+  if (!visibleLines.length) return;
   const prefix = log.textContent && !log.textContent.endsWith("\n") ? "\n" : "";
-  log.textContent += prefix + lines.join("\n") + "\n";
+  log.textContent += prefix + visibleLines.join("\n") + "\n";
   log.scrollTop = log.scrollHeight;
 }
 

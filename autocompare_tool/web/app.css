@@ -372,6 +372,17 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .table-tag button { border: 0; color: #75879c; background: transparent; cursor: pointer; }
 .compact-switch { margin: 20px 0 0; }
 .danger-switch { border-color: #efcdd0; background: var(--red-soft); }
+.sync-progress-panel { margin: var(--layout-gap) 0; padding: 14px; border: 1px solid #d8e5f1; border-radius: 12px; background: linear-gradient(145deg, #f9fcff, #f3f8ff); }
+.sync-progress-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.sync-progress-head strong { color: #304b68; font-size: 12px; }
+.sync-progress-head span { color: var(--blue); font-size: 11px; font-weight: 800; }
+.sync-progress-track { height: 9px; overflow: hidden; border-radius: 99px; background: #e4edf7; }
+.sync-progress-track span { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #1d74e8, #31b7dc); transition: width .25s ease; }
+.sync-progress-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-top: 11px; }
+.sync-progress-grid span { padding: 9px 10px; border: 1px solid var(--line-soft); border-radius: 9px; background: white; }
+.sync-progress-grid b, .sync-progress-grid small { display: block; }
+.sync-progress-grid b { color: #243e5a; font-size: 12px; }
+.sync-progress-grid small { margin-top: 3px; color: #8292a5; font-size: 9px; }
 
 .sql-workspace-export { margin-top: var(--layout-gap); padding: var(--panel-padding); }
 .sql-workspace-export .card-heading { margin-bottom: 12px; }
@@ -426,6 +437,7 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .modal-shell { margin: 0; border: 1px solid #d3dee9; border-radius: 16px; background: white; overflow: hidden; }
 .modal header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 20px; border-bottom: 1px solid var(--line-soft); }
 .modal header h3 { margin: 4px 0 0; font-size: 17px; }
+.db-dialog-header-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .modal footer { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 20px; border-top: 1px solid var(--line-soft); }
 .modal footer > div { display: flex; gap: 8px; }
 .path-modal { width: min(780px, calc(100vw - 28px)); }
@@ -482,6 +494,7 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
   .fixme-summary { padding-right: 0; padding-bottom: 10px; border-right: 0; border-bottom: 1px solid var(--line-soft); }
   .fixme-bulk-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .sql-db-grid { grid-template-columns: 1fr; }
+  .sync-progress-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
@@ -522,6 +535,7 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
   .inline-actions > button { flex: 1; }
   .action-grid { grid-template-columns: 1fr; }
   .import-mode-grid, .excel-output-grid, .format-logic-grid { grid-template-columns: 1fr; }
+  .sync-progress-grid { grid-template-columns: 1fr; }
   .excel-preset-panel { grid-template-columns: 1fr; }
   .excel-preset-actions { grid-column: auto; }
   .excel-preset-actions > button { flex: 1; }
@@ -541,4 +555,5 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
   .path-toolbar #path-go { grid-column: 1 / -1; }
   .modal footer { align-items: stretch; flex-direction: column; }
   .modal footer > div { justify-content: flex-end; }
+  .db-dialog-header-actions { align-items: stretch; flex-direction: column-reverse; }
 }
