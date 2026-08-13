@@ -72,7 +72,8 @@ Tính năng này cần Microsoft Excel Desktop trên máy Windows. Dùng Excel C
 
 Tab **SQL Studio** có hai thao tác độc lập và không thực thi SQL trên database:
 
-- **Format SQL**: chuẩn hóa keyword, xuống dòng và thụt lề; hỗ trợ nhiều statement trong cùng input.
+- **Format SQL**: chuẩn hóa keyword, xuống dòng và thụt lề; hỗ trợ nhiều statement trong cùng input, phân tách bằng dấu `;`.
+- **Load sheet & format**: đọc SQL từ workbook `.xlsx/.xlsm/.xltx/.xltm`. Sheet cần có số thứ tự ở cột A; nội dung SQL lấy từ cột B trở đi và gom từ số thứ tự hiện tại đến số thứ tự tiếp theo. Output được đánh dấu theo dạng `-- SQL No.1`.
 - **Phân tích toàn bộ**: parse SQL thành AST rồi liệt kê từng table/reference cùng alias, vai trò `FROM`/`JOIN`/DML target và scope. Kết quả còn gồm điều kiện `WHERE`, `JOIN ON/USING`, `HAVING`, `QUALIFY`, `MERGE ON`, `START WITH`, `CONNECT BY`, `CASE/IF`, CTE, subquery, SELECT expression, `GROUP BY`, `ORDER BY`, `LIMIT/OFFSET`.
 
 Có thể chọn dialect SQL Server, MySQL, PostgreSQL, Oracle, SQLite, BigQuery, Snowflake, Spark, Databricks hoặc DuckDB. Chế độ tự động dùng SQL phổ thông; với cú pháp riêng của hệ quản trị nên chọn đúng dialect để parser không hiểu nhầm. Ứng dụng không đặt giới hạn riêng về số dòng/độ dài SQL; giới hạn thực tế phụ thuộc bộ nhớ khả dụng của máy và trình duyệt.
@@ -88,6 +89,7 @@ Trình duyệt web không cho phép website đọc đường dẫn tuyệt đố
 - `[folders]`: tên `Input`, `Output`, `Compare` và các folder before/after.
 - `[workbooks]`: tên các workbook được tạo.
 - `[excel_headers]`: header/text trong file compare Excel, gồm `FIXME`.
+- `[excel_compare_style]`: mã màu font/fill dùng khi tạo file compare Excel.
 - `[compare_workflows]`: trạng thái mặc định của các luồng so sánh.
 - `[excel_image_format]`: marker và thông số layout cho chức năng căn ảnh Excel.
 

@@ -6,17 +6,20 @@ from pathlib import Path
 
 try:
     from openpyxl import Workbook, load_workbook
-    from autocompare_tool.excel_writer import WorkbookFixmeEntry
+    from autocompare_tool.app_config import ExcelCompareStyleConfig
+    from autocompare_tool.excel_writer import WorkbookFixmeEntry, write_compare_workbook_with_fixmes
     from autocompare_tool.fixme_replacements import apply_fixme_replacements
     from autocompare_tool.folder_compare import compare_csv_folders
     from autocompare_tool.processor import process_root
 except ImportError:  # pragma: no cover
     apply_fixme_replacements = None
     compare_csv_folders = None
+    ExcelCompareStyleConfig = None
     Workbook = None
     WorkbookFixmeEntry = None
     load_workbook = None
     process_root = None
+    write_compare_workbook_with_fixmes = None
 
 from autocompare_tool.constants import (
     AFTER_CURRENT_DIR,
@@ -169,6 +172,38 @@ class ProcessorAndExcelTests(unittest.TestCase):
 
             workbook = load_workbook(output)
             self.assertEqual(set(workbook.sheetnames), {"left_only", "nested_child", "right_only", "shared"})
+
+    def test_compare_workbook_uses_configurable_style_colors(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            before = root / "before"
+            after = root / "after"
+            before.mkdir()
+            after.mkdir()
+            _write_text(before / "table.csv", "id,name\n1,before\n")
+            _write_text(after / "table.csv", "id,name\n1,after\n")
+            output = root / "compare.xlsx"
+            style = ExcelCompareStyleConfig(
+                base_font_color="111111",
+                header_font_color="222222",
+                diff_font_color="333333",
+                fixme_font_color="444444",
+                a1_fill_color="ABCDEF",
+                header_fill_color="123456",
+                name_fill_color="654321",
+                diff_fill_color="FEDCBA",
+            )
+
+            write_compare_workbook_with_fixmes(before, after, output, excel_style=style)
+
+            workbook = load_workbook(output)
+            worksheet = workbook["table"]
+            self.assertTrue(worksheet["A1"].fill.fgColor.rgb.endswith("ABCDEF"))
+            self.assertTrue(worksheet["A2"].fill.fgColor.rgb.endswith("123456"))
+            self.assertTrue(worksheet["A3"].fill.fgColor.rgb.endswith("654321"))
+            self.assertTrue(worksheet["C4"].fill.fgColor.rgb.endswith("FEDCBA"))
+            self.assertTrue(worksheet["C4"].font.color.rgb.endswith("333333"))
+            self.assertTrue(worksheet["F4"].font.color.rgb.endswith("444444"))
 
 
 def _write_text(path: Path, content: str) -> None:

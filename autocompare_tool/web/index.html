@@ -249,6 +249,12 @@
                 <option value="duckdb">DuckDB</option>
               </select></label>
             </div>
+            <div class="sql-excel-loader">
+              <label class="field"><span>File Excel chứa SQL</span><span class="path-control"><input id="sql-excel-path" autocomplete="off"><button class="browse-button" type="button" data-browse-target="sql-excel-path" data-browse-kind="file" data-browse-ext="xlsx,xlsm,xltx,xltm">Chọn</button></span></label>
+              <label class="field"><span>Tên sheet</span><input id="sql-excel-sheet" placeholder="Sheet1"></label>
+              <button class="secondary-button" id="sql-load-excel" type="button">Load sheet &amp; format</button>
+              <small>Đọc số thứ tự ở cột A; nội dung SQL lấy từ cột B trở đi, gom đến số thứ tự tiếp theo.</small>
+            </div>
             <div class="sql-editor-wrap"><span class="sql-gutter" aria-hidden="true">SQL</span><textarea id="sql-input" rows="18" spellcheck="false" placeholder="Dán câu SQL vào đây..." required></textarea></div>
             <div class="sql-editor-actions">
               <span class="hint">Hỗ trợ nhiều statement; chọn đúng dialect để nhận diện cú pháp đặc thù chính xác nhất.</span>

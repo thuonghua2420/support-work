@@ -42,6 +42,18 @@ class ExcelHeaderConfig:
 
 
 @dataclass(frozen=True)
+class ExcelCompareStyleConfig:
+    base_font_color: str
+    header_font_color: str
+    diff_font_color: str
+    fixme_font_color: str
+    a1_fill_color: str
+    header_fill_color: str
+    name_fill_color: str
+    diff_fill_color: str
+
+
+@dataclass(frozen=True)
 class CompareWorkflowConfig:
     key: str
     label: str
@@ -100,6 +112,7 @@ class AppConfig:
     folders: FolderConfig
     workbooks: WorkbookConfig
     excel_headers: ExcelHeaderConfig
+    excel_compare_style: ExcelCompareStyleConfig
     compare_workflows: tuple[CompareWorkflowConfig, ...]
     excel_image_format: ExcelImageFormatConfig
     database_workspace: DatabaseWorkspaceConfig
@@ -142,6 +155,16 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
             "no_csv_message",
             "Không tìm thấy file CSV trong folder so sánh.",
         ),
+    )
+    excel_compare_style = ExcelCompareStyleConfig(
+        base_font_color=_get_hex_color(parser, "excel_compare_style", "base_font_color", "000000"),
+        header_font_color=_get_hex_color(parser, "excel_compare_style", "header_font_color", "000000"),
+        diff_font_color=_get_hex_color(parser, "excel_compare_style", "diff_font_color", "9C0006"),
+        fixme_font_color=_get_hex_color(parser, "excel_compare_style", "fixme_font_color", "000000"),
+        a1_fill_color=_get_hex_color(parser, "excel_compare_style", "a1_fill_color", "FFC7CE"),
+        header_fill_color=_get_hex_color(parser, "excel_compare_style", "header_fill_color", "C6EFCE"),
+        name_fill_color=_get_hex_color(parser, "excel_compare_style", "name_fill_color", "E2EFDA"),
+        diff_fill_color=_get_hex_color(parser, "excel_compare_style", "diff_fill_color", "E5CCFF"),
     )
 
     workflows = (
@@ -259,6 +282,7 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
         folders=folders,
         workbooks=workbooks,
         excel_headers=excel_headers,
+        excel_compare_style=excel_compare_style,
         compare_workflows=workflows,
         excel_image_format=excel_image_format,
         database_workspace=database_workspace,
@@ -310,6 +334,17 @@ def _get_int(parser: configparser.ConfigParser, section: str, option: str, fallb
         return parser.getint(section, option, fallback=fallback)
     except ValueError:
         return fallback
+
+
+def _get_hex_color(parser: configparser.ConfigParser, section: str, option: str, fallback: str) -> str:
+    value = _get(parser, section, option, fallback).removeprefix("#").strip().upper()
+    if len(value) not in {6, 8}:
+        return fallback
+    try:
+        int(value, 16)
+    except ValueError:
+        return fallback
+    return value
 
 
 def _get_bounded_int(

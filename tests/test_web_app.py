@@ -10,6 +10,7 @@ from autocompare_tool.database_io import DatabaseConnectionSettings, DatabaseCsv
 from autocompare_tool.excel_format_presets import ExcelFormatPresetStore
 from autocompare_tool.excel_image_formatter import ExcelImageFormatSummary
 from autocompare_tool.excel_writer import WorkbookFixmeEntry
+from autocompare_tool.sql_excel_loader import ExcelSqlEntry
 from autocompare_tool.sql_tools import SqlFormatResult
 from autocompare_tool.web_app import (
     AutoCompareWebApplication,
@@ -162,6 +163,31 @@ class WebApplicationTests(unittest.TestCase):
         self.assertEqual("select * from x", format_mock.call_args.args[0])
         self.assertEqual("tsql", format_mock.call_args.kwargs["dialect"])
         self.assertIsNotNone(format_mock.call_args.kwargs["log"])
+
+    def test_sql_load_excel_action_reads_entries_and_formats_numbered_sql(self) -> None:
+        app = AutoCompareWebApplication()
+        entries = [
+            ExcelSqlEntry("1", "select * from customers", 5, 8),
+            ExcelSqlEntry("2", "select * from orders", 9, 12),
+        ]
+        summary = SqlFormatResult(
+            formatted_sql="-- SQL No.1\nSELECT * FROM customers;",
+            statement_count=2,
+            dialect="tsql",
+        )
+
+        with patch("autocompare_tool.web_app.load_sql_entries_from_excel", return_value=entries) as load_mock:
+            with patch("autocompare_tool.web_app.format_numbered_sql", return_value=summary) as format_mock:
+                result = app._operation(
+                    "sql_load_excel",
+                    {"excel_path": "input.xlsx", "sheet_name": "SQLList", "dialect": "tsql"},
+                )(lambda _message: None)
+
+        load_mock.assert_called_once_with("input.xlsx", "SQLList")
+        self.assertEqual("tsql", format_mock.call_args.kwargs["dialect"])
+        self.assertEqual(2, result["entry_count"])
+        self.assertIn("-- SQL No.1", result["source_sql"])
+        self.assertEqual("-- SQL No.1\nSELECT * FROM customers;", result["formatted_sql"])
 
     def test_database_settings_are_mapped_from_json(self) -> None:
         settings = _db_settings(

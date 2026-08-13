@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from autocompare_tool.sql_tools import analyze_sql, format_sql
+from autocompare_tool.sql_tools import analyze_sql, format_numbered_sql, format_sql
 
 
 COMPLEX_SQL = """
@@ -45,6 +45,21 @@ class SqlToolsTests(unittest.TestCase):
         self.assertIn("FROM dbo.orders AS o", result.formatted_sql)
         self.assertIn("\nWHERE\n", result.formatted_sql)
         self.assertIn(";\n\nSELECT", result.formatted_sql)
+        self.assertTrue(result.formatted_sql.endswith(";"))
+
+    def test_formats_numbered_sql_blocks(self) -> None:
+        result = format_numbered_sql(
+            [
+                ("1", "select * from customers where id=1"),
+                ("2", "select * from orders where customer_id=1;select count(*) from orders"),
+            ],
+            "tsql",
+        )
+
+        self.assertEqual(3, result.statement_count)
+        self.assertIn("-- SQL No.1\nSELECT", result.formatted_sql)
+        self.assertIn("-- SQL No.2\nSELECT", result.formatted_sql)
+        self.assertIn(";\n\nSELECT\n  COUNT(*)", result.formatted_sql)
 
     def test_analyzes_all_tables_aliases_conditions_ctes_and_subqueries(self) -> None:
         result = analyze_sql(COMPLEX_SQL, "tsql")

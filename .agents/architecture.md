@@ -14,6 +14,7 @@ run.bat
       -> excel_image_formatter.py -> Microsoft Excel Desktop COM
       -> excel_format_presets.py -> excel_format_presets.json
       -> sql_tools.py       -> SQLGlot parser/AST
+      -> sql_excel_loader.py -> read numbered SQL blocks from Excel sheets
       -> sql_database_workspace.py -> database_io.py -> dbeaver_csv.py
       -> file_utilities.py
       -> fixme_notes.py     -> fixme_notes.json
@@ -142,7 +143,7 @@ Owns:
 
 Keep:
 
-- Styling constants near this module until there is a real theme/config need.
+- Compare workbook text labels in `[excel_headers]` and style colors in `[excel_compare_style]` of `autocompare_config.ini`.
 
 ### `autocompare_tool/excel_image_formatter.py`
 
@@ -180,6 +181,7 @@ Rules:
 Owns:
 
 - Multi-statement SQL parsing and pretty formatting through SQLGlot.
+- Numbered SQL block formatting for Excel-loaded SQL lists.
 - Dialect validation for the SQL Studio choices.
 - AST/scope traversal for physical tables, CTE references, aliases, DML targets, conditions, CTEs, subqueries, projections, grouping, ordering, and limits.
 - Parser-error translation into line/column messages suitable for the web UI.
@@ -189,6 +191,15 @@ Rules:
 - Never execute submitted SQL or connect to a database from this module.
 - Use AST nodes and SQLGlot scopes; do not identify tables or subqueries with regex.
 - Keep every table occurrence, including repeated/self-join references, because aliases and scopes are semantically distinct.
+
+### `autocompare_tool/sql_excel_loader.py`
+
+Owns:
+
+- Reading `.xlsx/.xlsm/.xltx/.xltm` sheets that store SQL lists.
+- Detecting SQL numbers from column A.
+- Joining SQL text from column B onward for every row from one SQL number to the next.
+- Rendering raw numbered SQL blocks for the SQL editor.
 
 ### `autocompare_tool/sql_database_workspace.py`
 

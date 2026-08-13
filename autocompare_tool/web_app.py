@@ -46,7 +46,8 @@ from .fixme_notes import FixmeNote, FixmeNoteStore
 from .fixme_replacements import apply_fixme_replacements
 from .folder_compare import compare_csv_folders
 from .processor import process_root
-from .sql_tools import analyze_sql, format_sql
+from .sql_excel_loader import load_sql_entries_from_excel, render_raw_sql_entries
+from .sql_tools import analyze_sql, format_numbered_sql, format_sql
 from .sql_database_workspace import SqlDatabaseWorkspaceManager
 
 APP_TITLE = "AutoCompare"
@@ -150,6 +151,7 @@ class AutoCompareWebApplication:
         "format_excel_images": "Đang format ảnh trong Excel...",
         "sql_format": "Đang format câu SQL...",
         "sql_analyze": "Đang phân tích toàn bộ câu SQL...",
+        "sql_load_excel": "Đang đọc và format SQL từ Excel...",
         "rename_exact": "Đang đổi tên chính xác...",
         "rename_contains": "Đang đổi tên theo nội dung...",
         "delete_contains": "Đang xóa file/folder...",
@@ -342,6 +344,7 @@ class AutoCompareWebApplication:
                     log=log,
                 )
             ),
+            "sql_load_excel": lambda log: self._load_sql_from_excel(payload, log),
             "rename_exact": lambda log: self._file_summary(
                 rename_exact_name(
                     _text(payload, "root"),
@@ -442,6 +445,22 @@ class AutoCompareWebApplication:
             "apply_fixmes": lambda log: self._apply_fixmes(payload, log),
         }
         return operations[action]
+
+    def _load_sql_from_excel(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
+        excel_path = _text(payload, "excel_path")
+        sheet_name = _text(payload, "sheet_name")
+        entries = load_sql_entries_from_excel(excel_path, sheet_name)
+        log(f"Đã đọc {len(entries)} SQL từ sheet “{sheet_name}”.")
+        formatted = format_numbered_sql(
+            ((entry.number, entry.sql_text) for entry in entries),
+            dialect=str(payload.get("dialect", "")),
+            log=log,
+        )
+        result = asdict(formatted)
+        result["entry_count"] = len(entries)
+        result["source_sql"] = render_raw_sql_entries(entries)
+        result["entries"] = [asdict(entry) for entry in entries]
+        return result
 
     def _compare(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
         selected = payload.get("workflows")

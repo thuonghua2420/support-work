@@ -8,22 +8,14 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from .app_config import ExcelHeaderConfig, load_app_config
+from .app_config import ExcelCompareStyleConfig, ExcelHeaderConfig, load_app_config
 from .compare import SheetComparison, build_sheet_comparison, cell_value
 from .csv_table import CsvTable, read_csv_table
 
 INVALID_SHEET_CHARS = re.compile(r"[\[\]:*?/\\]")
 
-BASE_FONT = Font(name="Yu Gothic", size=11, color="000000")
-HEADER_FONT = Font(name="Yu Gothic", size=11, bold=True, color="000000")
-DIFF_FONT = Font(name="Yu Gothic", size=11, color="9C0006")
-FIXME_FONT = Font(name="Yu Gothic", size=11, bold=True, color="000000")
-
-A1_FILL = PatternFill("solid", fgColor="FFC7CE")
-HEADER_FILL = PatternFill("solid", fgColor="C6EFCE")
-NAME_FILL = PatternFill("solid", fgColor="E2EFDA")
-DIFF_FILL = PatternFill("solid", fgColor="E5CCFF")
-
+COMPARE_FONT_NAME = "Yu Gothic"
+COMPARE_FONT_SIZE = 11
 PROCESSED_COLUMN_WIDTH = 42
 FIXME_COLUMN_WIDTH = 12
 
@@ -54,6 +46,18 @@ class CompareWorkbookWriteResult:
     fixme_entries: list[WorkbookFixmeEntry]
 
 
+@dataclass(frozen=True)
+class CompareWorkbookStyles:
+    base_font: Font
+    header_font: Font
+    diff_font: Font
+    fixme_font: Font
+    a1_fill: PatternFill
+    header_fill: PatternFill
+    name_fill: PatternFill
+    diff_fill: PatternFill
+
+
 def write_compare_workbook(before_dir: Path, after_dir: Path, output_path: Path) -> int:
     return write_compare_workbook_with_fixmes(before_dir, after_dir, output_path).sheet_count
 
@@ -63,11 +67,14 @@ def write_compare_workbook_with_fixmes(
     after_dir: Path,
     output_path: Path,
     excel_headers: ExcelHeaderConfig | None = None,
+    excel_style: ExcelCompareStyleConfig | None = None,
     case_folder_name: str = "",
     include_left_only_files: bool = False,
     recursive: bool = False,
 ) -> CompareWorkbookWriteResult:
-    headers = excel_headers or load_app_config().excel_headers
+    app_config = None if excel_headers is not None and excel_style is not None else load_app_config()
+    headers = excel_headers or app_config.excel_headers
+    styles = _build_styles(excel_style or app_config.excel_compare_style)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
     workbook.remove(workbook.active)
@@ -93,6 +100,7 @@ def write_compare_workbook_with_fixmes(
                 worksheet,
                 comparison,
                 headers,
+                styles,
                 case_folder_name=case_folder_name,
                 workbook_path=output_path,
                 csv_file_name=csv_display_name,
@@ -103,7 +111,7 @@ def write_compare_workbook_with_fixmes(
     if sheet_count == 0:
         worksheet = workbook.create_sheet("Summary")
         worksheet["A1"] = headers.no_csv_message
-        worksheet["A1"].font = BASE_FONT
+        worksheet["A1"].font = styles.base_font
         worksheet.column_dimensions["A"].width = 40
 
     workbook.save(output_path)
@@ -167,6 +175,7 @@ def _write_sheet(
     worksheet,
     comparison: SheetComparison,
     headers: ExcelHeaderConfig,
+    styles: CompareWorkbookStyles,
     case_folder_name: str,
     workbook_path: Path,
     csv_file_name: str,
@@ -175,21 +184,21 @@ def _write_sheet(
     fixme_entries: list[WorkbookFixmeEntry] = []
 
     worksheet.cell(1, 1).value = headers.diff_count_title
-    worksheet.cell(1, 1).font = DIFF_FONT
-    worksheet.cell(1, 1).fill = A1_FILL
+    worksheet.cell(1, 1).font = styles.diff_font
+    worksheet.cell(1, 1).fill = styles.a1_fill
 
     worksheet.cell(2, 1).value = headers.left_column_title
     worksheet.cell(2, 2).value = headers.right_column_title
-    _style_header(worksheet.cell(2, 1))
-    _style_header(worksheet.cell(2, 2))
+    _style_header(worksheet.cell(2, 1), styles)
+    _style_header(worksheet.cell(2, 2), styles)
 
     for record_index in range(total_records):
         col_before = 3 + (record_index * 2)
         col_after = col_before + 1
         worksheet.cell(2, col_before).value = f"{headers.left_record_prefix}:{record_index + 1}行目"
         worksheet.cell(2, col_after).value = f"{headers.right_record_prefix}:{record_index + 1}行目"
-        _style_header(worksheet.cell(2, col_before))
-        _style_header(worksheet.cell(2, col_after))
+        _style_header(worksheet.cell(2, col_before), styles)
+        _style_header(worksheet.cell(2, col_after), styles)
 
     diff_field_count = 0
     fixme_col = 3 + (total_records * 2) + 1
@@ -199,8 +208,8 @@ def _write_sheet(
         after_name_cell = worksheet.cell(row_index, 2)
         before_name_cell.value = column_name if column_name in comparison.before_headers else ""
         after_name_cell.value = column_name if column_name in comparison.after_headers else ""
-        _style_name(before_name_cell)
-        _style_name(after_name_cell)
+        _style_name(before_name_cell, styles)
+        _style_name(after_name_cell, styles)
 
         has_mismatch = False
         for record_index, pair in enumerate(comparison.pairs):
@@ -214,13 +223,13 @@ def _write_sheet(
             before_cell.value = before_value
             after_cell.value = after_value
 
-            before_cell.font = BASE_FONT
-            after_cell.font = BASE_FONT
+            before_cell.font = styles.base_font
+            after_cell.font = styles.base_font
 
             if before_value != after_value:
                 has_mismatch = True
-                _style_diff(before_cell)
-                _style_diff(after_cell)
+                _style_diff(before_cell, styles)
+                _style_diff(after_cell, styles)
                 fixme_entries.append(
                     WorkbookFixmeEntry(
                         case_folder_name=case_folder_name,
@@ -241,29 +250,42 @@ def _write_sheet(
             diff_field_count += 1
             fixme_cell = worksheet.cell(row_index, fixme_col)
             fixme_cell.value = headers.fixme_text
-            fixme_cell.font = FIXME_FONT
+            fixme_cell.font = styles.fixme_font
 
     worksheet.cell(1, 2).value = diff_field_count
-    worksheet.cell(1, 2).font = BASE_FONT
+    worksheet.cell(1, 2).font = styles.base_font
 
     worksheet.freeze_panes = "C3"
     _set_column_widths(worksheet, total_records, fixme_col)
     return fixme_entries
 
 
-def _style_header(cell) -> None:
-    cell.font = HEADER_FONT
-    cell.fill = HEADER_FILL
+def _build_styles(style_config: ExcelCompareStyleConfig) -> CompareWorkbookStyles:
+    return CompareWorkbookStyles(
+        base_font=Font(name=COMPARE_FONT_NAME, size=COMPARE_FONT_SIZE, color=style_config.base_font_color),
+        header_font=Font(name=COMPARE_FONT_NAME, size=COMPARE_FONT_SIZE, bold=True, color=style_config.header_font_color),
+        diff_font=Font(name=COMPARE_FONT_NAME, size=COMPARE_FONT_SIZE, color=style_config.diff_font_color),
+        fixme_font=Font(name=COMPARE_FONT_NAME, size=COMPARE_FONT_SIZE, bold=True, color=style_config.fixme_font_color),
+        a1_fill=PatternFill("solid", fgColor=style_config.a1_fill_color),
+        header_fill=PatternFill("solid", fgColor=style_config.header_fill_color),
+        name_fill=PatternFill("solid", fgColor=style_config.name_fill_color),
+        diff_fill=PatternFill("solid", fgColor=style_config.diff_fill_color),
+    )
 
 
-def _style_name(cell) -> None:
-    cell.font = BASE_FONT
-    cell.fill = NAME_FILL
+def _style_header(cell, styles: CompareWorkbookStyles) -> None:
+    cell.font = styles.header_font
+    cell.fill = styles.header_fill
 
 
-def _style_diff(cell) -> None:
-    cell.font = DIFF_FONT
-    cell.fill = DIFF_FILL
+def _style_name(cell, styles: CompareWorkbookStyles) -> None:
+    cell.font = styles.base_font
+    cell.fill = styles.name_fill
+
+
+def _style_diff(cell, styles: CompareWorkbookStyles) -> None:
+    cell.font = styles.diff_font
+    cell.fill = styles.diff_fill
 
 
 def _set_column_widths(worksheet, total_records: int, fixme_col: int) -> None:

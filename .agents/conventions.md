@@ -47,6 +47,7 @@
 - Supported built-in adapters: SQL Server, MySQL, PostgreSQL, Oracle.
 - Do not build SQL in `gui.py`; keep dialect behavior inside adapters.
 - Use `sql_database_workspace.py` for live SQL execution/source data/export/update; keep `sql_tools.py` parser-only and web assets as render/orchestration only.
+- Use `sql_excel_loader.py` for reading numbered SQL lists from Excel sheets; the web layer should only pass file path, sheet name, and dialect.
 - Real DB writes must be triggered only from an explicit user action and confirmation.
 - Scan all CSV files recursively under the selected folder.
 - Map table name from CSV file stem.
@@ -78,7 +79,7 @@
 
 - Compare workbooks are generated with `openpyxl`.
 - Sheet names must be sanitized and unique.
-- Diff cells are styled in `excel_writer.py`.
+- Diff cells are styled in `excel_writer.py`; compare workbook color codes are read from `[excel_compare_style]` in `autocompare_config.ini`.
 - Metadata columns skipped by compare are listed in `compare.py`.
 - `excel_writer.py` should return mismatch metadata whenever processor/GUI needs review data.
 - If multiple mismatch rows point to one final-column `FIXME` cell, applying notes joins unique selected notes with line breaks.

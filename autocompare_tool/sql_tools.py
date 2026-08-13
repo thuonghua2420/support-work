@@ -154,6 +154,34 @@ def format_sql(sql_text: str, dialect: str = "", log: Logger | None = None) -> S
     )
 
 
+def format_numbered_sql(
+    sql_items: Iterable[tuple[str | int, str]],
+    dialect: str = "",
+    log: Logger | None = None,
+) -> SqlFormatResult:
+    logger = log or (lambda _message: None)
+    normalized_dialect = _normalize_dialect(dialect)
+    blocks: list[str] = []
+    statement_count = 0
+    item_count = 0
+    for number, sql_text in sql_items:
+        item_count += 1
+        try:
+            expressions = _parse_sql(sql_text, normalized_dialect)
+        except ValueError as exc:
+            raise ValueError(f"SQL No.{number} không hợp lệ: {exc}") from exc
+        statement_count += len(expressions)
+        blocks.append(f"-- SQL No.{number}\n{_format_expressions(expressions, normalized_dialect)}")
+    if not blocks:
+        raise ValueError("Không tìm thấy câu SQL nào để format.")
+    logger(f"Đã format {item_count} SQL từ danh sách ({statement_count} statement).")
+    return SqlFormatResult(
+        formatted_sql="\n\n".join(blocks),
+        statement_count=statement_count,
+        dialect=normalized_dialect or "auto",
+    )
+
+
 def analyze_sql(sql_text: str, dialect: str = "", log: Logger | None = None) -> SqlAnalysisResult:
     logger = log or (lambda _message: None)
     normalized_dialect = _normalize_dialect(dialect)
@@ -226,7 +254,7 @@ def _normalize_dialect(dialect: str) -> str:
 
 
 def _format_expressions(expressions: list[exp.Expression], dialect: str) -> str:
-    return ";\n\n".join(_sql(expression, dialect, pretty=True) for expression in expressions)
+    return ";\n\n".join(_sql(expression, dialect, pretty=True) for expression in expressions) + ";"
 
 
 def _analyze_statement(

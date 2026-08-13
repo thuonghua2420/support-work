@@ -278,6 +278,7 @@ function bindForms() {
   });
   $("#sql-format").addEventListener("click", () => runSqlAction("sql_format"));
   $("#sql-analyze").addEventListener("click", () => runSqlAction("sql_analyze"));
+  $("#sql-load-excel").addEventListener("click", runSqlExcelLoad);
   $("#copy-formatted-sql").addEventListener("click", copyFormattedSql);
   $("#sql-run-current")?.addEventListener("click", () => runSqlExecute("current"));
   $("#sql-run-all")?.addEventListener("click", () => runSqlExecute("all"));
@@ -1122,7 +1123,11 @@ function consumeJobResult(job) {
     list.innerHTML = result.databases.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
     if (!valueOf(`db-${result.role}-database`) && result.databases.length) $(`#db-${result.role}-database`).value = result.databases[0];
   }
-  if (job.action === "sql_format" || job.action === "sql_analyze") {
+  if (job.action === "sql_format" || job.action === "sql_analyze" || job.action === "sql_load_excel") {
+    if (job.action === "sql_load_excel" && result.source_sql) {
+      $("#sql-input").value = result.source_sql;
+      markSqlWorkspaceStale();
+    }
     $("#sql-formatted-output").value = result.formatted_sql || "";
     $("#sql-statement-count").textContent = `${result.statement_count || 0} statement`;
     $("#sql-output-card").classList.remove("hidden");
@@ -1147,6 +1152,26 @@ function runSqlAction(action) {
     return;
   }
   startAction(action, { sql, dialect: valueOf("sql-dialect") });
+}
+
+function runSqlExcelLoad() {
+  const excelPath = valueOf("sql-excel-path");
+  const sheetName = valueOf("sql-excel-sheet");
+  if (!excelPath) {
+    showToast("Vui lòng chọn file Excel chứa SQL.", "error");
+    $("#sql-excel-path").focus();
+    return;
+  }
+  if (!sheetName) {
+    showToast("Vui lòng nhập tên sheet cần đọc.", "error");
+    $("#sql-excel-sheet").focus();
+    return;
+  }
+  startAction("sql_load_excel", {
+    excel_path: excelPath,
+    sheet_name: sheetName,
+    dialect: valueOf("sql-dialect"),
+  });
 }
 
 function runSqlExecute(mode) {
@@ -1598,6 +1623,7 @@ function summaryMessage(job) {
   if (job.action === "folder_compare") return `Đã tạo ${result.sheet_count || 0} sheet, tìm thấy ${result.fixme_count || 0} FIXME.`;
   if (job.action === "format_excel_images") return `Đã format ${result.processed_count || 0}/${result.file_count || 0} workbook, chuẩn hóa ${result.workbook_format_sheet_count || 0} sheet, giữ size cũ tại ${result.font_size_skipped_row_count || 0} row; lỗi ${result.error_count || 0}.`;
   if (job.action === "sql_format") return `Đã format ${result.statement_count || 0} câu lệnh SQL.`;
+  if (job.action === "sql_load_excel") return `Đã đọc ${result.entry_count || 0} SQL từ Excel và format ${result.statement_count || 0} statement.`;
   if (job.action === "sql_analyze") return `Đã phân tích ${result.statement_count || 0} statement: ${result.tables?.length || 0} table/reference, ${result.conditions?.length || 0} điều kiện, ${result.subqueries?.length || 0} subquery.`;
   if (job.action === "db_test") return "Kết nối cơ sở dữ liệu thành công.";
   if (job.action === "db_list_databases") return `Đã tải ${result.databases?.length || 0} cơ sở dữ liệu.`;
@@ -1629,7 +1655,7 @@ function setJobVisual(kind, text) {
 
 function setBusy(busy) {
   document.body.classList.toggle("is-busy", busy);
-  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes').forEach((button) => {
+  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes').forEach((button) => {
     button.disabled = busy || (button.id === "delete-excel-format-preset" && !valueOf("excel-format-preset"));
   });
   updateFixmeToolbarState();
