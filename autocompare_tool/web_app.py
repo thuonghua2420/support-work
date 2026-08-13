@@ -27,6 +27,7 @@ from .database_io import (
     list_database_names,
     list_database_tables,
     normalize_csv_folder,
+    preferred_sqlserver_driver,
     sync_database_tables,
     test_database_connection,
 )
@@ -780,7 +781,7 @@ def _db_settings(raw_value: Any) -> DatabaseConnectionSettings:
         username=str(raw_value.get("username", "")),
         password=str(raw_value.get("password", "")),
         trusted_connection=raw_value.get("trusted_connection") is True,
-        driver=str(raw_value.get("driver", "ODBC Driver 18 for SQL Server")),
+        driver=str(raw_value.get("driver") or preferred_sqlserver_driver(get_available_sqlserver_drivers())),
         trust_server_certificate=raw_value.get("trust_server_certificate", True) is True,
         encrypt=raw_value.get("encrypt", True) is True,
     )

@@ -267,8 +267,12 @@
             <textarea class="sql-formatted-output" id="sql-formatted-output" rows="18" readonly spellcheck="false"></textarea>
           </section>
 
-          <section class="sql-analysis hidden" id="sql-analysis">
-            <div class="sql-analysis-heading"><div><span class="section-kicker">AST analysis</span><h3>Kết quả phân tích</h3></div><span class="soft-badge" id="sql-analysis-dialect">AUTO</span></div>
+          <details class="card sql-analysis hidden" id="sql-analysis">
+            <summary class="sql-analysis-summary">
+              <div class="sql-analysis-heading"><div><span class="section-kicker">AST analysis</span><h3>Kết quả phân tích</h3></div><span class="soft-badge" id="sql-analysis-dialect">AUTO</span></div>
+              <span class="sql-analysis-toggle" aria-hidden="true"></span>
+            </summary>
+            <div class="sql-analysis-body">
             <div class="sql-metric-grid">
               <div class="card sql-metric"><span>Statements</span><strong id="sql-count-statements">0</strong></div>
               <div class="card sql-metric"><span>Tables / refs</span><strong id="sql-count-tables">0</strong></div>
@@ -307,7 +311,8 @@
               <div class="card-heading"><div><span class="sql-result-icon clause-icon">≡</span><h3>GROUP BY / ORDER BY / LIMIT</h3><span class="count-badge" id="sql-clause-count">0</span></div></div>
               <div class="sql-stack compact" id="sql-clause-list"></div>
             </section>
-          </section>
+            </div>
+          </details>
         </section>
 
         <section class="page" id="page-database" data-title="Cơ sở dữ liệu" data-eyebrow="WORKSPACE / DATABASE">
@@ -362,8 +367,8 @@
               <div class="card-heading"><div><span class="step-number">03</span><h3>Phạm vi đồng bộ</h3></div><span class="count-badge" id="selected-table-count">0 table</span></div>
               <label class="switch-row"><span><strong>Đồng bộ toàn bộ table nguồn</strong><small>Bật để bỏ qua danh sách chọn bên dưới.</small></span><input class="switch" type="checkbox" id="sync-all-tables"></label>
               <div class="table-picker">
-                <div><label class="field"><span>Lọc table nguồn</span><input id="sync-table-filter" placeholder="Nhập một phần tên table..."></label><div class="available-tables" id="available-tables"><p>Test kết nối nguồn để tải danh sách table.</p></div></div>
-                <div class="selected-tables"><span>Table đã chọn</span><div id="selected-tables"><p>Chưa chọn table.</p></div><button class="text-button" id="clear-selected-tables" type="button">Bỏ chọn tất cả</button></div>
+                <div class="table-source-picker"><label class="field"><span>Lọc table nguồn</span><input id="sync-table-filter" placeholder="Nhập một phần tên table..."></label><div class="available-tables" id="available-tables"><p>Test kết nối nguồn để tải danh sách table.</p></div></div>
+                <div class="selected-tables"><div class="table-picker-header"><span>Table đã chọn</span><button class="text-button" id="clear-selected-tables" type="button">Bỏ chọn tất cả</button></div><div class="selected-table-list" id="selected-tables"><p>Chưa chọn table.</p></div></div>
               </div>
               <div class="sync-progress-panel hidden" id="sync-progress-panel">
                 <div class="sync-progress-head"><strong id="sync-progress-title">Sync progress</strong><span id="sync-progress-percent">0%</span></div>

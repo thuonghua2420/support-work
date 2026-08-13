@@ -30,7 +30,8 @@
 
 - Use `csv_table.py`.
 - Supported encodings: `utf-8-sig`, `utf-8`, `cp932`.
-- Empty/missing values are compared as empty strings.
+- Preserve DBeaver-style NULL versus empty string in compare inputs: unquoted blank data cell is `NULL`, quoted empty string is `""`.
+- Compare workbooks display `NULL` values as literal `NULL`; empty strings remain visually blank.
 
 ### DBeaver CSV
 
@@ -39,6 +40,7 @@
 - Write with CRLF line endings.
 - Existing normalize writer quotes all non-null data cells.
 - Typed DB export writer leaves numeric cells unquoted and quotes string cells.
+- SQL Workspace database grids display `None` as `[NULL]`; empty strings remain visually blank.
 - Keep headers unquoted unless quoting is required by CSV syntax.
 
 ## DB CSV Rules
@@ -108,4 +110,5 @@
 - Keep one background mutation job active at a time.
 - Require both a visible browser confirmation and backend `confirmed: true` validation for destructive file and DB actions.
 - Never return database passwords in bootstrap, job status, logs, or result payloads.
+- Never persist database passwords in the browser input cache; restoring connection fields must leave password boxes empty.
 - Use the server-side filesystem picker for absolute local paths; browsers cannot provide those paths through standard upload controls.

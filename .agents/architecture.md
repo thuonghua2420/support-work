@@ -51,6 +51,7 @@ Owns:
 - Responsive HTML layout and page navigation.
 - Client-side form state, confirmation dialogs, FIXME/note rendering, per-column FIXME filters, bulk note assignment, database connection forms, and table selection.
 - Polling background job state and rendering logs/toasts.
+- Browser `localStorage` cache for the latest non-sensitive user inputs, selected sync tables, and checkbox/radio choices. Passwords, generated outputs, and picker internals are intentionally excluded.
 
 The web client has no build step or external CDN dependency.
 
@@ -210,6 +211,7 @@ Owns:
 - Result spool/workspace paging through bounded `fetchmany()` batches.
 - Metadata-backed relation cards, source occurrence IDs, column usage colors, and join groups.
 - Strict source lineage diagnostics for exact Source Data, CSV export, negative-record lookup, and optimistic inline update.
+- Matched-primary-key source tracing for supported base tables: rewrite the original SELECT to `SELECT DISTINCT alias.pk...`, then fetch full source rows by joining those keys back to the base table.
 
 Rules:
 
@@ -217,6 +219,7 @@ Rules:
 - Do not expose passwords in workspace responses, logs, bootstrap payloads, or job results.
 - DDL/DML require a valid Write mode token tied to the current Database 1 fingerprint.
 - Source Data must stay strict: unsupported lineage shows a diagnostic card and must not fall back to whole-table data.
+- Base-table lineage through CTE/derived projection, grouped queries, HAVING, QUALIFY, LIMIT/OFFSET, and set operations must remain diagnostic-only until exact rewrite rules are implemented.
 - Inline update is limited to base tables with primary keys and uses parameterized SQL plus full-row conflict checks.
 
 ### `autocompare_tool/csv_table.py`

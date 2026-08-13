@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from autocompare_tool.database_io import DatabaseColumn, TableMetadata
-from autocompare_tool.sql_database_workspace import _decorate_column_usage, is_read_statement
-from autocompare_tool.sql_tools import parse_sql_expressions
+from autocompare_tool.database_io import DatabaseColumn, SqlServerAdapter, TableMetadata
+from autocompare_tool.sql_database_workspace import _decorate_column_usage, _diagnostic_source_sql, _display_value, is_read_statement
+from autocompare_tool.sql_tools import analyze_sql, parse_sql_expressions
 
 
 class SqlDatabaseWorkspaceTests(unittest.TestCase):
@@ -44,7 +44,120 @@ class SqlDatabaseWorkspaceTests(unittest.TestCase):
         self.assertEqual(a_col["join_group"], c_col["join_group"])
         self.assertEqual(a_col["color"], b_col["color"])
         self.assertEqual(a_col["color"], c_col["color"])
+        self.assertIn("Column hiện tại: dbo.A AS a.col1 (index #1)", a_col["join_tooltip"])
+        self.assertIn("dbo.B AS b.col6 (index #1)", a_col["join_tooltip"])
+        self.assertIn("dbo.C AS c.col3 (index #1)", a_col["join_tooltip"])
+        self.assertIn("Biểu thức JOIN:", a_col["join_tooltip"])
         self.assertEqual("WHERE", status_col["usage"])
+
+    def test_source_data_uses_matched_primary_key_trace(self) -> None:
+        sql = """
+            SELECT o.OFFICENM
+            FROM dbo.Office o
+            JOIN dbo.NmInfo n ON o.OFFICECD = n.OFFICECD
+            WHERE EXISTS (
+                SELECT 1
+                FROM dbo.OfficePermit p
+                WHERE p.OFFICECD = o.OFFICECD
+            )
+        """
+        expression = parse_sql_expressions(sql, "tsql")[0]
+        analysis = analyze_sql(sql, "tsql")
+        table_ref = next(item for item in analysis.tables if item.alias == "o")
+        metadata = TableMetadata(
+            schema="dbo",
+            name="Office",
+            columns=[
+                DatabaseColumn(name="OFFICECD", ordinal=1, data_type="int", is_primary_key=True),
+                DatabaseColumn(name="OFFICENM", ordinal=2, data_type="nvarchar"),
+            ],
+        )
+
+        source_sql, reason, trace_sql, strategy = _diagnostic_source_sql(
+            expression,
+            table_ref,
+            metadata,
+            SqlServerAdapter(),
+            "tsql",
+        )
+
+        self.assertEqual("", reason)
+        self.assertEqual("exact matched primary-key trace", strategy)
+        self.assertIn("__ac_pk_1", trace_sql)
+        self.assertIn("DISTINCT", trace_sql.upper())
+        self.assertIn("EXISTS", trace_sql.upper())
+        self.assertIn("INNER JOIN", source_sql.upper())
+        self.assertIn("ORDER BY", source_sql.upper())
+
+    def test_source_data_allows_cte_reference_projection(self) -> None:
+        sql = "WITH x AS (SELECT id FROM dbo.A) SELECT * FROM x"
+        expression = parse_sql_expressions(sql, "tsql")[0]
+        analysis = analyze_sql(sql, "tsql")
+        table_ref = next(item for item in analysis.tables if item.source_type == "CTE_REFERENCE")
+        metadata = TableMetadata(schema="", name="x", columns=[], relation_type="CTE")
+
+        source_sql, reason, trace_sql, strategy = _diagnostic_source_sql(
+            expression,
+            table_ref,
+            metadata,
+            SqlServerAdapter(),
+            "tsql",
+        )
+
+        self.assertEqual("", reason)
+        self.assertEqual("", trace_sql)
+        self.assertEqual("exact source projection", strategy)
+        self.assertIn("SELECT DISTINCT", source_sql.upper())
+
+    def test_source_data_rejects_base_table_without_metadata_columns(self) -> None:
+        sql = "SELECT * FROM dbo.A a"
+        expression = parse_sql_expressions(sql, "tsql")[0]
+        analysis = analyze_sql(sql, "tsql")
+        table_ref = next(item for item in analysis.tables if item.alias == "a")
+        metadata = TableMetadata(schema="dbo", name="A", columns=[])
+
+        source_sql, reason, trace_sql, strategy = _diagnostic_source_sql(
+            expression,
+            table_ref,
+            metadata,
+            SqlServerAdapter(),
+            "tsql",
+        )
+
+        self.assertEqual("", source_sql)
+        self.assertEqual("", trace_sql)
+        self.assertEqual("", strategy)
+        self.assertIn("metadata", reason.lower())
+
+    def test_source_data_rejects_grouped_trace_until_group_lineage_exists(self) -> None:
+        sql = "SELECT o.status, COUNT(*) FROM dbo.Office o GROUP BY o.status"
+        expression = parse_sql_expressions(sql, "tsql")[0]
+        analysis = analyze_sql(sql, "tsql")
+        table_ref = next(item for item in analysis.tables if item.alias == "o")
+        metadata = TableMetadata(
+            schema="dbo",
+            name="Office",
+            columns=[DatabaseColumn(name="OFFICECD", ordinal=1, data_type="int", is_primary_key=True)],
+        )
+
+        source_sql, reason, trace_sql, strategy = _diagnostic_source_sql(
+            expression,
+            table_ref,
+            metadata,
+            SqlServerAdapter(),
+            "tsql",
+        )
+
+        self.assertEqual("", source_sql)
+        self.assertEqual("", trace_sql)
+        self.assertEqual("", strategy)
+        self.assertIn("group", reason.lower())
+
+    def test_database_grid_displays_null_marker_but_empty_as_blank(self) -> None:
+        column = {"name": "name", "index": 1, "data_type": "nvarchar", "nullable": True}
+
+        self.assertEqual("[NULL]", _display_value(None, column))
+        self.assertEqual("", _display_value("", column))
 
 
 def _relation(

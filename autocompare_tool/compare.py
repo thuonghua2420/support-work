@@ -9,8 +9,8 @@ SKIP_COLUMN_NAMES = {"ValidationErrors", "HasErrors", "TargetProperties", "DataS
 
 @dataclass(frozen=True)
 class RecordPair:
-    before: dict[str, str] | None
-    after: dict[str, str] | None
+    before: dict[str, str | None] | None
+    after: dict[str, str | None] | None
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ def build_sheet_comparison(name: str, before: CsvTable, after: CsvTable) -> Shee
 
     before_by_key = {key: row for key, row in before_keyed}
     pairs: list[RecordPair] = []
-    used_before_keys: set[tuple[str, int]] = set()
+    used_before_keys: set[tuple[str | None, int]] = set()
 
     for key, after_row in after_keyed:
         before_row = before_by_key.get(key)
@@ -58,13 +58,13 @@ def _union_headers(before_headers: list[str], after_headers: list[str]) -> list[
     return columns
 
 
-def _key_rows(table: CsvTable) -> list[tuple[tuple[str, int], dict[str, str]]]:
+def _key_rows(table: CsvTable) -> list[tuple[tuple[str | None, int], dict[str, str | None]]]:
     if not table.headers:
         return [((f"__row_{index}", 0), row) for index, row in enumerate(table.rows)]
 
     key_header = table.headers[0]
-    occurrence_by_value: dict[str, int] = {}
-    keyed_rows: list[tuple[tuple[str, int], dict[str, str]]] = []
+    occurrence_by_value: dict[str | None, int] = {}
+    keyed_rows: list[tuple[tuple[str | None, int], dict[str, str | None]]] = []
 
     for row in table.rows:
         key_value = row.get(key_header, "")
@@ -75,7 +75,8 @@ def _key_rows(table: CsvTable) -> list[tuple[tuple[str, int], dict[str, str]]]:
     return keyed_rows
 
 
-def cell_value(row: dict[str, str] | None, column: str) -> str:
+def cell_value(row: dict[str, str | None] | None, column: str) -> str:
     if row is None:
         return ""
-    return row.get(column, "")
+    value = row.get(column, "")
+    return "NULL" if value is None else value

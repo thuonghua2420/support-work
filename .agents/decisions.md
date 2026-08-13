@@ -2,6 +2,26 @@
 
 Use this file for lightweight architecture decisions. Add newest entries at the top.
 
+## 2026-08-13 - SQL Source Data Matched-Key Trace
+
+Decision:
+
+- Expand SQL Workspace Source Data from simple `alias.*` rewrites to a strict matched-primary-key trace for base tables that have metadata and primary keys.
+- For each safely wrappable base-table source occurrence, rewrite the original SELECT into a `SELECT DISTINCT alias.pk...` trace query, then fetch full rows from the base table by joining back on those matched keys.
+- For statements with CTE syntax that cannot be nested as a derived table on SQL Server, use exact `alias.*` projection instead of the key-wrapper form.
+- Allow logical CTE/reference source projection when the result columns can be inferred from the database cursor description.
+- Keep base-table lineage through CTE/derived projection, grouped queries, HAVING, QUALIFY, LIMIT/OFFSET, and set operations unsupported until exact lineage rules exist.
+
+Reason:
+
+- Matched-key tracing preserves the original WHERE/JOIN/EXISTS predicates while avoiding false rows from whole-table fallback.
+- Fetching full rows by primary key gives stable Source Data, CSV export, negative-record lookup, and inline update snapshots.
+
+Consequence:
+
+- Complex predicates inside supported top-level SELECT statements can now produce exact base-table source records.
+- Source Data remains strict: unsupported scopes still render diagnostics instead of approximate records.
+
 ## 2026-08-12 - Database SQL Workspace
 
 Decision:

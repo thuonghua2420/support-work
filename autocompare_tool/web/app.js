@@ -30,6 +30,13 @@ const state = {
   picker: null,
 };
 
+const UI_CACHE_KEY = "autocompare:last-inputs:v1";
+const UI_CACHE_DEBOUNCE_MS = 250;
+let uiCacheTimer = null;
+let uiCacheRestoring = false;
+let uiCacheBound = false;
+let sqlJoinTooltipGlobalBound = false;
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
@@ -56,6 +63,8 @@ async function init() {
     renderExcelFormatPresets();
     renderFixmes();
     renderTables();
+    restoreUiCache();
+    bindUiCache();
     if (state.bootstrap.job) {
       state.job = state.bootstrap.job;
       state.jobCursor = 0;
@@ -227,6 +236,169 @@ function bindActivityPanel() {
   $("#clear-log").addEventListener("click", () => { $("#activity-log").textContent = ""; });
 }
 
+function bindUiCache() {
+  if (uiCacheBound) return;
+  uiCacheBound = true;
+  document.addEventListener("input", (event) => {
+    if (isCacheableEventTarget(event.target)) saveUiCacheDebounced();
+  });
+  document.addEventListener("change", (event) => {
+    if (isCacheableEventTarget(event.target)) saveUiCacheDebounced();
+  });
+  window.addEventListener("beforeunload", saveUiCacheNow);
+}
+
+function isCacheableEventTarget(target) {
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return false;
+  if (target.matches('input[type="radio"][name], input[type="checkbox"][name]')) return true;
+  return shouldCacheControl(target);
+}
+
+function shouldCacheControl(control) {
+  if (!control?.id) return false;
+  const tag = control.tagName.toLowerCase();
+  if (!["input", "select", "textarea"].includes(tag)) return false;
+  const type = (control.getAttribute("type") || "").toLowerCase();
+  if (["password", "button", "submit", "reset", "file", "hidden"].includes(type)) return false;
+  const id = control.id.toLowerCase();
+  if (id.includes("password")) return false;
+  if (id === "activity-log" || id === "sql-formatted-output" || id === "path-current" || id === "path-root-select" || id === "save-file-name") return false;
+  if (id.startsWith("note-") || id.startsWith("confirm-")) return false;
+  return true;
+}
+
+function restoreUiCache() {
+  let cache = null;
+  try {
+    cache = JSON.parse(window.localStorage.getItem(UI_CACHE_KEY) || "null");
+  } catch {
+    return;
+  }
+  if (!cache || typeof cache !== "object") return;
+  uiCacheRestoring = true;
+  try {
+    Object.entries(cache.fields || {}).forEach(([id, value]) => {
+      const control = document.getElementById(id);
+      if (!control || !shouldCacheControl(control)) return;
+      if (control instanceof HTMLInputElement && control.type === "checkbox") control.checked = Boolean(value);
+      else control.value = value ?? "";
+    });
+    Object.entries(cache.radioGroups || {}).forEach(([name, value]) => {
+      const radio = $(`input[type="radio"][name="${cssEscape(name)}"][value="${cssEscape(value)}"]`);
+      if (radio) radio.checked = true;
+    });
+    Object.entries(cache.checkboxGroups || {}).forEach(([name, values]) => {
+      const selected = new Set(Array.isArray(values) ? values.map(String) : []);
+      $$(`input[type="checkbox"][name="${cssEscape(name)}"]`).forEach((input) => {
+        if (!input.id) input.checked = selected.has(input.value);
+      });
+    });
+    if (Array.isArray(cache.selectedTables)) {
+      state.selectedTables = uniqueStrings(cache.selectedTables);
+    }
+  } finally {
+    uiCacheRestoring = false;
+  }
+  finalizeRestoredUiCache();
+}
+
+function finalizeRestoredUiCache() {
+  ["main", "target", "source"].forEach((scope) => {
+    if (!$(`#db-${scope}-type`)) return;
+    applyDatabaseType(scope, false);
+    syncAuthFields(scope);
+    ensureDefaultSqlServerDriver(scope);
+  });
+  ensureDefaultMainDatabaseHost();
+  syncImportButtonLabel();
+  syncSyncModeControls();
+  state.fixmeFilters = {};
+  $$("[data-fixme-filter]").forEach((control) => {
+    const field = control.dataset.fixmeFilter;
+    const value = control.value.trim();
+    if (field && value) state.fixmeFilters[field] = value;
+  });
+  renderFixmes();
+  renderTables();
+  if (valueOf("sql-input")) markSqlWorkspaceStale();
+}
+
+function saveUiCacheDebounced() {
+  if (uiCacheRestoring) return;
+  window.clearTimeout(uiCacheTimer);
+  uiCacheTimer = window.setTimeout(saveUiCacheNow, UI_CACHE_DEBOUNCE_MS);
+}
+
+function saveUiCacheNow() {
+  if (uiCacheRestoring) return;
+  window.clearTimeout(uiCacheTimer);
+  const fields = {};
+  $$("input[id], select[id], textarea[id]").forEach((control) => {
+    if (!shouldCacheControl(control)) return;
+    fields[control.id] = control instanceof HTMLInputElement && control.type === "checkbox" ? control.checked : control.value;
+  });
+  const radioGroups = {};
+  $$('input[type="radio"][name]').forEach((input) => {
+    if (input.checked) radioGroups[input.name] = input.value;
+  });
+  const checkboxGroups = {};
+  $$('input[type="checkbox"][name]').forEach((input) => {
+    if (input.id) return;
+    if (!checkboxGroups[input.name]) checkboxGroups[input.name] = [];
+    if (input.checked) checkboxGroups[input.name].push(input.value);
+  });
+  const cache = {
+    savedAt: new Date().toISOString(),
+    page: window.location.hash.slice(1),
+    fields,
+    radioGroups,
+    checkboxGroups,
+    selectedTables: state.selectedTables,
+  };
+  try {
+    window.localStorage.setItem(UI_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Local cache is a convenience; quota/private-mode failures should not block workflows.
+  }
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  const result = [];
+  values.forEach((value) => {
+    const text = String(value ?? "").trim();
+    if (!text) return;
+    const key = text.toLocaleLowerCase("vi");
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(text);
+  });
+  return result;
+}
+
+function ensureDefaultMainDatabaseHost() {
+  const hostInput = $("#db-main-host");
+  if (hostInput && !hostInput.value.trim()) hostInput.value = "localhost";
+}
+
+function preferredSqlServerDriver(drivers) {
+  const choices = (Array.isArray(drivers) && drivers.length ? drivers : ["SQL Server Native Client RDA 11.0", "ODBC Driver 18 for SQL Server"]).filter(Boolean);
+  const keywords = ["SQL Server Native Client RDA", "SQL Server Native Client", "SQL Server Native"];
+  for (const keyword of keywords) {
+    const match = choices.find((driver) => driver.toLocaleLowerCase().includes(keyword.toLocaleLowerCase()));
+    if (match) return match;
+  }
+  return choices[0] || "SQL Server Native Client RDA 11.0";
+}
+
+function ensureDefaultSqlServerDriver(scope) {
+  if (valueOf(`db-${scope}-type`) !== "SQL Server") return;
+  const driverInput = $(`#db-${scope}-driver`);
+  if (!driverInput) return;
+  const preferred = preferredSqlServerDriver(state.bootstrap?.sqlserver_drivers || []);
+  if (!driverInput.value || driverInput.value === "ODBC Driver 18 for SQL Server") driverInput.value = preferred;
+}
+
 function bindForms() {
   $("#compare-form").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -237,6 +409,7 @@ function bindForms() {
     const boxes = $$("input[name='compare-workflow']");
     const selectAll = boxes.some((box) => !box.checked);
     boxes.forEach((box) => { box.checked = selectAll; });
+    saveUiCacheDebounced();
   });
   $("#folder-compare-form").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -421,8 +594,15 @@ function bindForms() {
   $$('input[name="sync-mode"]').forEach((input) => input.addEventListener("change", syncSyncModeControls));
   syncSyncModeControls();
   $("#sync-all-tables").addEventListener("change", renderTables);
-  $("#sync-table-filter").addEventListener("input", renderTables);
-  $("#clear-selected-tables").addEventListener("click", () => { state.selectedTables = []; renderTables(); });
+  const syncTableFilter = $("#sync-table-filter");
+  syncTableFilter.placeholder = "Nhập table1, table2 rồi Enter; hoặc gõ để lọc";
+  syncTableFilter.addEventListener("input", renderTables);
+  syncTableFilter.addEventListener("keydown", handleSyncTableFilterKeydown);
+  $("#clear-selected-tables").addEventListener("click", () => {
+    state.selectedTables = [];
+    renderTables();
+    saveUiCacheDebounced();
+  });
   $$("[data-fixme-filter]").forEach((control) => control.addEventListener("input", updateFixmeFilter));
   $$("[data-fixme-filter]").forEach((control) => control.addEventListener("change", updateFixmeFilter));
   $$("[data-fixme-sort]").forEach((button) => button.addEventListener("click", () => updateFixmeSort(button.dataset.fixmeSort)));
@@ -528,14 +708,15 @@ function renderConnectionForms() {
   $$('[data-db-scope]').forEach((form) => {
     const scope = form.dataset.dbScope;
     const defaults = state.bootstrap.database_defaults["SQL Server"] || { port: "1433", schema: "dbo" };
-    const drivers = state.bootstrap.sqlserver_drivers.length ? state.bootstrap.sqlserver_drivers : ["ODBC Driver 18 for SQL Server"];
+    const drivers = state.bootstrap.sqlserver_drivers.length ? state.bootstrap.sqlserver_drivers : ["SQL Server Native Client RDA 11.0", "ODBC Driver 18 for SQL Server"];
+    const defaultDriver = preferredSqlServerDriver(drivers);
     $(".connection-fields", form).innerHTML = `
       <label class="field"><span>Loại CSDL</span><select id="db-${scope}-type">${state.bootstrap.database_types.map((item) => `<option>${escapeHtml(item)}</option>`).join("")}</select></label>
       <label class="field"><span>Port</span><input id="db-${scope}-port" value="${escapeHtml(defaults.port)}"></label>
-      <label class="field host-field"><span>Server / Host</span><input id="db-${scope}-host" placeholder="localhost hoặc server\\instance"></label>
+      <label class="field host-field"><span>Server / Host</span><input id="db-${scope}-host" value="${scope === "main" ? "localhost" : ""}" placeholder="localhost hoặc server\\instance"></label>
       <label class="field"><span>Database / Service</span><input id="db-${scope}-database" list="db-${scope}-database-list"><datalist id="db-${scope}-database-list"></datalist></label>
       <label class="field"><span>Schema</span><input id="db-${scope}-schema" value="${escapeHtml(defaults.schema)}"></label>
-      <label class="field auth-row" id="db-${scope}-driver-field"><span>Driver ODBC</span><select id="db-${scope}-driver">${drivers.map((item) => `<option>${escapeHtml(item)}</option>`).join("")}</select></label>
+      <label class="field auth-row" id="db-${scope}-driver-field"><span>Driver ODBC</span><select id="db-${scope}-driver">${drivers.map((item) => `<option ${item === defaultDriver ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label>
       <label class="field"><span>User</span><input id="db-${scope}-username" autocomplete="username"></label>
       <label class="field"><span>Password</span><input id="db-${scope}-password" type="password" autocomplete="current-password"></label>
       <div class="check-row auth-row" id="db-${scope}-trusted-row"><label><input type="checkbox" id="db-${scope}-trusted" ${scope === "main" || scope === "source" || scope === "target" ? "checked" : ""}> Xác thực Windows</label></div>`;
@@ -608,6 +789,7 @@ function setDbSettings(scope, settings) {
   $(`#db-${scope}-password`).value = settings.password || "";
   $(`#db-${scope}-trusted`).checked = !!settings.trusted_connection;
   syncAuthFields(scope);
+  ensureDefaultSqlServerDriver(scope);
 }
 
 function switchMainAndTargetDatabases() {
@@ -627,6 +809,7 @@ function switchMainAndTargetDatabases() {
   state.sourceTables = [];
   state.selectedTables = [];
   renderTables();
+  saveUiCacheDebounced();
   setVerified("main", targetVerified);
   setVerified("target", mainVerified);
   disableSqlWriteModeLocal();
@@ -877,6 +1060,7 @@ function clearFixmeFilters() {
   state.fixmeFilters = {};
   $$("[data-fixme-filter]").forEach((control) => { control.value = ""; });
   renderFixmes();
+  saveUiCacheDebounced();
 }
 
 function selectFilteredFixmeRows() {
@@ -1013,6 +1197,7 @@ function applySelectedExcelFormatPreset() {
   $("#excel-format-font-name").value = preset.font_name;
   $("#excel-format-font-size").value = String(preset.font_size);
   $("#excel-format-exclusions").value = Array.isArray(preset.exclusions) ? preset.exclusions.join("\n") : "";
+  saveUiCacheDebounced();
 }
 
 async function saveExcelFormatPreset() {
@@ -1068,6 +1253,50 @@ function clearNoteForm() {
   $("#note-value").focus();
 }
 
+function handleSyncTableFilterKeydown(event) {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  if (checked("sync-all-tables")) return;
+  const rawInput = valueOf("sync-table-filter");
+  if (!rawInput) return;
+  const result = addSelectedSyncTables(rawInput.split(","));
+  if (!result.added.length && !result.missing.length && !rawInput.includes(",")) {
+    const filter = rawInput.toLocaleLowerCase("vi");
+    const filtered = state.sourceTables.filter((name) => !state.selectedTables.includes(name) && name.toLocaleLowerCase("vi").includes(filter));
+    if (filtered.length === 1) result.added.push(...addSelectedSyncTables(filtered).added);
+  }
+  if (result.added.length) {
+    $("#sync-table-filter").value = "";
+    renderTables();
+    saveUiCacheDebounced();
+  }
+  if (result.missing.length) {
+    showToast(`Không tìm thấy table: ${result.missing.join(", ")}`, "error", 5500);
+  } else if (result.added.length) {
+    showToast(`Đã chọn thêm ${result.added.length} table.`, "success", 2600);
+  }
+}
+
+function addSelectedSyncTables(names) {
+  const knownTables = new Map(state.sourceTables.map((name) => [name.toLocaleLowerCase("vi"), name]));
+  const selectedKeys = new Set(state.selectedTables.map((name) => name.toLocaleLowerCase("vi")));
+  const added = [];
+  const missing = [];
+  names.map((name) => String(name ?? "").trim()).filter(Boolean).forEach((name) => {
+    const canonical = knownTables.get(name.toLocaleLowerCase("vi")) || (!state.sourceTables.length ? name : "");
+    if (!canonical) {
+      missing.push(name);
+      return;
+    }
+    const key = canonical.toLocaleLowerCase("vi");
+    if (selectedKeys.has(key)) return;
+    selectedKeys.add(key);
+    state.selectedTables.push(canonical);
+    added.push(canonical);
+  });
+  return { added, missing };
+}
+
 function renderTables() {
   const filter = valueOf("sync-table-filter").toLocaleLowerCase("vi");
   const allMode = checked("sync-all-tables");
@@ -1082,8 +1311,9 @@ function renderTables() {
   } else {
     availableContainer.innerHTML = available.map((name) => `<button class="table-option" type="button" data-add-table="${escapeHtml(name)}"><span>${escapeHtml(name)}</span><b>＋</b></button>`).join("");
     $$('[data-add-table]', availableContainer).forEach((button) => button.addEventListener("click", () => {
-      state.selectedTables.push(button.dataset.addTable);
+      addSelectedSyncTables([button.dataset.addTable]);
       renderTables();
+      saveUiCacheDebounced();
     }));
   }
   if (!state.selectedTables.length) {
@@ -1093,6 +1323,7 @@ function renderTables() {
     $$('[data-remove-table]', selectedContainer).forEach((button) => button.addEventListener("click", () => {
       state.selectedTables = state.selectedTables.filter((name) => name !== button.dataset.removeTable);
       renderTables();
+      saveUiCacheDebounced();
     }));
   }
   const count = allMode ? state.sourceTables.length : state.selectedTables.length;
@@ -1251,29 +1482,44 @@ function consumeJobResult(job) {
     setVerified(result.role, true);
     if (result.role === "main" && Array.isArray(result.tables)) {
       state.sourceTables = result.tables;
-      state.selectedTables = [];
+      const tableLookup = new Map(state.sourceTables.map((name) => [name.toLocaleLowerCase("vi"), name]));
+      state.selectedTables = uniqueStrings(state.selectedTables.map((name) => tableLookup.get(String(name).toLocaleLowerCase("vi")) || "").filter(Boolean));
       renderTables();
+      saveUiCacheDebounced();
     }
   }
   if (job.action === "db_list_databases" && Array.isArray(result.databases)) {
     state.databaseNames[result.role] = result.databases;
     renderDatabaseNameList(result.role);
-    if (!valueOf(`db-${result.role}-database`) && result.databases.length) $(`#db-${result.role}-database`).value = result.databases[0];
+    if (!valueOf(`db-${result.role}-database`) && result.databases.length) {
+      $(`#db-${result.role}-database`).value = result.databases[0];
+      saveUiCacheDebounced();
+    }
   }
   if (job.action === "sql_format" || job.action === "sql_analyze" || job.action === "sql_load_excel") {
     if (job.action === "sql_load_excel" && result.source_sql) {
       $("#sql-input").value = result.source_sql;
       markSqlWorkspaceStale();
+      saveUiCacheDebounced();
     }
     $("#sql-formatted-output").value = result.formatted_sql || "";
     $("#sql-statement-count").textContent = `${result.statement_count || 0} statement`;
     $("#sql-output-card").classList.remove("hidden");
     if (job.action === "sql_analyze") renderSqlAnalysis(result);
-    else $("#sql-analysis").classList.add("hidden");
+    else {
+      const analysisPanel = $("#sql-analysis");
+      analysisPanel.classList.add("hidden");
+      analysisPanel.open = false;
+    }
   }
   if (job.action === "db_sql_execute") {
     renderSqlWorkspace(result);
     if (result.analysis) renderSqlAnalysis(result.analysis);
+    else {
+      const analysisPanel = $("#sql-analysis");
+      analysisPanel.classList.add("hidden");
+      analysisPanel.open = false;
+    }
   }
   if (job.action === "db_sql_update") {
     state.sqlWorkspace.dirty = {};
@@ -1455,7 +1701,9 @@ function renderSqlAnalysis(result) {
   const projections = Array.isArray(result.projections) ? result.projections : [];
   const clauses = Array.isArray(result.clauses) ? result.clauses : [];
 
-  $("#sql-analysis").classList.remove("hidden");
+  const analysisPanel = $("#sql-analysis");
+  analysisPanel.classList.remove("hidden");
+  analysisPanel.open = false;
   $("#sql-analysis-dialect").textContent = String(result.dialect || "auto").toUpperCase();
   $("#sql-count-statements").textContent = String(result.statement_count || 0);
   $("#sql-count-tables").textContent = String(tables.length);
@@ -1571,6 +1819,7 @@ function renderSqlQueryResults(results) {
       ${renderSqlDataGrid(item.first_page || { columns: item.columns || [], rows: [] }, { editable: false })}
     </article>`).join("");
   bindSqlPageControls(container);
+  bindSqlJoinTooltips(container);
 }
 
 function renderSqlSourceList(sources) {
@@ -1594,7 +1843,14 @@ function renderSqlSourceData(sources) {
     container.innerHTML = sqlEmpty("Chưa có source data.");
     return;
   }
-  container.innerHTML = sources.map((source) => {
+  const legend = `
+    <div class="sql-usage-legend">
+      <span class="usage-join-sample">JOIN group</span>
+      <span class="usage-where-sample">WHERE</span>
+      <span class="usage-select-sample">SELECT</span>
+      <small>Ưu tiên màu: JOIN &gt; WHERE &gt; SELECT</small>
+    </div>`;
+  container.innerHTML = legend + sources.map((source) => {
     if (source.lineage_status !== "exact" || !source.first_page) {
       return `<article class="sql-db-card unsupported"><header><div><strong>${escapeHtml(source.label || source.relation_id)}</strong><small>${escapeHtml(source.scope_id || "")} · ${escapeHtml(source.lineage_status || "unsupported")}</small></div><span>read-only</span></header>${sqlEmpty(source.unsupported_reason || "Không thể truy vết chính xác.")}</article>`;
     }
@@ -1609,7 +1865,7 @@ function renderSqlSourceData(sources) {
             <button class="primary-button small" type="button" data-sql-update="${escapeHtml(source.relation_id)}" disabled>Update Data</button>
           </div>
         </header>
-        ${renderSqlDataGrid(source.first_page, { editable: source.updateable, relationId: source.relation_id })}
+        ${renderSqlDataGrid(mergeSqlSourcePageUsage(source.first_page, source.columns || []), { editable: source.updateable, relationId: source.relation_id })}
       </article>`;
   }).join("");
   $$("[data-sql-export]", container).forEach((button) => {
@@ -1620,6 +1876,7 @@ function renderSqlSourceData(sources) {
   });
   bindSqlGridEditing(container);
   bindSqlPageControls(container);
+  bindSqlJoinTooltips(container);
   if (!exactSources.length) {
     state.sqlWorkspace.exportable = false;
     $("#sql-export-all").disabled = true;
@@ -1630,12 +1887,11 @@ function renderSqlDataGrid(page, options = {}) {
   const columns = Array.isArray(page.columns) ? page.columns : [];
   const rows = Array.isArray(page.rows) ? page.rows : [];
   if (!columns.length) return sqlEmpty("Không có metadata column.");
-  const headerIndexes = columns.map((column) => `<th style="${column.color ? `--usage-color:${escapeHtml(column.color)}` : ""}" class="${column.color ? "usage-column" : ""}">#${Number(column.index || 0)}</th>`).join("");
+  const headerIndexes = columns.map((column) => `<th class="sql-index-header">#${Number(column.index || 0)}</th>`).join("");
   const headerNames = columns.map((column) => {
-    const title = column.join_tooltip ? ` title="${escapeHtml(column.join_tooltip)}"` : "";
-    return `<th${title} style="${column.color ? `--usage-color:${escapeHtml(column.color)}` : ""}" class="${column.color ? "usage-column" : ""}">
+    return `<th${sqlJoinTooltipAttrs(column)}${sqlUsageStyle(column)} class="${sqlUsageClass(column)}">
       <span class="sql-col-name">${column.is_primary_key ? "🔑 " : ""}${escapeHtml(column.name || "")}</span>
-      <small>${escapeHtml(column.data_type || "")}${column.usage ? ` · ${escapeHtml(column.usage)}` : ""}</small>
+      <small>${escapeHtml(column.data_type || "")}${sqlUsageLabel(column) ? ` · ${escapeHtml(sqlUsageLabel(column))}` : ""}</small>
     </th>`;
   }).join("");
   const body = rows.length ? rows.map((row) => `
@@ -1655,14 +1911,113 @@ function renderSqlDataGrid(page, options = {}) {
   return `<div class="sql-grid-host"><div class="table-wrap sql-source-table-wrap"><table class="sql-source-table"><thead><tr>${headerIndexes}</tr><tr>${headerNames}</tr></thead><tbody>${body}</tbody></table></div>${pager}</div>`;
 }
 
+function sqlUsageStyle(column) {
+  const color = column.color || fallbackSqlUsageColor(column);
+  if (!color) return "";
+  const headerBg = usageBackgroundFor(column, color, 0.34);
+  const bodyBg = usageBackgroundFor(column, color, 0.16);
+  const bodyAltBg = usageBackgroundFor(column, color, 0.22);
+  const bodyHoverBg = usageBackgroundFor(column, color, 0.30);
+  const accent = normalizeHexColor(color) || color;
+  return ` style="--usage-color:${escapeHtml(accent)};--usage-header-bg:${escapeHtml(headerBg)};--usage-body-bg:${escapeHtml(bodyBg)};--usage-body-alt-bg:${escapeHtml(bodyAltBg)};--usage-body-hover-bg:${escapeHtml(bodyHoverBg)};--usage-accent:${escapeHtml(accent)}"`;
+}
+
+function fallbackSqlUsageColor(column) {
+  const usage = String(column.usage || "").toUpperCase();
+  if (usage === "SELECT") return "#facc15";
+  if (usage === "WHERE") return "#92d050";
+  if (usage === "JOIN") return "#60a5fa";
+  return "";
+}
+
+function usageBackgroundFor(column, color, ratio) {
+  const usage = String(column.usage || "").toUpperCase();
+  if (usage === "SELECT") {
+    if (ratio >= 0.30) return "#fff3a6";
+    if (ratio >= 0.20) return "#fff8c9";
+    return "#fffde5";
+  }
+  if (usage === "WHERE") {
+    if (ratio >= 0.30) return "#d7efc9";
+    if (ratio >= 0.20) return "#e5f6dc";
+    return "#f1faeb";
+  }
+  return mixHexColor(color, "#ffffff", ratio) || color;
+}
+
+function normalizeHexColor(color) {
+  const text = String(color || "").trim();
+  const short = text.match(/^#([0-9a-f]{3})$/i);
+  if (short) return `#${short[1].split("").map((item) => item + item).join("")}`.toLowerCase();
+  const long = text.match(/^#([0-9a-f]{6})$/i);
+  return long ? `#${long[1]}`.toLowerCase() : "";
+}
+
+function mixHexColor(color, base, ratio) {
+  const source = normalizeHexColor(color);
+  const target = normalizeHexColor(base);
+  if (!source || !target) return "";
+  const amount = Math.min(1, Math.max(0, Number(ratio) || 0));
+  const parse = (hex) => [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16));
+  const sourceRgb = parse(source);
+  const targetRgb = parse(target);
+  const mixed = sourceRgb.map((value, index) => Math.round(value * amount + targetRgb[index] * (1 - amount)));
+  return `#${mixed.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function mergeSqlSourcePageUsage(page, sourceColumns) {
+  const pageColumns = Array.isArray(page?.columns) ? page.columns : [];
+  const sourceList = Array.isArray(sourceColumns) ? sourceColumns : [];
+  const usageByName = new Map(sourceList.map((column) => [String(column.name || "").toLocaleLowerCase("vi"), column]));
+  const usageByIndex = new Map(sourceList.map((column) => [Number(column.index || 0), column]));
+  return {
+    ...(page || {}),
+    columns: pageColumns.map((column) => {
+      const sourceColumn = usageByName.get(String(column.name || "").toLocaleLowerCase("vi")) || usageByIndex.get(Number(column.index || 0)) || {};
+      return {
+        ...column,
+        usages: Array.isArray(column.usages) && column.usages.length ? column.usages : (sourceColumn.usages || []),
+        usage: column.usage || sourceColumn.usage || "",
+        color: column.color || sourceColumn.color || "",
+        join_group: column.join_group || sourceColumn.join_group || "",
+        join_tooltip: column.join_tooltip || sourceColumn.join_tooltip || "",
+      };
+    }),
+  };
+}
+
+function sqlUsageClass(column) {
+  if (!column.color && !column.usage) return "";
+  const usage = String(column.usage || "").toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  return `usage-column${usage ? ` usage-${usage}` : ""}`;
+}
+
+function sqlUsageLabel(column) {
+  const values = Array.isArray(column.usages) && column.usages.length ? column.usages : (column.usage ? [column.usage] : []);
+  const order = { JOIN: 1, WHERE: 2, SELECT: 3 };
+  return values
+    .map((value) => String(value || "").toUpperCase())
+    .filter(Boolean)
+    .sort((left, right) => (order[left] || 99) - (order[right] || 99) || left.localeCompare(right))
+    .join(" · ");
+}
+
+function sqlJoinTooltipAttrs(column) {
+  if (!column.join_tooltip) return "";
+  const tooltip = escapeHtml(column.join_tooltip);
+  return ` data-sql-join-tooltip="${tooltip}" aria-label="${tooltip}" tabindex="0"`;
+}
+
 function renderSqlCell(row, column, index, options) {
   const value = Array.isArray(row.values) ? row.values[index] ?? "" : "";
-  const style = column.color ? ` style="--usage-color:${escapeHtml(column.color)}"` : "";
-  const className = column.color ? "usage-column" : "";
+  const style = sqlUsageStyle(column);
+  const className = sqlUsageClass(column);
+  const joinTooltipAttrs = sqlJoinTooltipAttrs(column);
+  const valueTitle = joinTooltipAttrs ? "" : ` title="${escapeHtml(value)}"`;
   if (options.editable && column.editable) {
-    return `<td${style} class="${className}"><input class="sql-cell-input" data-sql-edit="1" data-relation-id="${escapeHtml(options.relationId)}" data-row-number="${Number(row.row_number)}" data-column-name="${escapeHtml(column.name)}" value="${escapeHtml(value)}"></td>`;
+    return `<td${joinTooltipAttrs}${style} class="${className}"><input class="sql-cell-input" data-sql-edit="1" data-relation-id="${escapeHtml(options.relationId)}" data-row-number="${Number(row.row_number)}" data-column-name="${escapeHtml(column.name)}" value="${escapeHtml(value)}"${valueTitle}></td>`;
   }
-  return `<td${style} class="${className}"><span class="diff-value">${escapeHtml(value)}</span></td>`;
+  return `<td${joinTooltipAttrs}${style} class="${className}"><span class="diff-value"${valueTitle}>${escapeHtml(value)}</span></td>`;
 }
 
 function rememberSqlRowTokens(relationId, rows) {
@@ -1708,11 +2063,71 @@ function bindSqlPageControls(root) {
       if (card) {
         bindSqlGridEditing(card);
         bindSqlPageControls(card);
+        bindSqlJoinTooltips(card);
       }
     } catch (error) {
       showToast(error.message, "error", 7000);
     }
   }));
+}
+
+function bindSqlJoinTooltips(root) {
+  if (!sqlJoinTooltipGlobalBound) {
+    sqlJoinTooltipGlobalBound = true;
+    window.addEventListener("scroll", hideSqlJoinTooltip, { passive: true });
+    window.addEventListener("resize", hideSqlJoinTooltip);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") hideSqlJoinTooltip();
+    });
+  }
+  $$("[data-sql-join-tooltip]", root).forEach((element) => {
+    if (element.dataset.sqlTooltipBound === "1") return;
+    element.dataset.sqlTooltipBound = "1";
+    element.addEventListener("mouseenter", (event) => showSqlJoinTooltip(element, event));
+    element.addEventListener("mousemove", (event) => positionSqlJoinTooltip(event));
+    element.addEventListener("mouseleave", hideSqlJoinTooltip);
+    element.addEventListener("focus", (event) => showSqlJoinTooltip(element, event));
+    element.addEventListener("blur", hideSqlJoinTooltip);
+  });
+}
+
+function sqlJoinTooltipElement() {
+  let tooltip = $("#sql-join-tooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.id = "sql-join-tooltip";
+    tooltip.className = "sql-join-tooltip";
+    document.body.appendChild(tooltip);
+  }
+  return tooltip;
+}
+
+function showSqlJoinTooltip(element, event) {
+  const text = element.dataset.sqlJoinTooltip;
+  if (!text) return;
+  const tooltip = sqlJoinTooltipElement();
+  tooltip.textContent = text;
+  tooltip.classList.add("visible");
+  positionSqlJoinTooltip(event, element);
+}
+
+function positionSqlJoinTooltip(event, element = null) {
+  const tooltip = $("#sql-join-tooltip");
+  if (!tooltip || !tooltip.classList.contains("visible")) return;
+  const rect = element?.getBoundingClientRect?.();
+  const clientX = typeof event?.clientX === "number" ? event.clientX : (rect ? rect.left + 12 : 20);
+  const clientY = typeof event?.clientY === "number" ? event.clientY : (rect ? rect.bottom + 6 : 20);
+  const margin = 12;
+  const width = tooltip.offsetWidth || 340;
+  const height = tooltip.offsetHeight || 120;
+  const left = Math.min(Math.max(margin, clientX + 14), window.innerWidth - width - margin);
+  const top = Math.min(Math.max(margin, clientY + 14), window.innerHeight - height - margin);
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+function hideSqlJoinTooltip() {
+  $("#sql-join-tooltip")?.classList.remove("visible");
 }
 
 function updateSqlDirtyButtons() {

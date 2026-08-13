@@ -45,7 +45,12 @@ DEFAULT_SCHEMAS = {
     DATABASE_POSTGRESQL: "public",
 }
 
-SQLSERVER_ODBC_DRIVER_DEFAULT = "ODBC Driver 18 for SQL Server"
+SQLSERVER_ODBC_DRIVER_DEFAULT = "SQL Server Native Client RDA 11.0"
+SQLSERVER_NATIVE_DRIVER_KEYWORDS = (
+    "SQL Server Native Client RDA",
+    "SQL Server Native Client",
+    "SQL Server Native",
+)
 DATETIME_TYPE_NAMES = {
     "datetime",
     "datetime2",
@@ -1120,6 +1125,17 @@ def get_available_sqlserver_drivers() -> list[str]:
     except ImportError:
         return []
     return list(pyodbc.drivers())
+
+
+def preferred_sqlserver_driver(drivers: Sequence[str] | None = None) -> str:
+    choices = [str(driver) for driver in (drivers or []) if str(driver).strip()]
+    for keyword in SQLSERVER_NATIVE_DRIVER_KEYWORDS:
+        match = next((driver for driver in choices if keyword.lower() in driver.lower()), None)
+        if match:
+            return match
+    if choices:
+        return choices[0]
+    return SQLSERVER_ODBC_DRIVER_DEFAULT
 
 
 def test_database_connection(settings: DatabaseConnectionSettings) -> None:

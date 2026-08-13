@@ -205,6 +205,26 @@ class ProcessorAndExcelTests(unittest.TestCase):
             self.assertTrue(worksheet["C4"].font.color.rgb.endswith("333333"))
             self.assertTrue(worksheet["F4"].font.color.rgb.endswith("444444"))
 
+    def test_compare_workbook_displays_null_but_leaves_empty_blank(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            before = root / "before"
+            after = root / "after"
+            before.mkdir()
+            after.mkdir()
+            _write_text(before / "table.csv", 'id,empty_value,null_value\n"1","",\n')
+            _write_text(after / "table.csv", 'id,empty_value,null_value\n"1",,""\n')
+            output = root / "compare.xlsx"
+
+            write_compare_workbook_with_fixmes(before, after, output)
+
+            workbook = load_workbook(output)
+            worksheet = workbook["table"]
+            self.assertIsNone(worksheet["C4"].value)
+            self.assertEqual("NULL", worksheet["D4"].value)
+            self.assertEqual("NULL", worksheet["C5"].value)
+            self.assertIsNone(worksheet["D5"].value)
+
 
 def _write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8", newline="")

@@ -571,6 +571,19 @@ class SqlDatabaseWorkspaceManager:
                 apply_query_timeout(cursor, self.config.query_timeout_seconds)
                 adapter.execute(cursor, str(relation["source_sql"]))
                 metadata = _metadata_from_relation(relation)
+                if not metadata.columns and cursor.description:
+                    metadata = TableMetadata(
+                        schema=metadata.schema,
+                        name=metadata.name,
+                        columns=_columns_from_description(cursor.description),
+                        relation_type=metadata.relation_type,
+                    )
+                    relation["metadata"] = _metadata_to_dict(metadata)
+                    relation["columns"] = [_column_to_dict(column, editable=False) for column in metadata.columns]
+                    source["columns"] = relation["columns"]
+                    source["updateable"] = False
+                if not metadata.columns:
+                    raise RuntimeError("Không đọc được metadata column từ source data.")
                 row_count = _spool_cursor(
                     workspace,
                     _source_item_id(relation["relation_id"]),
@@ -973,6 +986,8 @@ def _serialize_pk_payload(values: Sequence[object], columns: list[DatabaseColumn
 
 
 def _display_value(value: object, column: dict[str, Any]) -> str:
+    if value is None:
+        return "[NULL]"
     db_column = DatabaseColumn(
         name=str(column.get("name", "")),
         ordinal=int(column.get("index", 0) or 0),
@@ -1094,15 +1109,22 @@ def _build_relations(
 
         statement = expression_by_index.get(table_ref.statement_index)
         source_sql = ""
+        trace_sql = ""
+        lineage_strategy = ""
         lineage_status = "unsupported"
         unsupported_reason = unresolved_reason or "Source logic không phải base table/view có metadata."
         if (
             statement is not None
-            and table_ref.source_type == "TABLE"
             and table_ref.role not in {"INSERT TARGET", "UPDATE TARGET", "DELETE TARGET", "CREATE TARGET", "MERGE TARGET"}
             and not unresolved_reason
         ):
-            source_sql, unsupported_reason = _diagnostic_source_sql(statement, table_ref, dialect)
+            source_sql, unsupported_reason, trace_sql, lineage_strategy = _diagnostic_source_sql(
+                statement,
+                table_ref,
+                metadata,
+                adapter,
+                dialect,
+            )
             if source_sql:
                 lineage_status = "exact"
 
@@ -1134,8 +1156,10 @@ def _build_relations(
             "columns": columns,
             "lineage_status": lineage_status,
             "unsupported_reason": "" if lineage_status == "exact" else unsupported_reason,
-            "lineage_reason": "exact source rewrite" if lineage_status == "exact" else unsupported_reason,
+            "lineage_reason": lineage_strategy if lineage_status == "exact" else unsupported_reason,
             "source_sql": source_sql,
+            "trace_sql": trace_sql,
+            "lineage_strategy": lineage_strategy,
             "row_count": 0,
             "updateable": updateable,
             "read_only_reason": read_only_reason,
@@ -1145,7 +1169,7 @@ def _build_relations(
     return relations
 
 
-def _diagnostic_source_sql(statement: exp.Expression, table_ref, dialect: str) -> tuple[str, str]:
+def _legacy_projection_source_sql(statement: exp.Expression, table_ref, dialect: str) -> tuple[str, str]:
     if not is_read_statement(statement) or getattr(statement, "key", "").lower() != "select":
         return "", "Chỉ hỗ trợ truy vết exact cho SELECT đơn giản."
     if table_ref.depth != 0:
@@ -1192,6 +1216,135 @@ def _unsupported_select_lineage_reason(statement: exp.Expression) -> str:
         if class_name in unsupported_classes or class_name.endswith("agg"):
             return f"{node.__class__.__name__} chưa được hỗ trợ strict lineage."
     return ""
+
+
+def _diagnostic_source_sql(
+    statement: exp.Expression,
+    table_ref,
+    metadata: TableMetadata,
+    adapter: DatabaseAdapter,
+    dialect: str,
+) -> tuple[str, str, str, str]:
+    if not is_read_statement(statement) or getattr(statement, "key", "").lower() != "select":
+        return "", "Chỉ hỗ trợ truy vết exact cho SELECT.", "", ""
+    if table_ref.depth != 0:
+        return "", "Source nằm trong CTE/subquery cần đẩy predicate qua projection lineage.", "", ""
+    unsupported = _unsupported_select_trace_reason(statement)
+    if unsupported:
+        return "", unsupported, "", ""
+    alias = table_ref.alias or table_ref.name
+    if not alias:
+        return "", "Source không có alias/tên để rewrite trace.", "", ""
+    try:
+        primary_keys = [column for column in metadata.columns if column.is_primary_key]
+        if (
+            table_ref.source_type == "TABLE"
+            and metadata.relation_type == "table"
+            and primary_keys
+            and not statement.args.get("with")
+        ):
+            trace_sql, key_aliases = _matched_primary_key_trace_sql(statement, alias, primary_keys, dialect)
+            source_sql = _source_sql_from_primary_key_trace(adapter, metadata, trace_sql, primary_keys, key_aliases)
+            return source_sql, "", trace_sql, "exact matched primary-key trace"
+        if table_ref.source_type == "TABLE" and not metadata.columns:
+            return "", "Source chưa có metadata/projection để trả grid chính xác.", "", ""
+        source_sql = _alias_projection_source_sql(statement, alias, dialect)
+        return source_sql, "", "", "exact source projection"
+    except Exception as exc:
+        return "", f"Không thể sinh diagnostic query exact: {exc}", "", ""
+
+
+def _unsupported_select_trace_reason(statement: exp.Expression) -> str:
+    if statement.args.get("group"):
+        return "GROUP BY/aggregate cần trace theo group key và HAVING nên chưa trả source data exact."
+    if statement.args.get("having"):
+        return "HAVING cần lineage sau aggregate."
+    if statement.args.get("qualify"):
+        return "QUALIFY cần lineage sau window."
+    if statement.args.get("limit") or statement.args.get("offset"):
+        return "LIMIT/OFFSET làm tập record tham gia phụ thuộc thứ tự."
+    unsupported_classes = {
+        "union",
+        "intersect",
+        "except",
+        "pivot",
+    }
+    for node in statement.walk():
+        class_name = node.__class__.__name__.lower()
+        if class_name in unsupported_classes:
+            return f"{node.__class__.__name__} chưa được hỗ trợ strict lineage."
+    return ""
+
+
+def _matched_primary_key_trace_sql(
+    statement: exp.Expression,
+    alias: str,
+    primary_keys: list[DatabaseColumn],
+    dialect: str,
+) -> tuple[str, list[str]]:
+    clone = statement.copy()
+    key_aliases = [_trace_key_alias(index) for index, _column in enumerate(primary_keys, start=1)]
+    clone.set(
+        "expressions",
+        [
+            exp.Alias(
+                this=_column_expression(alias, column.name),
+                alias=exp.Identifier(this=key_aliases[index], quoted=True),
+            )
+            for index, column in enumerate(primary_keys)
+        ],
+    )
+    clone.set("distinct", exp.Distinct())
+    clone.set("order", None)
+    return render_sql_expression(clone, dialect), key_aliases
+
+
+def _alias_projection_source_sql(statement: exp.Expression, alias: str, dialect: str) -> str:
+    clone = statement.copy()
+    clone.set("expressions", [exp.Column(this=exp.Star(), table=exp.Identifier(this=alias))])
+    clone.set("distinct", exp.Distinct())
+    clone.set("order", None)
+    return render_sql_expression(clone, dialect)
+
+
+def _source_sql_from_primary_key_trace(
+    adapter: DatabaseAdapter,
+    metadata: TableMetadata,
+    trace_sql: str,
+    primary_keys: list[DatabaseColumn],
+    key_aliases: list[str],
+) -> str:
+    source_alias = adapter.quote_identifier("__ac_source")
+    keys_alias = adapter.quote_identifier("__ac_keys")
+    column_sql = ", ".join(
+        f"{source_alias}.{adapter.quote_identifier(column.name)}"
+        for column in metadata.columns
+    )
+    join_sql = " AND ".join(
+        f"{source_alias}.{adapter.quote_identifier(column.name)} = {keys_alias}.{adapter.quote_identifier(key_aliases[index])}"
+        for index, column in enumerate(primary_keys)
+    )
+    order_sql = ", ".join(
+        f"{source_alias}.{adapter.quote_identifier(column.name)}"
+        for column in primary_keys
+    )
+    return (
+        f"SELECT {column_sql} "
+        f"FROM {adapter.qualified_table(metadata)} {source_alias} "
+        f"INNER JOIN ({trace_sql}) {keys_alias} ON {join_sql} "
+        f"ORDER BY {order_sql}"
+    )
+
+
+def _column_expression(table_alias: str, column_name: str) -> exp.Column:
+    return exp.Column(
+        this=exp.Identifier(this=column_name, quoted=True),
+        table=exp.Identifier(this=table_alias, quoted=False),
+    )
+
+
+def _trace_key_alias(index: int) -> str:
+    return f"__ac_pk_{index}"
 
 
 def _relation_kind(source_type: str) -> str:
@@ -1396,19 +1549,31 @@ def _join_tooltip(
     expressions_by_key: dict[tuple[str, str], set[str]],
     relation_lookup: dict[str, dict[str, Any]],
 ) -> str:
-    details: list[str] = []
-    for relation_id, column_name in members:
-        relation = relation_lookup.get(relation_id, {})
-        column = _column_dict_by_name(relation, column_name)
-        details.append(
-            f"{relation.get('qualified_name', relation_id)}"
-            f"{' AS ' + relation.get('alias') if relation.get('alias') else ''}."
-            f"{column.get('name', column_name)} (# {column.get('index', '?')})"
-        )
-    expressions = sorted(expressions_by_key.get(member, set()))
+    details: list[str] = [f"Column hiện tại: {_join_member_detail(member, relation_lookup)}"]
+    joined_members = [item for item in members if item != member]
+    if joined_members:
+        details.append("Join với:")
+        details.extend(f"- {_join_member_detail(item, relation_lookup)}" for item in joined_members)
+    expression_set: set[str] = set()
+    for item in members:
+        expression_set.update(expressions_by_key.get(item, set()))
+    expressions = sorted(expression_set)
     if expressions:
-        details.append("JOIN: " + " | ".join(expressions))
+        details.append("Biểu thức JOIN:")
+        details.extend(f"- {expression}" for expression in expressions)
     return "\n".join(details)
+
+
+def _join_member_detail(member: tuple[str, str], relation_lookup: dict[str, dict[str, Any]]) -> str:
+    relation_id, column_name = member
+    relation = relation_lookup.get(relation_id, {})
+    column = _column_dict_by_name(relation, column_name)
+    alias = str(relation.get("alias") or "").strip()
+    qualified_name = str(relation.get("qualified_name") or relation.get("name") or relation_id)
+    display_column = str(column.get("name") or column_name)
+    index = column.get("index", "?")
+    alias_text = f" AS {alias}" if alias else ""
+    return f"{qualified_name}{alias_text}.{display_column} (index #{index})"
 
 
 def _column_dict_by_name(relation: dict[str, Any], column_name: str) -> dict[str, Any]:
