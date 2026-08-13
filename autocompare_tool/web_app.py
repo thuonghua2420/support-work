@@ -46,8 +46,8 @@ from .fixme_notes import FixmeNote, FixmeNoteStore
 from .fixme_replacements import apply_fixme_replacements
 from .folder_compare import compare_csv_folders
 from .processor import process_root
-from .sql_excel_loader import load_sql_entries_from_excel, render_raw_sql_entries
-from .sql_tools import analyze_sql, format_numbered_sql, format_sql
+from .sql_excel_loader import format_excel_sql_entries, load_sql_entries_from_excel, render_raw_sql_entries
+from .sql_tools import analyze_sql, format_sql
 from .sql_database_workspace import SqlDatabaseWorkspaceManager
 
 APP_TITLE = "AutoCompare"
@@ -451,8 +451,8 @@ class AutoCompareWebApplication:
         sheet_name = _text(payload, "sheet_name")
         entries = load_sql_entries_from_excel(excel_path, sheet_name)
         log(f"Đã đọc {len(entries)} SQL từ sheet “{sheet_name}”.")
-        formatted = format_numbered_sql(
-            ((entry.number, entry.sql_text) for entry in entries),
+        formatted = format_excel_sql_entries(
+            entries,
             dialect=str(payload.get("dialect", "")),
             log=log,
         )

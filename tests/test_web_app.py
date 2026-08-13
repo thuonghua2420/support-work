@@ -177,13 +177,14 @@ class WebApplicationTests(unittest.TestCase):
         )
 
         with patch("autocompare_tool.web_app.load_sql_entries_from_excel", return_value=entries) as load_mock:
-            with patch("autocompare_tool.web_app.format_numbered_sql", return_value=summary) as format_mock:
+            with patch("autocompare_tool.web_app.format_excel_sql_entries", return_value=summary) as format_mock:
                 result = app._operation(
                     "sql_load_excel",
                     {"excel_path": "input.xlsx", "sheet_name": "SQLList", "dialect": "tsql"},
                 )(lambda _message: None)
 
         load_mock.assert_called_once_with("input.xlsx", "SQLList")
+        self.assertEqual(entries, format_mock.call_args.args[0])
         self.assertEqual("tsql", format_mock.call_args.kwargs["dialect"])
         self.assertEqual(2, result["entry_count"])
         self.assertIn("-- SQL No.1", result["source_sql"])

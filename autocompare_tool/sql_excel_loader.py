@@ -15,11 +15,19 @@ SQL_NUMBER_PATTERN = re.compile(r"^\s*(?:SQL\s*)?(?:No\.?\s*)?(\d+)\s*$", re.IGN
 
 
 @dataclass(frozen=True)
+class ExcelSqlLine:
+    row: int
+    sql_text: str
+    note: str = ""
+
+
+@dataclass(frozen=True)
 class ExcelSqlEntry:
     number: str
     sql_text: str
     start_row: int
     end_row: int
+    sql_lines: tuple[ExcelSqlLine, ...] = ()
 
 
 def load_sql_entries_from_excel(excel_path: str | Path, sheet_name: str) -> list[ExcelSqlEntry]:
@@ -43,7 +51,47 @@ def load_sql_entries_from_excel(excel_path: str | Path, sheet_name: str) -> list
 
 
 def render_raw_sql_entries(entries: list[ExcelSqlEntry]) -> str:
-    return "\n\n".join(f"-- SQL No.{entry.number}\n{_ensure_semicolon(entry.sql_text)}" for entry in entries)
+    blocks: list[str] = []
+    for entry in entries:
+        lines = [f"-- SQL No.{entry.number}"]
+        if entry.sql_lines:
+            for sql_line in entry.sql_lines:
+                if sql_line.note:
+                    lines.append(_comment_line(sql_line.note))
+                lines.append(sql_line.sql_text)
+            blocks.append(_ensure_semicolon("\n".join(lines)))
+        else:
+            blocks.append(f"-- SQL No.{entry.number}\n{_ensure_semicolon(entry.sql_text)}")
+    return "\n\n".join(blocks)
+
+
+def format_excel_sql_entries(
+    entries: list[ExcelSqlEntry],
+    dialect: str = "",
+    log: Any | None = None,
+) -> Any:
+    from .sql_tools import SqlFormatResult, format_sql
+
+    logger = log or (lambda _message: None)
+    blocks: list[str] = []
+    statement_count = 0
+    result_dialect = "auto"
+    for entry in entries:
+        try:
+            formatted = format_sql(entry.sql_text, dialect=dialect)
+        except ValueError as exc:
+            raise ValueError(f"SQL No.{entry.number} không hợp lệ: {exc}") from exc
+        statement_count += formatted.statement_count
+        result_dialect = formatted.dialect
+        blocks.append(f"-- SQL No.{entry.number}\n{_insert_note_comments(formatted.formatted_sql, entry.sql_lines)}")
+    if not blocks:
+        raise ValueError("Không tìm thấy câu SQL nào để format.")
+    logger(f"Đã format {len(entries)} SQL từ Excel ({statement_count} statement).")
+    return SqlFormatResult(
+        formatted_sql="\n\n".join(blocks),
+        statement_count=statement_count,
+        dialect=result_dialect,
+    )
 
 
 def _read_sql_entries(worksheet: Any) -> list[ExcelSqlEntry]:
@@ -59,10 +107,18 @@ def _read_sql_entries(worksheet: Any) -> list[ExcelSqlEntry]:
     for index, (start_row, number) in enumerate(starts):
         limit_row = starts[index + 1][0] - 1 if index + 1 < len(starts) else worksheet.max_row
         end_row = _border_end_row(worksheet, start_row, limit_row) or limit_row
-        sql_text = _collect_sql_text(worksheet, start_row, end_row)
+        sql_text, sql_lines = _collect_sql_text(worksheet, start_row, end_row)
         if not sql_text:
-            raise ValueError(f"SQL No.{number} không có nội dung ở cột B trở đi.")
-        entries.append(ExcelSqlEntry(number=number, sql_text=sql_text, start_row=start_row, end_row=end_row))
+            raise ValueError(f"SQL No.{number} không có nội dung ở cột B.")
+        entries.append(
+            ExcelSqlEntry(
+                number=number,
+                sql_text=sql_text,
+                start_row=start_row,
+                end_row=end_row,
+                sql_lines=tuple(sql_lines),
+            )
+        )
     return entries
 
 
@@ -78,21 +134,23 @@ def _border_end_row(worksheet: Any, start_row: int, limit_row: int) -> int | Non
     return None
 
 
-def _collect_sql_text(worksheet: Any, start_row: int, end_row: int) -> str:
+def _collect_sql_text(worksheet: Any, start_row: int, end_row: int) -> tuple[str, list[ExcelSqlLine]]:
     lines: list[str] = []
+    sql_lines: list[ExcelSqlLine] = []
     for row_index in range(start_row, end_row + 1):
-        parts = [
-            _cell_text(worksheet.cell(row_index, col_index).value)
-            for col_index in range(2, worksheet.max_column + 1)
-        ]
-        parts = [part for part in parts if part]
-        if parts:
-            lines.append(" ".join(parts))
-    return "\n".join(lines).strip()
+        sql_text = _cell_text(worksheet.cell(row_index, 2).value)
+        if sql_text:
+            note = _cell_text(worksheet.cell(row_index, 3).value)
+            lines.append(sql_text)
+            sql_lines.append(ExcelSqlLine(row=row_index, sql_text=sql_text, note=note))
+    return "\n".join(lines).strip(), sql_lines
 
 
 def _row_has_sql_content(worksheet: Any, row_index: int) -> bool:
-    return any(_cell_text(worksheet.cell(row_index, col_index).value) for col_index in range(2, worksheet.max_column + 1))
+    return bool(
+        _cell_text(worksheet.cell(row_index, 2).value)
+        or _cell_text(worksheet.cell(row_index, 3).value)
+    )
 
 
 def _row_has_bottom_border(worksheet: Any, row_index: int) -> bool:
@@ -125,3 +183,50 @@ def _cell_text(value: object) -> str:
 def _ensure_semicolon(sql_text: str) -> str:
     value = sql_text.strip()
     return value if value.endswith(";") else f"{value};"
+
+
+def _insert_note_comments(formatted_sql: str, sql_lines: tuple[ExcelSqlLine, ...]) -> str:
+    notes = [sql_line for sql_line in sql_lines if sql_line.note]
+    if not notes:
+        return formatted_sql
+
+    formatted_lines = formatted_sql.splitlines()
+    insertions: dict[int, list[str]] = {}
+    unmatched: list[str] = []
+    used_indexes: set[int] = set()
+    for note in notes:
+        target = _normalize_sql_fragment(note.sql_text)
+        match_index: int | None = None
+        for line_index, line in enumerate(formatted_lines):
+            if line_index in used_indexes:
+                continue
+            candidate = _normalize_sql_fragment(line)
+            if candidate and target and (target in candidate or candidate in target):
+                match_index = line_index
+                break
+        if match_index is None:
+            unmatched.append(_comment_line(note.note))
+        else:
+            used_indexes.add(match_index)
+            insertions.setdefault(match_index, []).append(_comment_line(note.note))
+
+    rendered: list[str] = []
+    for line_index, line in enumerate(formatted_lines):
+        rendered.append(line)
+        rendered.extend(insertions.get(line_index, []))
+    if unmatched:
+        if rendered and rendered[-1].strip():
+            rendered.append("")
+        rendered.extend(unmatched)
+    return "\n".join(rendered)
+
+
+def _comment_line(note: str) -> str:
+    value = note.strip()
+    return value if value.startswith("--") else f"-- {value}"
+
+
+def _normalize_sql_fragment(value: str) -> str:
+    normalized = value.strip().rstrip(";")
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.lower()
