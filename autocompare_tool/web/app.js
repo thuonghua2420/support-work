@@ -1447,17 +1447,7 @@ function renderSqlSourceList(sources) {
       <header><strong>${escapeHtml(source.label || source.relation_id)}</strong><span>${escapeHtml(source.relation_kind || "")}</span></header>
       <small>${escapeHtml(source.scope_id || "")} · ${escapeHtml(source.lineage_status || "unsupported")}</small>
       ${source.unsupported_reason ? `<p>${escapeHtml(source.unsupported_reason)}</p>` : ""}
-      <div class="sql-source-actions">
-        <button class="secondary-button small" type="button" data-sql-export="${escapeHtml(source.relation_id)}" ${source.lineage_status === "exact" ? "" : "disabled"}>Export CSV</button>
-        <button class="primary-button small" type="button" data-sql-update="${escapeHtml(source.relation_id)}" disabled>Update Data</button>
-      </div>
     </article>`).join("");
-  $$("[data-sql-export]", container).forEach((button) => {
-    button.addEventListener("click", () => exportSqlSources([button.dataset.sqlExport]));
-  });
-  $$("[data-sql-update]", container).forEach((button) => {
-    button.addEventListener("click", () => updateSqlSource(button.dataset.sqlUpdate));
-  });
 }
 
 function renderSqlSourceData(sources) {
@@ -1469,15 +1459,28 @@ function renderSqlSourceData(sources) {
   }
   container.innerHTML = sources.map((source) => {
     if (source.lineage_status !== "exact" || !source.first_page) {
-      return `<article class="sql-db-card unsupported"><header><strong>${escapeHtml(source.label || source.relation_id)}</strong><span>read-only</span></header>${sqlEmpty(source.unsupported_reason || "Không thể truy vết chính xác.")}</article>`;
+      return `<article class="sql-db-card unsupported"><header><div><strong>${escapeHtml(source.label || source.relation_id)}</strong><small>${escapeHtml(source.scope_id || "")} · ${escapeHtml(source.lineage_status || "unsupported")}</small></div><span>read-only</span></header>${sqlEmpty(source.unsupported_reason || "Không thể truy vết chính xác.")}</article>`;
     }
     rememberSqlRowTokens(source.relation_id, source.first_page.rows || []);
     return `
       <article class="sql-db-card" data-source-card="${escapeHtml(source.relation_id)}">
-        <header><strong>${escapeHtml(source.label || source.relation_id)}</strong><span>${Number(source.row_count || 0)} rows</span></header>
+        <header>
+          <div><strong>${escapeHtml(source.label || source.relation_id)}</strong><small>${escapeHtml(source.scope_id || "")} · ${escapeHtml(source.lineage_status || "exact")}</small></div>
+          <div class="sql-card-actions">
+            <span>${Number(source.row_count || 0)} rows</span>
+            <button class="secondary-button small" type="button" data-sql-export="${escapeHtml(source.relation_id)}">Export CSV</button>
+            <button class="primary-button small" type="button" data-sql-update="${escapeHtml(source.relation_id)}" disabled>Update Data</button>
+          </div>
+        </header>
         ${renderSqlDataGrid(source.first_page, { editable: source.updateable, relationId: source.relation_id })}
       </article>`;
   }).join("");
+  $$("[data-sql-export]", container).forEach((button) => {
+    button.addEventListener("click", () => exportSqlSources([button.dataset.sqlExport]));
+  });
+  $$("[data-sql-update]", container).forEach((button) => {
+    button.addEventListener("click", () => updateSqlSource(button.dataset.sqlUpdate));
+  });
   bindSqlGridEditing(container);
   bindSqlPageControls(container);
   if (!exactSources.length) {
