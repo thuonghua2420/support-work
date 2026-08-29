@@ -103,6 +103,56 @@ def write_typed_dbeaver_csv_rows(
     return row_count
 
 
+class TypedDbeaverCsvRowWriter:
+    """Incremental writer for typed DBeaver-style CSV rows."""
+
+    def __init__(self, path: Path, headers: list[str], quote_columns: list[bool]) -> None:
+        if len(headers) != len(quote_columns):
+            raise ValueError("Sá»‘ lÆ°á»£ng header vÃ  cáº¥u hÃ¬nh quote column khÃ´ng khá»›p.")
+        self.path = path
+        self.headers = headers
+        self.quote_columns = quote_columns
+        self.row_count = 0
+        self._file = None
+
+    def __enter__(self) -> "TypedDbeaverCsvRowWriter":
+        self.open()
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback) -> None:
+        self.close()
+
+    def open(self) -> None:
+        if self._file is not None:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._file = self.path.open("w", encoding="utf-8", newline="")
+        if self.headers:
+            self._file.write(",".join(_format_header(header) for header in self.headers))
+            self._file.write("\r\n")
+
+    def write_rows(self, rows: Iterable[Sequence[str | None]]) -> int:
+        self.open()
+        if self._file is None or not self.headers:
+            return 0
+        written = 0
+        for row in rows:
+            cells: list[str] = []
+            for index in range(len(self.headers)):
+                value = row[index] if index < len(row) else None
+                cells.append(_format_typed_data_cell(value, self.quote_columns[index]))
+            self._file.write(",".join(cells))
+            self._file.write("\r\n")
+            self.row_count += 1
+            written += 1
+        return written
+
+    def close(self) -> None:
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+
+
 def _read_text(path: Path) -> str:
     last_error: UnicodeDecodeError | None = None
     for encoding in ("utf-8-sig", "utf-8", "cp932"):

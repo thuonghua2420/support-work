@@ -7,7 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
-from autocompare_tool.dbeaver_csv import DbeaverCsv
+from autocompare_tool.dbeaver_csv import DbeaverCsv, read_dbeaver_csv
 from autocompare_tool.database_io import (
     DatabaseAdapter,
     DatabaseColumn,
@@ -16,6 +16,8 @@ from autocompare_tool.database_io import (
     DatabaseSyncSummary,
     IMPORT_MODE_DELETE_MATCHING_KEYS,
     IMPORT_MODE_TRUNCATE_TABLE,
+    SYNC_DUPLICATE_UPSERT,
+    SYNC_MODE_CONDITION,
     SYNC_MODE_INCREMENTAL,
     OracleAdapter,
     PostgreSqlAdapter,
@@ -191,6 +193,29 @@ class DatabaseIoTests(unittest.TestCase):
 
         self.assertEqual(sql, "SELECT [name] FROM [dbo].[orders] ORDER BY [id]")
 
+    def test_sync_select_supports_where_clause_before_order_by(self) -> None:
+        adapter = SqlServerAdapter()
+        metadata = TableMetadata(
+            schema="dbo",
+            name="orders",
+            columns=[
+                _column("id", data_type="int", is_primary_key=True),
+                _column("status", data_type="nvarchar"),
+            ],
+        )
+
+        sql = _build_sync_select_sql(
+            adapter,
+            metadata,
+            metadata.columns,
+            where_clause="WHERE status = 'ACTIVE'",
+        )
+
+        self.assertEqual(
+            sql,
+            "SELECT [id], [status] FROM [dbo].[orders] WHERE (status = 'ACTIVE') ORDER BY [id]",
+        )
+
     def test_build_sync_columns_skips_non_insertable_target_columns(self) -> None:
         source_metadata = TableMetadata(
             schema="dbo",
@@ -322,6 +347,58 @@ class DatabaseIoTests(unittest.TestCase):
         self.assertEqual(target_adapter.rows_for("insert"), [(4, "Dora")])
         self.assertTrue(target_write_connection.committed)
         self.assertFalse(target_write_connection.rolled_back)
+
+    def test_condition_sync_upserts_and_backups_matching_target_keys(self) -> None:
+        metadata = TableMetadata(
+            schema="dbo",
+            name="customers",
+            columns=[
+                _column("id", data_type="int", is_primary_key=True),
+                _column("name", data_type="nvarchar"),
+            ],
+        )
+        source_adapter = DeltaRecordingAdapter(metadata)
+        target_adapter = DeltaRecordingAdapter(metadata)
+        source_connection = ConditionalSyncConnection([(1, "Alice new"), (2, "Bob")])
+        target_connection = ConditionalSyncConnection([(1, "Alice old"), (3, "Chris")])
+        summary = DatabaseSyncSummary()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_dir = Path(temp_dir) / "backup"
+            _sync_one_table(
+                source_connection,
+                target_connection,
+                source_adapter,
+                target_adapter,
+                DatabaseConnectionSettings(database_type="sqlserver", host=".", database="source", schema="dbo"),
+                DatabaseConnectionSettings(database_type="sqlserver", host=".", database="target", schema="dbo"),
+                "customers",
+                None,
+                True,
+                False,
+                summary,
+                lambda _message: None,
+                sync_mode=SYNC_MODE_CONDITION,
+                batch_size=100,
+                where_clause="WHERE status = 'ACTIVE'",
+                duplicate_mode=SYNC_DUPLICATE_UPSERT,
+                backup_dir=backup_dir,
+            )
+
+            backup = read_dbeaver_csv(backup_dir / "dbo.customers.csv")
+
+        result = summary.table_results[0]
+        self.assertEqual(summary.error_count, 0)
+        self.assertEqual(result.source_row_count, 2)
+        self.assertEqual(result.target_row_count, 1)
+        self.assertEqual(result.inserted_count, 1)
+        self.assertEqual(result.updated_count, 1)
+        self.assertEqual(result.backup_row_count, 1)
+        self.assertEqual(target_adapter.rows_for("update"), [("Alice new", 1)])
+        self.assertEqual(target_adapter.rows_for("insert"), [(2, "Bob")])
+        self.assertEqual(backup.headers, ["id", "name"])
+        self.assertEqual(backup.rows, [["1", "Alice old"]])
+        self.assertTrue(target_connection.committed)
 
     def test_incremental_sync_compares_numeric_keys_in_database_order(self) -> None:
         metadata = TableMetadata(
@@ -730,6 +807,52 @@ class SyncCursor:
         rows = self.rows[self.index : self.index + size]
         self.index += len(rows)
         return rows
+
+
+class ConditionalSyncConnection:
+    def __init__(self, rows: list[tuple[object, ...]]) -> None:
+        self.rows = rows
+        self.committed = False
+        self.rolled_back = False
+
+    def cursor(self) -> "ConditionalSyncCursor":
+        return ConditionalSyncCursor(self.rows)
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def rollback(self) -> None:
+        self.rolled_back = True
+
+
+class ConditionalSyncCursor:
+    def __init__(self, rows: list[tuple[object, ...]]) -> None:
+        self.source_rows = rows
+        self.rows: list[tuple[object, ...]] = []
+        self.index = 0
+
+    def execute(self, sql: str, params: tuple[object, ...] = ()) -> None:
+        self.index = 0
+        if "COUNT(*)" in sql:
+            self.rows = [(len(self.source_rows),)]
+        elif params:
+            self.rows = [row for row in self.source_rows if row[: len(params)] == params]
+        else:
+            self.rows = list(self.source_rows)
+
+    def fetchone(self) -> tuple[object, ...] | None:
+        return self.rows[0] if self.rows else None
+
+    def fetchall(self) -> list[tuple[object, ...]]:
+        return list(self.rows)
+
+    def fetchmany(self, size: int) -> list[tuple[object, ...]]:
+        rows = self.rows[self.index : self.index + size]
+        self.index += len(rows)
+        return rows
+
+    def close(self) -> None:
+        return None
 
 
 class SyncRecordingAdapter(DatabaseAdapter):

@@ -750,6 +750,8 @@ class AutoCompareWebApplication:
             sync_mode=str(payload.get("sync_mode", "incremental")),
             batch_size=payload.get("batch_size"),
             delete_target_only=_bool(payload, "delete_target_only", True),
+            where_clause=str(payload.get("where_clause", "")),
+            duplicate_mode=str(payload.get("duplicate_mode", "error")),
             cancel=cancel.throw_if_cancelled if cancel else None,
         )
         return {
@@ -763,6 +765,8 @@ class AutoCompareWebApplication:
             "deleted_count": summary.deleted_count,
             "unchanged_count": summary.unchanged_count,
             "retained_target_only_count": summary.retained_target_only_count,
+            "backup_row_count": summary.backup_row_count,
+            "backup_path": str(summary.backup_path) if summary.backup_path else "",
             "error_count": summary.error_count,
             "errors": summary.errors,
             "skipped": summary.skipped,

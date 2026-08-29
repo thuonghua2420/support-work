@@ -71,6 +71,10 @@
 - Reject `NULL` primary keys and duplicate keys inside the same CSV before issuing delete statements.
 - Truncate-table import truncates only the table mapped to each CSV and requires explicit UI plus backend confirmation.
 - Incremental DB sync requires matching primary-key definitions and uses the complete composite key.
+- Conditional DB sync applies one user-entered WHERE fragment to each selected source table, then matches target rows by primary key.
+- Conditional sync rejects semicolons and SQL comments in the WHERE fragment; do not allow stacked statements.
+- Conditional sync duplicate handling can be plain insert, backup plus delete/insert, or backup plus upsert.
+- When conditional sync deletes or overwrites target rows with duplicate keys, backup the affected target rows under `db_sync_backups` before modifying them.
 - Stream source and target rows with bounded `fetchmany()` batches; never materialize a full table for incremental sync.
 - Use a separate target read connection so target writes cannot invalidate the streaming read cursor.
 - Apply incremental insert/update/delete batches in one target transaction per table and roll back the table on comparison or DML errors.

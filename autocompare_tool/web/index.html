@@ -385,11 +385,15 @@
                 <div class="import-mode-grid">
                   <label class="import-mode-card">
                     <input type="radio" name="sync-mode" value="incremental" checked>
-                    <span><b>Chỉ đồng bộ chênh lệch</b><small>So sánh primary key, chỉ insert/update/delete phần khác nhau.</small></span>
+                    <span><b>Theo key / chênh lệch</b><small>So sánh primary key, chỉ insert/update/delete phần khác nhau.</small></span>
                   </label>
                   <label class="import-mode-card">
                     <input type="radio" name="sync-mode" value="append">
                     <span><b>Insert thêm</b><small>Không so sánh; insert toàn bộ dữ liệu nguồn vào đích.</small></span>
+                  </label>
+                  <label class="import-mode-card">
+                    <input type="radio" name="sync-mode" value="condition">
+                    <span><b>Đồng bộ theo điều kiện</b><small>Lấy record nguồn theo WHERE và xử lý record đích theo primary key.</small></span>
                   </label>
                   <label class="import-mode-card danger-mode">
                     <input type="radio" name="sync-mode" value="truncate_table">
@@ -397,9 +401,16 @@
                   </label>
                 </div>
               </fieldset>
+              <section class="sync-condition-panel hidden" id="sync-condition-panel">
+                <label class="field field-wide"><span>Điều kiện WHERE áp dụng cho từng table</span><textarea id="sync-where-clause" rows="3" placeholder="status = 'ACTIVE' AND updated_at >= '2026-01-01'"></textarea><small>Có thể nhập cả chữ WHERE hoặc chỉ phần điều kiện. Không nhập dấu ; hoặc comment SQL.</small></label>
+                <div class="two-column">
+                  <label class="switch-row compact-switch"><span><strong>Xử lý record trùng key</strong><small>Bật để backup record đích trùng primary key trước khi xóa/ghi đè.</small></span><input class="switch" type="checkbox" id="sync-handle-duplicates" checked></label>
+                  <label class="field"><span>Cách xử lý trùng key</span><select id="sync-duplicate-mode"><option value="delete_insert">Backup + xóa trùng key rồi insert</option><option value="upsert">Backup + ghi đè record trùng key</option></select></label>
+                </div>
+              </section>
               <div class="two-column">
                 <label class="field"><span>Số record mỗi table <em>— chỉ append/truncate</em></span><input type="number" min="1" id="sync-record-limit" placeholder="Toàn bộ" disabled></label>
-                <label class="field"><span>Batch size <em>— chỉ chênh lệch</em></span><input type="number" min="100" max="100000" value="5000" id="sync-batch-size"></label>
+                <label class="field"><span>Batch size <em>— chênh lệch/điều kiện</em></span><input type="number" min="100" max="100000" value="5000" id="sync-batch-size"></label>
               </div>
               <div class="two-column">
                 <label class="switch-row compact-switch"><span><strong>Giữ identity</strong><small>Cần bật nếu primary key là identity.</small></span><input class="switch" type="checkbox" id="sync-keep-identity" checked></label>

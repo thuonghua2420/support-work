@@ -746,32 +746,47 @@ function bindForms() {
     const limit = valueOf("sync-record-limit");
     const batchSize = valueOf("sync-batch-size");
     const deleteTargetOnly = syncMode === "incremental" && checked("sync-delete-target-only");
+    const whereClause = valueOf("sync-where-clause");
+    const duplicateMode = syncMode === "condition" && checked("sync-handle-duplicates") ? valueOf("sync-duplicate-mode") : "error";
+    if (syncMode === "condition" && !whereClause.trim()) {
+      showToast("Vui lòng nhập điều kiện WHERE khi đồng bộ theo điều kiện.", "error");
+      return;
+    }
     const modeDetails = {
       incremental: deleteTargetOnly
         ? "Chỉ INSERT/UPDATE record khác biệt và DELETE record chỉ có ở đích. Table phải có primary key."
         : "Chỉ INSERT/UPDATE record khác biệt; record chỉ có ở đích sẽ được giữ lại.",
       append: "Toàn bộ record nguồn sẽ được INSERT thêm; dữ liệu hiện có ở đích được giữ nguyên.",
+      condition: syncDuplicateModeText(duplicateMode),
       truncate_table: "CẢNH BÁO: table đích sẽ bị TRUNCATE rồi INSERT lại toàn bộ dữ liệu nguồn.",
     };
     const detail = [
       `Đồng bộ ${allTables ? "toàn bộ table nguồn" : `${tableNames.length} table đã chọn`} từ nguồn sang đích.`,
       modeDetails[syncMode],
-      syncMode === "incremental"
+      syncMode === "condition" ? `Điều kiện áp dụng cho từng table:\nWHERE ${whereClause.replace(/^where\s+/i, "")}` : "",
+      syncMode === "condition" && duplicateMode !== "error"
+        ? "Trước khi xóa hoặc ghi đè record trùng key, hệ thống sẽ backup record hiện có ở DB đích vào folder db_sync_backups trong project."
+        : "",
+      syncMode === "incremental" || syncMode === "condition"
         ? `Dữ liệu được đọc và ghi theo batch ${batchSize || "5000"} record; không nạp toàn bộ table vào RAM.`
         : (limit ? `Mỗi table chỉ đồng bộ tối đa ${limit} record.` : "Đồng bộ toàn bộ record trong mỗi table."),
-    ].join("\n\n");
+    ].filter(Boolean).join("\n\n");
     if (await confirmAction("Xác nhận đồng bộ cơ sở dữ liệu", detail)) {
       resetSyncProgress(tableNames);
       startAction("db_sync", {
         source_settings: getDbSettings("main"), target_settings: getDbSettings("target"), table_names: tableNames,
         record_limit: limit, keep_identity: checked("sync-keep-identity"), sync_mode: syncMode,
         batch_size: batchSize, delete_target_only: deleteTargetOnly,
+        where_clause: syncMode === "condition" ? whereClause : "",
+        duplicate_mode: duplicateMode,
         truncate_before_sync: syncMode === "truncate_table", confirmed: true,
       });
     }
   });
 
   $$('input[name="sync-mode"]').forEach((input) => input.addEventListener("change", syncSyncModeControls));
+  $("#sync-handle-duplicates").addEventListener("change", syncSyncModeControls);
+  $("#sync-duplicate-mode").addEventListener("change", syncSyncModeControls);
   syncSyncModeControls();
   $("#sync-all-tables").addEventListener("change", renderTables);
   const syncTableFilter = $("#sync-table-filter");
@@ -1072,24 +1087,43 @@ function selectedSyncMode() {
 function syncSyncModeControls() {
   const mode = selectedSyncMode();
   const incremental = mode === "incremental";
+  const condition = mode === "condition";
   const limitInput = $("#sync-record-limit");
-  limitInput.disabled = incremental;
-  if (incremental) limitInput.value = "";
-  $("#sync-batch-size").disabled = !incremental;
+  limitInput.disabled = incremental || condition;
+  if (incremental || condition) limitInput.value = "";
+  $("#sync-batch-size").disabled = !(incremental || condition);
   $("#sync-delete-target-only").disabled = !incremental;
   $("#sync-delete-target-only-row").classList.toggle("disabled", !incremental);
+  $("#sync-condition-panel").classList.toggle("hidden", !condition);
+  $("#sync-where-clause").disabled = !condition;
+  $("#sync-handle-duplicates").disabled = !condition;
+  $("#sync-duplicate-mode").disabled = !condition || !checked("sync-handle-duplicates");
   const labels = {
-    incremental: "Đồng bộ chênh lệch",
+    incremental: "Đồng bộ theo key",
     append: "Insert toàn bộ dữ liệu",
+    condition: "Đồng bộ theo điều kiện",
     truncate_table: "Truncate & đồng bộ lại",
   };
   const hints = {
-    incremental: "Chỉ ghi các record khác biệt; table nguồn và đích phải có primary key giống nhau.",
+    incremental: "Đồng bộ theo primary key; chỉ ghi các record khác biệt và table nguồn/đích phải có key giống nhau.",
     append: "Insert toàn bộ record nguồn; có thể lỗi duplicate key nếu đích đã có dữ liệu.",
+    condition: checked("sync-handle-duplicates")
+      ? "Chỉ lấy record nguồn theo WHERE; record đích trùng key sẽ được backup trước khi xóa hoặc ghi đè."
+      : "Chỉ lấy record nguồn theo WHERE; nếu đích đã có key trùng thì database có thể báo lỗi duplicate key.",
     truncate_table: "Xóa sạch table đích rồi insert lại toàn bộ dữ liệu nguồn.",
   };
   $("#run-db-sync").innerHTML = `${labels[mode] || labels.incremental} <b>→</b>`;
   $("#sync-mode-hint").textContent = hints[mode] || hints.incremental;
+}
+
+function syncDuplicateModeText(mode) {
+  if (mode === "delete_insert") {
+    return "Lấy record nguồn theo WHERE. Record đích trùng primary key sẽ được backup, xóa trước, rồi insert lại từ nguồn.";
+  }
+  if (mode === "upsert") {
+    return "Lấy record nguồn theo WHERE. Record đích trùng primary key sẽ được backup rồi ghi đè bằng dữ liệu nguồn; key chưa có sẽ được insert.";
+  }
+  return "Lấy record nguồn theo WHERE rồi insert sang đích. Nếu đích đã có primary key trùng, database có thể báo lỗi.";
 }
 
 function renderFixmes() {
@@ -2412,7 +2446,10 @@ function summaryMessage(job) {
     const retained = result.retained_target_only_count
       ? `, giữ lại ${result.retained_target_only_count} record chỉ có ở đích`
       : "";
-    return `Đã đồng bộ ${result.table_count || 0} table: insert ${result.inserted_count || 0}, update ${result.updated_count || 0}, delete ${result.deleted_count || 0}, không đổi ${result.unchanged_count || 0}${retained}.`;
+    const backup = result.backup_path
+      ? ` Backup ${result.backup_row_count || 0} record tại ${result.backup_path}.`
+      : "";
+    return `Đã đồng bộ ${result.table_count || 0} table: insert ${result.inserted_count || 0}, update ${result.updated_count || 0}, delete ${result.deleted_count || 0}, không đổi ${result.unchanged_count || 0}${retained}.${backup}`;
   }
   if (typeof result.changed_count === "number") return `${result.action_name || "Tác vụ"}: đã thay đổi ${result.changed_count}, bỏ qua ${result.skipped_count || 0}.`;
   if (typeof result.csv_count === "number") return `${result.action_name || "Tác vụ CSDL"}: ${result.csv_count} CSV / ${result.row_count || 0} dòng.`;

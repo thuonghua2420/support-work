@@ -371,6 +371,8 @@ Source table + target table
 
 Incremental sync never uses `fetchall()`. It validates that canonical primary-key order stays strictly increasing; incompatible PK datatypes/collations fail and roll back the table instead of risking an incorrect merge.
 
+Conditional sync uses a user-entered `WHERE` fragment on each selected source table, fetches source rows in batches, looks up matching target rows by primary key, and can either insert only, backup plus delete/insert duplicate keys, or backup plus upsert duplicate keys. Backups are written as typed DBeaver-style CSV files under `db_sync_backups/<timestamp>_<table-or-multi-table>/` before target rows are deleted or overwritten.
+
 ### Folder Compare Flow
 
 ```text

@@ -2,6 +2,24 @@
 
 Use this file for lightweight architecture decisions. Add newest entries at the top.
 
+## 2026-08-29 - Conditional Database Sync Backup
+
+Decision:
+
+- Add a conditional DB sync mode that applies one user-entered `WHERE` fragment to each selected source table.
+- Match affected target rows by primary key, then allow insert-only, backup plus delete/insert, or backup plus upsert handling for duplicate keys.
+- Write affected target rows to typed DBeaver-style CSV files under `db_sync_backups/<timestamp>_<table-or-multi-table>/` before deleting or overwriting them.
+
+Reason:
+
+- Users need to sync a focused business subset without truncating whole tables or requiring an external CSV export/import loop.
+- Backing up affected target rows gives a local audit trail before destructive duplicate-key handling.
+
+Consequence:
+
+- Conditional sync requires matching primary-key metadata.
+- The `WHERE` fragment is intentionally limited to one statement fragment; semicolons and SQL comments are rejected.
+
 ## 2026-08-13 - SQL Source Data Matched-Key Trace
 
 Decision:

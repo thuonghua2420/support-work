@@ -12,6 +12,7 @@ from typing import Callable, Iterable, Sequence
 
 from .dbeaver_csv import (
     DbeaverCsv,
+    TypedDbeaverCsvRowWriter,
     read_dbeaver_csv,
     write_dbeaver_csv,
     write_typed_dbeaver_csv_rows,
@@ -130,10 +131,20 @@ IMPORT_MODES = {
 SYNC_MODE_APPEND = "append"
 SYNC_MODE_INCREMENTAL = "incremental"
 SYNC_MODE_TRUNCATE_TABLE = "truncate_table"
+SYNC_MODE_CONDITION = "condition"
 SYNC_MODES = {
     SYNC_MODE_APPEND,
     SYNC_MODE_INCREMENTAL,
     SYNC_MODE_TRUNCATE_TABLE,
+    SYNC_MODE_CONDITION,
+}
+SYNC_DUPLICATE_ERROR = "error"
+SYNC_DUPLICATE_DELETE_INSERT = "delete_insert"
+SYNC_DUPLICATE_UPSERT = "upsert"
+SYNC_DUPLICATE_MODES = {
+    SYNC_DUPLICATE_ERROR,
+    SYNC_DUPLICATE_DELETE_INSERT,
+    SYNC_DUPLICATE_UPSERT,
 }
 DEFAULT_SYNC_BATCH_SIZE = 5000
 MIN_SYNC_BATCH_SIZE = 100
@@ -241,6 +252,7 @@ class DatabaseSyncResult:
     deleted_count: int = 0
     unchanged_count: int = 0
     retained_target_only_count: int = 0
+    backup_row_count: int = 0
 
 
 @dataclass
@@ -270,6 +282,7 @@ class DatabaseSyncSummary:
     table_results: list[DatabaseSyncResult] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    backup_path: Path | None = None
 
     @property
     def table_count(self) -> int:
@@ -310,6 +323,10 @@ class DatabaseSyncSummary:
     @property
     def retained_target_only_count(self) -> int:
         return sum(result.retained_target_only_count for result in self.table_results)
+
+    @property
+    def backup_row_count(self) -> int:
+        return sum(result.backup_row_count for result in self.table_results)
 
 
 @dataclass(frozen=True)
@@ -1332,6 +1349,9 @@ def sync_database_tables(
     sync_mode: str | None = None,
     batch_size: int | str | None = DEFAULT_SYNC_BATCH_SIZE,
     delete_target_only: bool = True,
+    where_clause: str = "",
+    duplicate_mode: str = SYNC_DUPLICATE_ERROR,
+    backup_root: str | Path | None = None,
     cancel: CancelChecker | None = None,
 ) -> DatabaseSyncSummary:
     source_settings = validate_connection_settings(source_settings)
@@ -1342,10 +1362,18 @@ def sync_database_tables(
     limit = _parse_record_limit(record_limit)
     mode = _validate_sync_mode(sync_mode, truncate_before_sync)
     parsed_batch_size = _parse_sync_batch_size(batch_size)
+    normalized_where_clause = _normalize_sync_where_clause(where_clause)
+    parsed_duplicate_mode = _validate_sync_duplicate_mode(duplicate_mode)
     if mode == SYNC_MODE_INCREMENTAL and limit is not None:
         raise ValueError(
             "Chế độ đồng bộ chênh lệch không dùng giới hạn record vì có thể bỏ sót record cần xóa ở đích."
         )
+    if mode == SYNC_MODE_CONDITION and not normalized_where_clause:
+        raise ValueError("Vui lòng nhập điều kiện WHERE khi đồng bộ theo điều kiện.")
+    if mode != SYNC_MODE_CONDITION and normalized_where_clause:
+        raise ValueError("Điều kiện WHERE chỉ được dùng với chế độ đồng bộ theo điều kiện.")
+    if mode == SYNC_MODE_CONDITION and limit is not None:
+        raise ValueError("Chế độ đồng bộ theo điều kiện không dùng giới hạn record.")
     logger = log or (lambda message: None)
     summary = DatabaseSyncSummary()
 
@@ -1369,6 +1397,9 @@ def sync_database_tables(
             return summary
 
         total_tables = len(tables)
+        if mode == SYNC_MODE_CONDITION and parsed_duplicate_mode != SYNC_DUPLICATE_ERROR:
+            summary.backup_path = _prepare_sync_backup_dir(tables, backup_root)
+            logger(f"Backup record đích trước khi xử lý trùng key: {summary.backup_path}")
         for table_index, raw_table_name in enumerate(tables, start=1):
             _check_cancel(cancel)
             _sync_one_table(
@@ -1387,6 +1418,9 @@ def sync_database_tables(
                 sync_mode=mode,
                 batch_size=parsed_batch_size,
                 delete_target_only=delete_target_only,
+                where_clause=normalized_where_clause,
+                duplicate_mode=parsed_duplicate_mode,
+                backup_dir=summary.backup_path,
                 target_read_connection=target_read_connection,
                 table_index=table_index,
                 total_tables=total_tables,
@@ -1733,6 +1767,20 @@ def _build_delete_by_primary_key_sql(
     return f"DELETE FROM {adapter.qualified_table(metadata)} WHERE {conditions}"
 
 
+def _build_select_by_primary_key_sql(
+    adapter: DatabaseAdapter,
+    metadata: TableMetadata,
+    columns: list[DatabaseColumn],
+    primary_key_columns: list[DatabaseColumn],
+) -> str:
+    column_sql = ", ".join(adapter.quote_identifier(column.name) for column in columns)
+    conditions = " AND ".join(
+        f"{adapter.quote_identifier(column.name)} = {adapter.placeholder(index)}"
+        for index, column in enumerate(primary_key_columns)
+    )
+    return f"SELECT {column_sql} FROM {adapter.qualified_table(metadata)} WHERE {conditions}"
+
+
 def _validate_import_mode(value: str) -> str:
     normalized = str(value or IMPORT_MODE_APPEND).strip().lower()
     if normalized not in IMPORT_MODES:
@@ -1807,6 +1855,9 @@ def _sync_one_table(
     sync_mode: str | None = None,
     batch_size: int = DEFAULT_SYNC_BATCH_SIZE,
     delete_target_only: bool = True,
+    where_clause: str = "",
+    duplicate_mode: str = SYNC_DUPLICATE_ERROR,
+    backup_dir: Path | None = None,
     target_read_connection=None,
     table_index: int = 1,
     total_tables: int = 1,
@@ -1830,9 +1881,46 @@ def _sync_one_table(
             logger(message)
             return
 
-        source_total_rows = _count_table_rows(source_adapter, source_connection, source_metadata)
+        source_total_rows = _count_table_rows(
+            source_adapter,
+            source_connection,
+            source_metadata,
+            where_clause if mode == SYNC_MODE_CONDITION else "",
+        )
         if record_limit is not None and source_total_rows is not None:
             source_total_rows = min(source_total_rows, record_limit)
+
+        if mode == SYNC_MODE_CONDITION:
+            result = _sync_one_table_condition(
+                source_connection,
+                target_connection,
+                source_adapter,
+                target_adapter,
+                source_metadata,
+                target_metadata,
+                source_columns,
+                target_columns,
+                skipped_columns,
+                keep_identity,
+                batch_size,
+                where_clause,
+                duplicate_mode,
+                backup_dir,
+                logger=logger,
+                source_total_rows=source_total_rows,
+                table_index=table_index,
+                total_tables=total_tables,
+                cancel=cancel,
+            )
+            summary.table_results.append(result)
+            if skipped_columns:
+                logger(f"{raw_table_name} -> bỏ qua column không đồng bộ: {', '.join(skipped_columns)}")
+            logger(
+                f"{raw_table_name} -> đồng bộ theo điều kiện: nguồn {result.source_row_count}, "
+                f"insert {result.inserted_count}, update {result.updated_count}, "
+                f"delete {result.deleted_count}, backup {result.backup_row_count}"
+            )
+            return
 
         if mode == SYNC_MODE_INCREMENTAL:
             result = _sync_one_table_incremental(
@@ -1990,6 +2078,251 @@ def _sync_one_table(
         message = f"LỖI {raw_table_name}: {exc}"
         summary.errors.append(message)
         logger(message)
+
+
+def _sync_one_table_condition(
+    source_connection,
+    target_connection,
+    source_adapter: DatabaseAdapter,
+    target_adapter: DatabaseAdapter,
+    source_metadata: TableMetadata,
+    target_metadata: TableMetadata,
+    source_columns: list[DatabaseColumn],
+    target_columns: list[DatabaseColumn],
+    skipped_columns: tuple[str, ...],
+    keep_identity: bool,
+    batch_size: int,
+    where_clause: str,
+    duplicate_mode: str,
+    backup_dir: Path | None = None,
+    logger: Logger | None = None,
+    source_total_rows: int | None = None,
+    table_index: int = 1,
+    total_tables: int = 1,
+    cancel: CancelChecker | None = None,
+) -> DatabaseSyncResult:
+    _check_cancel(cancel)
+    batch_size = _parse_sync_batch_size(batch_size)
+    where_clause = _normalize_sync_where_clause(where_clause)
+    duplicate_mode = _validate_sync_duplicate_mode(duplicate_mode)
+    source_key_columns, target_key_columns, key_indexes = _build_delta_key_columns(
+        source_metadata,
+        target_metadata,
+        source_columns,
+        target_columns,
+    )
+    key_names = {column.name.lower() for column in target_key_columns}
+    update_indexes = [
+        index
+        for index, column in enumerate(target_columns)
+        if column.name.lower() not in key_names and not column.is_identity
+    ]
+    update_columns = [target_columns[index] for index in update_indexes]
+
+    source_cursor = source_adapter.stream_cursor(source_connection)
+    target_cursor = target_connection.cursor()
+    source_sql = _build_sync_select_sql(
+        source_adapter,
+        source_metadata,
+        source_columns,
+        order_columns=source_key_columns,
+        where_clause=where_clause,
+    )
+    insert_sql = target_adapter.insert_sql(target_metadata, target_columns, keep_identity)
+    update_sql = _build_sync_update_sql(target_adapter, target_metadata, update_columns, target_key_columns)
+    delete_sql = _build_delete_by_primary_key_sql(target_adapter, target_metadata, target_key_columns)
+    backup_columns = target_metadata.columns
+    backup_writer = _open_sync_backup_writer(backup_dir, target_metadata, backup_columns)
+    backup_index_by_name = {column.name.lower(): index for index, column in enumerate(backup_columns)}
+
+    source_row_count = 0
+    target_row_count = 0
+    inserted_count = 0
+    updated_count = 0
+    deleted_count = 0
+    unchanged_count = 0
+    backup_row_count = 0
+    identity_active = False
+    operation_error: Exception | None = None
+    progress_logger = logger or (lambda _message: None)
+    started_at = time_module.monotonic()
+    next_progress_mark = 100
+    progress_step = max(batch_size, 1000)
+    _log_sync_progress(
+        progress_logger,
+        table_name=source_metadata.name,
+        current=0,
+        total=source_total_rows,
+        table_index=table_index,
+        total_tables=total_tables,
+        mode=SYNC_MODE_CONDITION,
+        started_at=started_at,
+    )
+
+    def ensure_identity_state() -> None:
+        nonlocal identity_active
+        if not identity_active:
+            target_adapter.before_import(target_cursor, target_metadata, target_columns, keep_identity)
+            identity_active = True
+
+    def write_backup_rows(rows: Iterable[Sequence[object]]) -> None:
+        nonlocal backup_row_count
+        if backup_writer is None:
+            return
+        formatted_rows = (
+            [_format_db_value(row[index], column) for index, column in enumerate(backup_columns)]
+            for row in rows
+        )
+        backup_row_count += backup_writer.write_rows(formatted_rows)
+
+    try:
+        _check_cancel(cancel)
+        source_adapter.execute(source_cursor, source_sql)
+        for source_rows in _iter_cursor_batches(source_cursor, batch_size, cancel):
+            source_rows = [tuple(row[index] for index, _column in enumerate(source_columns)) for row in source_rows]
+            if not source_rows:
+                continue
+            source_row_count += len(source_rows)
+            raw_keys = [tuple(row[index] for index in key_indexes) for row in source_rows]
+            existing_by_key: dict[tuple[object, ...], tuple[object, ...]] = {}
+            if duplicate_mode != SYNC_DUPLICATE_ERROR:
+                existing_backup_by_key = _fetch_target_rows_by_keys(
+                    target_adapter,
+                    target_connection,
+                    target_metadata,
+                    backup_columns,
+                    target_key_columns,
+                    raw_keys,
+                    cancel,
+                )
+                existing_by_key = {
+                    key: tuple(row[backup_index_by_name[column.name.lower()]] for column in target_columns)
+                    for key, row in existing_backup_by_key.items()
+                }
+                target_row_count += len(existing_by_key)
+                write_backup_rows(existing_backup_by_key.values())
+
+            if duplicate_mode == SYNC_DUPLICATE_DELETE_INSERT:
+                existing_raw_keys = [
+                    key
+                    for key in raw_keys
+                    if _sync_key_from_values(key, target_key_columns) in existing_by_key
+                ]
+                if existing_raw_keys:
+                    _check_cancel(cancel)
+                    target_adapter.executemany(target_cursor, delete_sql, existing_raw_keys)
+                    deleted_count += len(existing_raw_keys)
+                _check_cancel(cancel)
+                ensure_identity_state()
+                target_adapter.executemany(target_cursor, insert_sql, source_rows)
+                inserted_count += len(source_rows)
+            elif duplicate_mode == SYNC_DUPLICATE_UPSERT:
+                insert_rows: list[tuple[object, ...]] = []
+                update_rows: list[tuple[object, ...]] = []
+                for row, raw_key in zip(source_rows, raw_keys):
+                    target_row = existing_by_key.get(_sync_key_from_values(raw_key, target_key_columns))
+                    if target_row is None:
+                        insert_rows.append(row)
+                        continue
+                    if update_sql is None:
+                        unchanged_count += 1
+                        continue
+                    source_values = tuple(
+                        _canonical_sync_value(row[index], target_columns[index])
+                        for index in update_indexes
+                    )
+                    target_values = tuple(
+                        _canonical_sync_value(target_row[index], target_columns[index])
+                        for index in update_indexes
+                    )
+                    if source_values != target_values:
+                        update_rows.append(tuple(row[index] for index in update_indexes) + raw_key)
+                    else:
+                        unchanged_count += 1
+                if update_rows and update_sql is not None:
+                    _check_cancel(cancel)
+                    target_adapter.executemany(target_cursor, update_sql, update_rows)
+                    updated_count += len(update_rows)
+                if insert_rows:
+                    _check_cancel(cancel)
+                    ensure_identity_state()
+                    target_adapter.executemany(target_cursor, insert_sql, insert_rows)
+                    inserted_count += len(insert_rows)
+            else:
+                _check_cancel(cancel)
+                ensure_identity_state()
+                target_adapter.executemany(target_cursor, insert_sql, source_rows)
+                inserted_count += len(source_rows)
+
+            if source_row_count >= next_progress_mark:
+                _log_sync_progress(
+                    progress_logger,
+                    table_name=source_metadata.name,
+                    current=source_row_count,
+                    total=source_total_rows,
+                    table_index=table_index,
+                    total_tables=total_tables,
+                    mode=SYNC_MODE_CONDITION,
+                    started_at=started_at,
+                    inserted=inserted_count,
+                    updated=updated_count,
+                    deleted=deleted_count,
+                    unchanged=unchanged_count,
+                )
+                next_progress_mark += progress_step
+    except Exception as exc:
+        operation_error = exc
+
+    cleanup_error: Exception | None = None
+    if identity_active:
+        try:
+            target_adapter.after_import(target_cursor, target_metadata, target_columns, keep_identity)
+        except Exception as exc:
+            cleanup_error = exc
+
+    try:
+        if operation_error is not None:
+            raise operation_error
+        if cleanup_error is not None:
+            raise cleanup_error
+        target_connection.commit()
+    except Exception:
+        target_connection.rollback()
+        raise
+    finally:
+        if backup_writer is not None:
+            backup_writer.close()
+        _close_cursor(source_cursor)
+        _close_cursor(target_cursor)
+
+    _log_sync_progress(
+        progress_logger,
+        table_name=source_metadata.name,
+        current=source_row_count,
+        total=source_total_rows,
+        table_index=table_index,
+        total_tables=total_tables,
+        mode=SYNC_MODE_CONDITION,
+        started_at=started_at,
+        inserted=inserted_count,
+        updated=updated_count,
+        deleted=deleted_count,
+        unchanged=unchanged_count,
+        done=True,
+    )
+
+    return DatabaseSyncResult(
+        table_name=target_metadata.name,
+        row_count=inserted_count + updated_count + deleted_count,
+        skipped_columns=tuple(skipped_columns),
+        source_row_count=source_row_count,
+        target_row_count=target_row_count,
+        inserted_count=inserted_count,
+        updated_count=updated_count,
+        deleted_count=deleted_count,
+        unchanged_count=unchanged_count,
+        backup_row_count=backup_row_count,
+    )
 
 
 def _sync_one_table_incremental(
@@ -2239,10 +2572,19 @@ def _sync_one_table_incremental(
     )
 
 
-def _count_table_rows(adapter: DatabaseAdapter, connection, metadata: TableMetadata) -> int | None:
+def _count_table_rows(
+    adapter: DatabaseAdapter,
+    connection,
+    metadata: TableMetadata,
+    where_clause: str = "",
+) -> int | None:
     cursor = connection.cursor()
     try:
-        adapter.execute(cursor, f"SELECT COUNT(*) FROM {adapter.qualified_table(metadata)}")
+        sql = f"SELECT COUNT(*) FROM {adapter.qualified_table(metadata)}"
+        normalized_where_clause = _normalize_sync_where_clause(where_clause)
+        if normalized_where_clause:
+            sql = f"{sql} WHERE ({normalized_where_clause})"
+        adapter.execute(cursor, sql)
         row = cursor.fetchone()
         if not row:
             return None
@@ -2356,6 +2698,66 @@ def _iter_cursor_rows(cursor, batch_size: int):
             return
         for row in rows:
             yield tuple(row)
+
+
+def _iter_cursor_batches(cursor, batch_size: int, cancel: CancelChecker | None = None):
+    while True:
+        _check_cancel(cancel)
+        rows = cursor.fetchmany(batch_size)
+        if not rows:
+            return
+        yield rows
+
+
+def _fetch_target_rows_by_keys(
+    adapter: DatabaseAdapter,
+    connection,
+    metadata: TableMetadata,
+    columns: list[DatabaseColumn],
+    primary_key_columns: list[DatabaseColumn],
+    raw_keys: Iterable[Sequence[object]],
+    cancel: CancelChecker | None = None,
+) -> dict[tuple[object, ...], tuple[object, ...]]:
+    result: dict[tuple[object, ...], tuple[object, ...]] = {}
+    unique_keys: list[tuple[object, ...]] = []
+    seen: set[tuple[object, ...]] = set()
+    for raw_key in raw_keys:
+        key = tuple(raw_key)
+        canonical_key = _sync_key_from_values(key, primary_key_columns)
+        if canonical_key in seen:
+            continue
+        seen.add(canonical_key)
+        unique_keys.append(key)
+
+    if not unique_keys:
+        return result
+
+    key_index_by_name = {column.name.lower(): index for index, column in enumerate(columns)}
+    key_indexes = [key_index_by_name[column.name.lower()] for column in primary_key_columns]
+    select_sql = _build_select_by_primary_key_sql(adapter, metadata, columns, primary_key_columns)
+    cursor = connection.cursor()
+    try:
+        for raw_key in unique_keys:
+            _check_cancel(cancel)
+            adapter.execute(cursor, select_sql, tuple(raw_key))
+            for row in cursor.fetchall():
+                row_tuple = tuple(row)
+                result[_sync_key_from_row(row_tuple, key_indexes, primary_key_columns)] = row_tuple
+    finally:
+        _close_cursor(cursor)
+    return result
+
+
+def _sync_key_from_row(
+    row: Sequence[object],
+    key_indexes: list[int],
+    key_columns: list[DatabaseColumn],
+) -> tuple[object, ...]:
+    return _sync_key_from_values((row[index] for index in key_indexes), key_columns)
+
+
+def _sync_key_from_values(values: Iterable[object], key_columns: list[DatabaseColumn]) -> tuple[object, ...]:
+    return tuple(_sync_sort_value(value, column) for value, column in zip(values, key_columns))
 
 
 def _next_ordered_sync_row(
@@ -2485,9 +2887,13 @@ def _build_sync_select_sql(
     metadata: TableMetadata,
     columns: list[DatabaseColumn],
     order_columns: list[DatabaseColumn] | None = None,
+    where_clause: str = "",
 ) -> str:
     column_sql = ", ".join(adapter.quote_identifier(column.name) for column in columns)
     sql = f"SELECT {column_sql} FROM {adapter.qualified_table(metadata)}"
+    normalized_where_clause = _normalize_sync_where_clause(where_clause)
+    if normalized_where_clause:
+        sql = f"{sql} WHERE ({normalized_where_clause})"
     primary_key_columns = order_columns or [column for column in metadata.columns if column.is_primary_key]
     if primary_key_columns:
         order_sql = ", ".join(adapter.quote_identifier(column.name) for column in primary_key_columns)
@@ -2761,6 +3167,25 @@ def _validate_sync_mode(value: str | None, truncate_before_sync: bool = False) -
     return normalized
 
 
+def _validate_sync_duplicate_mode(value: str | None) -> str:
+    normalized = str(value or SYNC_DUPLICATE_ERROR).strip().lower()
+    if normalized not in SYNC_DUPLICATE_MODES:
+        raise ValueError(f"Chế độ xử lý trùng key khi đồng bộ không hợp lệ: {value}")
+    return normalized
+
+
+def _normalize_sync_where_clause(value: str | None) -> str:
+    clause = str(value or "").strip()
+    if not clause:
+        return ""
+    if clause[:5].casefold() == "where" and (len(clause) == 5 or clause[5].isspace()):
+        clause = clause[5:].strip()
+    forbidden_tokens = (";", "--", "/*", "*/", "\x00")
+    if any(token in clause for token in forbidden_tokens):
+        raise ValueError("Điều kiện WHERE không được chứa dấu ; hoặc comment SQL.")
+    return clause
+
+
 def _parse_sync_batch_size(value: int | str | None) -> int:
     if value is None or (isinstance(value, str) and not value.strip()):
         return DEFAULT_SYNC_BATCH_SIZE
@@ -2786,6 +3211,37 @@ def _export_file_name(metadata: TableMetadata, include_schema: bool) -> str:
     if include_schema:
         return f"{metadata.schema}.{metadata.name}.csv"
     return f"{metadata.name}.csv"
+
+
+def _prepare_sync_backup_dir(table_names: Sequence[str], backup_root: str | Path | None = None) -> Path:
+    root = Path(backup_root) if backup_root is not None else Path.cwd() / "db_sync_backups"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    if len(table_names) == 1:
+        label = _safe_path_name(table_names[0])
+    else:
+        label = f"multi_tables_{len(table_names)}"
+    backup_dir = root / f"{timestamp}_{label}"
+    backup_dir.mkdir(parents=True, exist_ok=False)
+    return backup_dir
+
+
+def _open_sync_backup_writer(
+    backup_dir: Path | None,
+    metadata: TableMetadata,
+    columns: list[DatabaseColumn],
+) -> TypedDbeaverCsvRowWriter | None:
+    if backup_dir is None:
+        return None
+    backup_file = backup_dir / f"{_safe_path_name(metadata.schema)}.{_safe_path_name(metadata.name)}.csv"
+    headers = [column.name for column in columns]
+    quote_columns = [column.should_quote_export for column in columns]
+    return TypedDbeaverCsvRowWriter(backup_file, headers, quote_columns)
+
+
+def _safe_path_name(value: str) -> str:
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", str(value).strip())
+    cleaned = re.sub(r"\s+", "_", cleaned).strip("._ ")
+    return cleaned or "table"
 
 
 def _iter_csv_files(root: Path) -> list[Path]:
