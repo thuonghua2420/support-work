@@ -344,7 +344,7 @@ Root folder
 ```text
 Selected folder + connected database
   -> adapter validates DB settings and connects
-  -> recursive CSV scan for normalize/import
+  -> normalize scans CSV recursively; import scans only CSV files directly inside the selected folder
   -> read DBeaver CSV
   -> lookup table metadata by file stem
   -> skip if table missing

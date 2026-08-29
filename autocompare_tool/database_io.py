@@ -1267,7 +1267,7 @@ def import_csv_folder(
 
     connection = adapter.connect(settings)
     try:
-        for csv_path in _iter_csv_files(root):
+        for csv_path in _iter_direct_csv_files(root):
             _check_cancel(cancel)
             _import_one_csv(
                 connection,
@@ -2790,6 +2790,10 @@ def _export_file_name(metadata: TableMetadata, include_schema: bool) -> str:
 
 def _iter_csv_files(root: Path) -> list[Path]:
     return sorted((path for path in root.rglob("*.csv") if path.is_file()), key=lambda path: str(path).lower())
+
+
+def _iter_direct_csv_files(root: Path) -> list[Path]:
+    return sorted((path for path in root.glob("*.csv") if path.is_file()), key=lambda path: str(path).lower())
 
 
 def _validate_folder(path_value: str | Path, must_exist: bool) -> Path:

@@ -51,7 +51,8 @@
 - Use `sql_database_workspace.py` for live SQL execution/source data/export/update; keep `sql_tools.py` parser-only and web assets as render/orchestration only.
 - Use `sql_excel_loader.py` for reading numbered SQL lists from Excel sheets; the web layer should only pass file path, sheet name, and dialect.
 - Real DB writes must be triggered only from an explicit user action and confirmation.
-- Scan all CSV files recursively under the selected folder.
+- Normalize scans all CSV files recursively under the selected folder.
+- Import scans only CSV files directly inside the selected folder; nested folders are ignored.
 - Map table name from CSV file stem.
 - Skip missing tables; do not mark them as errors.
 - CSV headers must map to DB columns; unknown CSV columns are errors.
