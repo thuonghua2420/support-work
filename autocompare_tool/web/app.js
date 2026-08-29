@@ -15,6 +15,7 @@ const state = {
   pollTimer: null,
   dbVerified: { main: false, source: false, target: false },
   databaseNames: { main: [], source: [], target: [] },
+  databaseHistory: [],
   sourceTables: [],
   selectedTables: [],
   syncProgress: null,
@@ -31,7 +32,21 @@ const state = {
 };
 
 const UI_CACHE_KEY = "autocompare:last-inputs:v1";
+const DB_HISTORY_CACHE_KEY = "autocompare:database-history:v1";
 const UI_CACHE_DEBOUNCE_MS = 250;
+const DB_HISTORY_LIMIT = 50;
+const CANCELLABLE_ACTIONS = new Set([
+  "db_test",
+  "db_list_databases",
+  "db_list_tables",
+  "db_normalize",
+  "db_import",
+  "db_export",
+  "db_sync",
+  "db_sql_execute",
+  "db_sql_export",
+  "db_sql_update",
+]);
 let uiCacheTimer = null;
 let uiCacheRestoring = false;
 let uiCacheBound = false;
@@ -55,6 +70,8 @@ async function init() {
     state.notes = state.bootstrap.notes || [];
     state.excelFormatPresets = state.bootstrap.excel_format_presets || [];
     state.fixmes = state.bootstrap.fixmes || [];
+    state.databaseHistory = loadDatabaseHistoryCache(state.bootstrap.database_connection_history || []);
+    saveDatabaseHistoryCache();
     hydrateDefaults();
     renderWorkflows();
     renderConnectionForms();
@@ -64,6 +81,7 @@ async function init() {
     renderFixmes();
     renderTables();
     restoreUiCache();
+    restoreDatabaseSessionConnections();
     bindUiCache();
     if (state.bootstrap.job) {
       state.job = state.bootstrap.job;
@@ -234,6 +252,7 @@ function bindActivityPanel() {
   $("#activity-toggle").addEventListener("click", () => panel.classList.toggle("collapsed"));
   $("#job-status-button").addEventListener("click", () => panel.classList.remove("collapsed"));
   $("#clear-log").addEventListener("click", () => { $("#activity-log").textContent = ""; });
+  $("#cancel-job").addEventListener("click", cancelCurrentJob);
 }
 
 function bindUiCache() {
@@ -262,6 +281,7 @@ function shouldCacheControl(control) {
   if (["password", "button", "submit", "reset", "file", "hidden"].includes(type)) return false;
   const id = control.id.toLowerCase();
   if (id.includes("password")) return false;
+  if (control.matches("[data-db-history-select]")) return false;
   if (id === "activity-log" || id === "sql-formatted-output" || id === "path-current" || id === "path-root-select" || id === "save-file-name") return false;
   if (id.startsWith("note-") || id.startsWith("confirm-")) return false;
   return true;
@@ -320,7 +340,167 @@ function finalizeRestoredUiCache() {
   });
   renderFixmes();
   renderTables();
+  renderDatabaseHistorySelects();
   if (valueOf("sql-input")) markSqlWorkspaceStale();
+}
+
+function restoreDatabaseSessionConnections() {
+  const remembered = state.bootstrap?.database_connections || {};
+  const tableCache = state.bootstrap?.database_tables || {};
+  ["main", "target", "source"].forEach((scope) => {
+    const settings = remembered[scope];
+    if (!settings || !$(`#db-${scope}-type`)) return;
+    if (dbSettingsMostlyEmpty(scope)) setDbSettings(scope, settings);
+    if (!dbPublicSettingsMatch(getDbSettings(scope), settings)) return;
+    setVerified(scope, true);
+    if (scope === "main" && Array.isArray(tableCache[scope])) {
+      state.sourceTables = tableCache[scope];
+      const tableLookup = new Map(state.sourceTables.map((name) => [name.toLocaleLowerCase("vi"), name]));
+      state.selectedTables = uniqueStrings(state.selectedTables.map((name) => tableLookup.get(String(name).toLocaleLowerCase("vi")) || "").filter(Boolean));
+    }
+  });
+  renderTables();
+  renderDatabaseHistorySelects();
+}
+
+function dbSettingsMostlyEmpty(scope) {
+  const settings = getDbSettings(scope);
+  const host = String(settings.host || "").trim().toLocaleLowerCase("vi");
+  return !String(settings.database || "").trim()
+    && !String(settings.username || "").trim()
+    && (!host || host === "localhost");
+}
+
+function dbPublicSettingsMatch(current, remembered) {
+  const sameText = (left, right) => String(left || "").trim().toLocaleLowerCase("vi") === String(right || "").trim().toLocaleLowerCase("vi");
+  return sameText(current.database_type, remembered.database_type)
+    && sameText(current.host, remembered.host)
+    && sameText(current.database, remembered.database)
+    && sameText(current.schema, remembered.schema)
+    && String(current.port || "").trim() === String(remembered.port || "").trim()
+    && sameText(current.username, remembered.username)
+    && Boolean(current.trusted_connection) === Boolean(remembered.trusted_connection)
+    && sameText(current.driver, remembered.driver)
+    && Boolean(current.trust_server_certificate) === Boolean(remembered.trust_server_certificate)
+    && Boolean(current.encrypt) === Boolean(remembered.encrypt);
+}
+
+function loadDatabaseHistoryCache(sessionHistory = []) {
+  let localConnections = [];
+  try {
+    const cache = JSON.parse(window.localStorage.getItem(DB_HISTORY_CACHE_KEY) || "null");
+    localConnections = Array.isArray(cache) ? cache : Array.isArray(cache?.connections) ? cache.connections : [];
+  } catch {
+    localConnections = [];
+  }
+  return mergeDatabaseHistories(sessionHistory, localConnections);
+}
+
+function saveDatabaseHistoryCache() {
+  try {
+    window.localStorage.setItem(DB_HISTORY_CACHE_KEY, JSON.stringify({
+      savedAt: new Date().toISOString(),
+      connections: state.databaseHistory,
+    }));
+  } catch {
+    // Ignore storage failures; connection history is a convenience only.
+  }
+}
+
+function mergeDatabaseHistories(...groups) {
+  const merged = [];
+  const seen = new Set();
+  groups.flat().forEach((item) => {
+    const settings = sanitizeDatabaseHistorySettings(item);
+    if (!settings) return;
+    const key = databaseHistoryKey(settings);
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(settings);
+  });
+  return merged.slice(0, DB_HISTORY_LIMIT);
+}
+
+function sanitizeDatabaseHistorySettings(settings) {
+  if (!settings || typeof settings !== "object") return null;
+  const item = {
+    database_type: String(settings.database_type || "SQL Server"),
+    host: String(settings.host || ""),
+    port: String(settings.port || ""),
+    database: String(settings.database || ""),
+    schema: String(settings.schema || ""),
+    driver: String(settings.driver || ""),
+    username: String(settings.username || ""),
+    password: "",
+    trusted_connection: settings.trusted_connection === true,
+    trust_server_certificate: settings.trust_server_certificate !== false,
+    encrypt: settings.encrypt !== false,
+    updated_at: String(settings.updated_at || settings.saved_at || new Date().toISOString()),
+  };
+  if (!item.host.trim() && !item.database.trim()) return null;
+  return item;
+}
+
+function rememberDatabaseHistory(settings) {
+  const item = sanitizeDatabaseHistorySettings(settings);
+  if (!item) return;
+  const key = databaseHistoryKey(item);
+  state.databaseHistory = [item, ...state.databaseHistory.filter((entry) => databaseHistoryKey(entry) !== key)].slice(0, DB_HISTORY_LIMIT);
+  saveDatabaseHistoryCache();
+  renderDatabaseHistorySelects();
+}
+
+function renderDatabaseHistorySelects() {
+  $$("[data-db-history-select]").forEach((select) => {
+    const scope = select.dataset.dbHistorySelect;
+    const currentKey = $(`#db-${scope}-type`) ? databaseHistoryKey(getDbSettings(scope)) : "";
+    select.innerHTML = `<option value="">-- Chọn kết nối đã dùng --</option>` + state.databaseHistory.map((settings) => {
+      const key = databaseHistoryKey(settings);
+      return `<option value="${escapeHtml(key)}">${escapeHtml(databaseHistoryLabel(settings))}</option>`;
+    }).join("");
+    select.value = state.databaseHistory.some((settings) => databaseHistoryKey(settings) === currentKey) ? currentKey : "";
+  });
+}
+
+function applyDatabaseHistorySelection(scope) {
+  const select = $(`#db-${scope}-history`);
+  if (!select?.value) return;
+  const settings = state.databaseHistory.find((item) => databaseHistoryKey(item) === select.value);
+  if (!settings) return;
+  setDbSettings(scope, settings);
+  state.databaseNames[scope] = [];
+  renderDatabaseNameList(scope);
+  invalidateDbConnection(scope);
+  saveUiCacheDebounced();
+  const passwordInput = $(`#db-${scope}-password`);
+  if (passwordInput && !passwordInput.disabled && !passwordInput.value) {
+    passwordInput.focus();
+  }
+  showToast("Đã áp dụng thông tin kết nối đã dùng.", "success", 4500);
+}
+
+function databaseHistoryKey(settings) {
+  return [
+    settings.database_type,
+    settings.host,
+    settings.database,
+    settings.schema,
+    settings.port,
+    settings.username,
+    settings.trusted_connection ? "1" : "0",
+    settings.driver,
+    settings.trust_server_certificate ? "1" : "0",
+    settings.encrypt ? "1" : "0",
+  ].map((value) => String(value || "").trim().toLocaleLowerCase("vi")).join("\u001f");
+}
+
+function databaseHistoryLabel(settings) {
+  const type = settings.database_type || "CSDL";
+  const server = [settings.host, settings.port].filter(Boolean).join(":") || "(chưa có máy chủ)";
+  const database = settings.database || "(chưa chọn CSDL)";
+  const schema = settings.schema ? ` / ${settings.schema}` : "";
+  const user = settings.trusted_connection ? "Xác thực Windows" : (settings.username || "chưa nhập user");
+  return `${type} | ${server} | ${database}${schema} | ${user}`;
 }
 
 function saveUiCacheDebounced() {
@@ -711,6 +891,7 @@ function renderConnectionForms() {
     const drivers = state.bootstrap.sqlserver_drivers.length ? state.bootstrap.sqlserver_drivers : ["SQL Server Native Client RDA 11.0", "ODBC Driver 18 for SQL Server"];
     const defaultDriver = preferredSqlServerDriver(drivers);
     $(".connection-fields", form).innerHTML = `
+      <label class="field connection-history-field"><span>Kết nối đã dùng</span><select id="db-${scope}-history" data-db-history-select="${scope}"></select><small>Chọn lại máy chủ/CSDL đã kết nối trước đó. Mật khẩu không được lưu trong trình duyệt; nếu app đã khởi động lại thì cần nhập lại mật khẩu.</small></label>
       <label class="field"><span>Loại CSDL</span><select id="db-${scope}-type">${state.bootstrap.database_types.map((item) => `<option>${escapeHtml(item)}</option>`).join("")}</select></label>
       <label class="field"><span>Port</span><input id="db-${scope}-port" value="${escapeHtml(defaults.port)}"></label>
       <label class="field host-field"><span>Server / Host</span><input id="db-${scope}-host" value="${scope === "main" ? "localhost" : ""}" placeholder="localhost hoặc server\\instance"></label>
@@ -723,16 +904,19 @@ function renderConnectionForms() {
 
     form.addEventListener("submit", (event) => event.preventDefault());
 
-    $$(`input, select`, form).forEach((input) => input.addEventListener("input", () => invalidateDbConnection(scope)));
-    $$(`input, select`, form).forEach((input) => input.addEventListener("change", () => {
+    const settingsControls = $$(`input, select`, form).filter((input) => !input.matches("[data-db-history-select]"));
+    settingsControls.forEach((input) => input.addEventListener("input", () => invalidateDbConnection(scope)));
+    settingsControls.forEach((input) => input.addEventListener("change", () => {
       if (input.id === `db-${scope}-type`) applyDatabaseType(scope, true);
       if (input.id === `db-${scope}-trusted`) syncAuthFields(scope);
       invalidateDbConnection(scope);
     }));
+    $(`#db-${scope}-history`).addEventListener("change", () => applyDatabaseHistorySelection(scope));
     $(`#db-${scope}-trusted`).addEventListener("change", () => syncAuthFields(scope));
     applyDatabaseType(scope, false);
     syncAuthFields(scope);
   });
+  renderDatabaseHistorySelects();
 
   $$('[data-db-test]').forEach((button) => button.addEventListener("click", () => {
     const scope = button.dataset.dbTest;
@@ -810,6 +994,14 @@ function switchMainAndTargetDatabases() {
   state.selectedTables = [];
   renderTables();
   saveUiCacheDebounced();
+  api("/api/database/session/switch", { method: "POST", body: {} }).then((response) => {
+    state.bootstrap.database_connections = response.database_connections || {};
+    state.bootstrap.database_connection_history = response.database_connection_history || state.bootstrap.database_connection_history || [];
+    state.databaseHistory = mergeDatabaseHistories(state.bootstrap.database_connection_history, state.databaseHistory);
+    saveDatabaseHistoryCache();
+    renderDatabaseHistorySelects();
+    state.bootstrap.database_tables = response.database_tables || {};
+  }).catch(() => {});
   setVerified("main", targetVerified);
   setVerified("target", mainVerified);
   disableSqlWriteModeLocal();
@@ -1428,6 +1620,28 @@ async function startAction(action, payload) {
   }
 }
 
+async function cancelCurrentJob() {
+  if (!state.job || !["queued", "running"].includes(state.job.state)) return;
+  const button = $("#cancel-job");
+  button.disabled = true;
+  button.textContent = "Đang hủy...";
+  try {
+    const response = await api("/api/jobs/cancel", {
+      method: "POST",
+      body: { job_id: state.job.id },
+    });
+    if (response.job) {
+      state.job = response.job;
+      updateJobState(response.job);
+    }
+    showToast(response.cancel_requested ? "Đã gửi yêu cầu hủy tác vụ." : "Không có tác vụ đang chạy.", "success");
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Hủy tác vụ";
+    showToast(error.message, "error", 7000);
+  }
+}
+
 function schedulePoll(delay = 500) {
   clearTimeout(state.pollTimer);
   state.pollTimer = setTimeout(pollJob, delay);
@@ -1456,10 +1670,18 @@ function updateJobState(job) {
   }
   setBusy(false);
   if (state.handledJobs.has(job.id)) {
-    setJobVisual(job.state === "succeeded" ? "success" : "error", job.state === "succeeded" ? "Hoàn tất" : "Thất bại");
+    const finishedKind = job.state === "succeeded" ? "success" : (job.state === "cancelled" ? "idle" : "error");
+    const finishedText = job.state === "succeeded" ? "Hoàn tất" : (job.state === "cancelled" ? "Đã hủy" : "Thất bại");
+    setJobVisual(finishedKind, finishedText);
     return;
   }
   state.handledJobs.add(job.id);
+  if (job.state === "cancelled") {
+    setJobVisual("idle", "Đã hủy");
+    $("#activity-panel").classList.remove("collapsed");
+    showToast(job.error || "Tác vụ đã được hủy.", "success", 5500);
+    return;
+  }
   if (job.state === "failed") {
     setJobVisual("error", "Tác vụ thất bại");
     $("#activity-panel").classList.remove("collapsed");
@@ -1473,6 +1695,7 @@ function updateJobState(job) {
 
 function consumeJobResult(job) {
   const result = job.result || {};
+  if (result.connection) rememberDatabaseHistory(result.connection);
   if (Array.isArray(result.fixmes)) {
     state.fixmes = result.fixmes;
     resetFixmeReviewState();
@@ -2210,6 +2433,13 @@ function setJobVisual(kind, text) {
 
 function setBusy(busy) {
   document.body.classList.toggle("is-busy", busy);
+  const cancelButton = $("#cancel-job");
+  if (cancelButton) {
+    const canCancel = busy && CANCELLABLE_ACTIONS.has(String(state.job?.action || ""));
+    cancelButton.classList.toggle("hidden", !canCancel);
+    cancelButton.disabled = !canCancel || Boolean(state.job?.cancel_requested);
+    cancelButton.textContent = state.job?.cancel_requested ? "Đang hủy..." : "Hủy tác vụ";
+  }
   $$('button[type="submit"], #db-normalize, #db-import, #db-export, #db-switch-connections, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes').forEach((button) => {
     button.disabled = busy || (button.id === "delete-excel-format-preset" && !valueOf("excel-format-preset"));
   });

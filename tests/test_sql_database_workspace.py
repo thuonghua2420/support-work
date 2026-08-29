@@ -44,10 +44,14 @@ class SqlDatabaseWorkspaceTests(unittest.TestCase):
         self.assertEqual(a_col["join_group"], c_col["join_group"])
         self.assertEqual(a_col["color"], b_col["color"])
         self.assertEqual(a_col["color"], c_col["color"])
-        self.assertIn("Column hiện tại: dbo.A AS a.col1 (index #1)", a_col["join_tooltip"])
-        self.assertIn("dbo.B AS b.col6 (index #1)", a_col["join_tooltip"])
-        self.assertIn("dbo.C AS c.col3 (index #1)", a_col["join_tooltip"])
-        self.assertIn("Biểu thức JOIN:", a_col["join_tooltip"])
+        self.assertEqual(
+            [
+                "dbo.A AS a, col1, index #1",
+                "dbo.B AS b, col6, index #1",
+                "dbo.C AS c, col3, index #1",
+            ],
+            a_col["join_tooltip"].splitlines(),
+        )
         self.assertEqual("WHERE", status_col["usage"])
 
     def test_source_data_uses_matched_primary_key_trace(self) -> None:

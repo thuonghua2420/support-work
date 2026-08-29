@@ -14,12 +14,21 @@ from .dbeaver_csv import (
     DbeaverCsv,
     read_dbeaver_csv,
     write_dbeaver_csv,
-    write_typed_dbeaver_csv,
     write_typed_dbeaver_csv_rows,
 )
 
 Logger = Callable[[str], None]
+CancelChecker = Callable[[], None]
 SYNC_PROGRESS_PREFIX = "__SYNC_PROGRESS__"
+
+
+class OperationCancelledError(RuntimeError):
+    """Raised when a long-running operation is cancelled by the web job manager."""
+
+
+def _check_cancel(cancel: CancelChecker | None) -> None:
+    if cancel is not None:
+        cancel()
 
 DATABASE_SQLSERVER = "sqlserver"
 DATABASE_MYSQL = "mysql"
@@ -1221,6 +1230,7 @@ def normalize_csv_folder(
     root_path: str | Path,
     settings: DatabaseConnectionSettings,
     log: Logger | None = None,
+    cancel: CancelChecker | None = None,
 ) -> DatabaseCsvSummary:
     root = _validate_folder(root_path, must_exist=True)
     settings = validate_connection_settings(settings)
@@ -1231,7 +1241,8 @@ def normalize_csv_folder(
     connection = adapter.connect(settings)
     try:
         for csv_path in _iter_csv_files(root):
-            _normalize_one_csv(connection, adapter, settings, root, csv_path, summary, logger)
+            _check_cancel(cancel)
+            _normalize_one_csv(connection, adapter, settings, root, csv_path, summary, logger, cancel)
     finally:
         connection.close()
 
@@ -1245,6 +1256,7 @@ def import_csv_folder(
     keep_identity: bool = False,
     log: Logger | None = None,
     existing_row_mode: str = IMPORT_MODE_APPEND,
+    cancel: CancelChecker | None = None,
 ) -> DatabaseCsvSummary:
     root = _validate_folder(root_path, must_exist=True)
     settings = validate_connection_settings(settings)
@@ -1256,6 +1268,7 @@ def import_csv_folder(
     connection = adapter.connect(settings)
     try:
         for csv_path in _iter_csv_files(root):
+            _check_cancel(cancel)
             _import_one_csv(
                 connection,
                 adapter,
@@ -1266,6 +1279,7 @@ def import_csv_folder(
                 summary,
                 logger,
                 existing_row_mode,
+                cancel,
             )
     finally:
         connection.close()
@@ -1279,6 +1293,7 @@ def export_csv_folder(
     settings: DatabaseConnectionSettings,
     table_names: Iterable[str] | str | None = None,
     log: Logger | None = None,
+    cancel: CancelChecker | None = None,
 ) -> DatabaseCsvSummary:
     output = _validate_folder(output_path, must_exist=False)
     settings = validate_connection_settings(settings)
@@ -1290,13 +1305,15 @@ def export_csv_folder(
     connection = adapter.connect(settings)
     try:
         tables = requested_tables or adapter.list_tables(connection, settings)
+        _check_cancel(cancel)
         if not tables:
             summary.skipped.append("Không tìm thấy table để xuất.")
             logger("Không tìm thấy table để xuất.")
             return summary
 
         for raw_table_name in tables:
-            _export_one_table(connection, adapter, settings, output, raw_table_name, summary, logger)
+            _check_cancel(cancel)
+            _export_one_table(connection, adapter, settings, output, raw_table_name, summary, logger, cancel)
     finally:
         connection.close()
 
@@ -1315,6 +1332,7 @@ def sync_database_tables(
     sync_mode: str | None = None,
     batch_size: int | str | None = DEFAULT_SYNC_BATCH_SIZE,
     delete_target_only: bool = True,
+    cancel: CancelChecker | None = None,
 ) -> DatabaseSyncSummary:
     source_settings = validate_connection_settings(source_settings)
     target_settings = validate_connection_settings(target_settings)
@@ -1343,6 +1361,7 @@ def sync_database_tables(
             else target_connection
         )
         tables = requested_tables or source_adapter.list_tables(source_connection, source_settings)
+        _check_cancel(cancel)
         if not tables:
             message = "Không tìm thấy table để đồng bộ."
             summary.skipped.append(message)
@@ -1351,6 +1370,7 @@ def sync_database_tables(
 
         total_tables = len(tables)
         for table_index, raw_table_name in enumerate(tables, start=1):
+            _check_cancel(cancel)
             _sync_one_table(
                 source_connection,
                 target_connection,
@@ -1370,6 +1390,7 @@ def sync_database_tables(
                 target_read_connection=target_read_connection,
                 table_index=table_index,
                 total_tables=total_tables,
+                cancel=cancel,
             )
     finally:
         if target_read_connection is not None and target_read_connection is not target_connection:
@@ -1496,9 +1517,11 @@ def _normalize_one_csv(
     csv_path: Path,
     summary: DatabaseCsvSummary,
     logger: Logger,
+    cancel: CancelChecker | None = None,
 ) -> None:
     relative_csv_path = _relative_to(csv_path, root)
     try:
+        _check_cancel(cancel)
         table = read_dbeaver_csv(csv_path)
         if not table.headers:
             message = f"{relative_csv_path} -> bỏ qua CSV rỗng"
@@ -1516,6 +1539,7 @@ def _normalize_one_csv(
             ]
             for row in table.rows
         ]
+        _check_cancel(cancel)
         write_dbeaver_csv(csv_path, ordered_headers, ordered_rows)
         summary.csv_results.append(
             CsvDbResult(csv_path=csv_path, table_name=metadata.name, row_count=len(table.rows))
@@ -1525,6 +1549,8 @@ def _normalize_one_csv(
         message = f"{relative_csv_path} -> bỏ qua vì không tìm thấy table: {settings.schema}.{csv_path.stem}"
         summary.skipped.append(message)
         logger(message)
+    except OperationCancelledError:
+        raise
     except Exception as exc:
         _record_error(summary, logger, csv_path, exc)
 
@@ -1539,9 +1565,11 @@ def _import_one_csv(
     summary: DatabaseCsvSummary,
     logger: Logger,
     existing_row_mode: str = IMPORT_MODE_APPEND,
+    cancel: CancelChecker | None = None,
 ) -> None:
     relative_csv_path = _relative_to(csv_path, root)
     try:
+        _check_cancel(cancel)
         table = read_dbeaver_csv(csv_path)
         if not table.headers:
             message = f"{relative_csv_path} -> bỏ qua CSV rỗng"
@@ -1561,6 +1589,7 @@ def _import_one_csv(
             [row[mapping.csv_index_by_db_name[column.name]] for column in mapping.columns]
             for row in table.rows
         ]
+        _check_cancel(cancel)
         cursor = connection.cursor()
         insert_sql = adapter.insert_sql(metadata, mapping.columns, keep_identity)
         try:
@@ -1573,12 +1602,15 @@ def _import_one_csv(
                 existing_row_mode,
                 relative_csv_path,
                 logger,
+                cancel,
             )
             adapter.before_import(cursor, metadata, mapping.columns, keep_identity)
             import_error: Exception | None = None
             try:
                 if insert_rows:
+                    _check_cancel(cancel)
                     adapter.executemany(cursor, insert_sql, insert_rows)
+                    _check_cancel(cancel)
             except Exception as exc:
                 import_error = exc
             try:
@@ -1609,6 +1641,8 @@ def _import_one_csv(
         message = f"{relative_csv_path} -> bỏ qua vì không tìm thấy table: {settings.schema}.{csv_path.stem}"
         summary.skipped.append(message)
         logger(message)
+    except OperationCancelledError:
+        raise
     except Exception as exc:
         _record_error(summary, logger, csv_path, exc)
 
@@ -1622,11 +1656,14 @@ def _prepare_table_for_import(
     existing_row_mode: str,
     relative_csv_path: Path,
     logger: Logger,
+    cancel: CancelChecker | None = None,
 ) -> None:
+    _check_cancel(cancel)
     mode = _validate_import_mode(existing_row_mode)
     if mode == IMPORT_MODE_APPEND:
         return
     if mode == IMPORT_MODE_TRUNCATE_TABLE:
+        _check_cancel(cancel)
         adapter.truncate_table(cursor, metadata)
         logger(f"{relative_csv_path} -> đã truncate toàn bộ {metadata.schema}.{metadata.name} trước khi nhập")
         return
@@ -1657,6 +1694,8 @@ def _prepare_table_for_import(
     key_rows: list[tuple[str, ...]] = []
     seen_keys: set[tuple[str, ...]] = set()
     for row_number, row in enumerate(table.rows, start=1):
+        if row_number == 1 or row_number % 1000 == 0:
+            _check_cancel(cancel)
         key = tuple(row[mapping.csv_index_by_db_name[column.name]] for column in primary_key_columns)
         if any(value is None for value in key):
             key_names = ", ".join(column.name for column in primary_key_columns)
@@ -1669,8 +1708,10 @@ def _prepare_table_for_import(
 
     if not key_rows:
         return
+    _check_cancel(cancel)
     delete_sql = _build_delete_by_primary_key_sql(adapter, metadata, primary_key_columns)
     adapter.executemany(cursor, delete_sql, key_rows)
+    _check_cancel(cancel)
     logger(
         f"{relative_csv_path} -> đã xử lý xóa record trùng theo {len(primary_key_columns)} "
         f"column primary key ({len(key_rows)} key từ CSV) trước khi nhập"
@@ -1707,6 +1748,7 @@ def _export_one_table(
     raw_table_name: str,
     summary: DatabaseCsvSummary,
     logger: Logger,
+    cancel: CancelChecker | None = None,
 ) -> None:
     schema, table_name = _split_table_name(raw_table_name)
     try:
@@ -1720,19 +1762,33 @@ def _export_one_table(
 
         cursor = connection.cursor()
         select_sql = _build_export_select_sql(adapter, metadata, columns)
+        _check_cancel(cancel)
         adapter.execute(cursor, select_sql)
-        rows = [
-            [_format_db_value(row[index], column) for index, column in enumerate(columns)]
-            for row in cursor.fetchall()
-        ]
         headers = [column.name for column in columns]
         quote_columns = [column.should_quote_export for column in columns]
         output_file = output / _export_file_name(metadata, schema is not None)
-        write_typed_dbeaver_csv(output_file, headers, rows, quote_columns)
-        summary.csv_results.append(CsvDbResult(csv_path=output_file, table_name=metadata.name, row_count=len(rows)))
-        logger(f"{metadata.schema}.{metadata.name} -> đã xuất {len(rows)} dòng: {output_file}")
+        row_count = write_typed_dbeaver_csv_rows(
+            output_file,
+            headers,
+            _iter_export_rows(cursor, columns, cancel),
+            quote_columns,
+        )
+        summary.csv_results.append(CsvDbResult(csv_path=output_file, table_name=metadata.name, row_count=row_count))
+        logger(f"{metadata.schema}.{metadata.name} -> đã xuất {row_count} dòng: {output_file}")
+    except OperationCancelledError:
+        raise
     except Exception as exc:
         _record_error(summary, logger, output / f"{raw_table_name}.csv", exc)
+
+
+def _iter_export_rows(cursor, columns: list[DatabaseColumn], cancel: CancelChecker | None = None):
+    while True:
+        _check_cancel(cancel)
+        rows = cursor.fetchmany(5000)
+        if not rows:
+            return
+        for row in rows:
+            yield [_format_db_value(row[index], column) for index, column in enumerate(columns)]
 
 
 def _sync_one_table(
@@ -1754,9 +1810,11 @@ def _sync_one_table(
     target_read_connection=None,
     table_index: int = 1,
     total_tables: int = 1,
+    cancel: CancelChecker | None = None,
 ) -> None:
     schema, table_name = _split_table_name(raw_table_name)
     try:
+        _check_cancel(cancel)
         mode = _validate_sync_mode(sync_mode, truncate_before_sync)
         source_metadata = source_adapter.get_table(source_connection, source_settings, table_name, schema=schema)
         target_metadata = target_adapter.get_table(target_connection, target_settings, table_name, schema=schema)
@@ -1795,6 +1853,7 @@ def _sync_one_table(
                 source_total_rows=source_total_rows,
                 table_index=table_index,
                 total_tables=total_tables,
+                cancel=cancel,
             )
             summary.table_results.append(result)
             if skipped_columns:
@@ -1812,6 +1871,7 @@ def _sync_one_table(
 
         source_cursor = source_connection.cursor()
         source_sql = _build_sync_select_sql(source_adapter, source_metadata, source_columns)
+        _check_cancel(cancel)
         source_adapter.execute(source_cursor, source_sql)
         remaining = record_limit
         first_fetch_size = batch_size if remaining is None else min(batch_size, remaining)
@@ -1834,13 +1894,16 @@ def _sync_one_table(
         insert_sql = target_adapter.insert_sql(target_metadata, target_columns, keep_identity)
         try:
             if mode == SYNC_MODE_TRUNCATE_TABLE:
+                _check_cancel(cancel)
                 target_adapter.truncate_table(target_cursor, target_metadata)
                 logger(f"{raw_table_name} -> đã truncate dữ liệu đích trước khi đồng bộ")
             target_adapter.before_import(target_cursor, target_metadata, target_columns, keep_identity)
             sync_error: Exception | None = None
             try:
                 if insert_rows:
+                    _check_cancel(cancel)
                     target_adapter.executemany(target_cursor, insert_sql, insert_rows)
+                    _check_cancel(cancel)
                     if remaining is not None:
                         remaining -= len(insert_rows)
                     if inserted_count >= 100:
@@ -1856,11 +1919,13 @@ def _sync_one_table(
                             inserted=inserted_count,
                         )
                 while rows and (remaining is None or remaining > 0):
+                    _check_cancel(cancel)
                     fetch_size = batch_size if remaining is None else min(batch_size, remaining)
                     rows = source_cursor.fetchmany(fetch_size)
                     if not rows:
                         break
                     insert_rows = [tuple(row[index] for index, _column in enumerate(source_columns)) for row in rows]
+                    _check_cancel(cancel)
                     target_adapter.executemany(target_cursor, insert_sql, insert_rows)
                     inserted_count += len(insert_rows)
                     if remaining is not None:
@@ -1919,6 +1984,8 @@ def _sync_one_table(
             done=True,
         )
         logger(f"{raw_table_name} -> đã đồng bộ {inserted_count} dòng vào {target_metadata.schema}.{target_metadata.name}")
+    except OperationCancelledError:
+        raise
     except Exception as exc:
         message = f"LỖI {raw_table_name}: {exc}"
         summary.errors.append(message)
@@ -1943,7 +2010,9 @@ def _sync_one_table_incremental(
     source_total_rows: int | None = None,
     table_index: int = 1,
     total_tables: int = 1,
+    cancel: CancelChecker | None = None,
 ) -> DatabaseSyncResult:
+    _check_cancel(cancel)
     batch_size = _parse_sync_batch_size(batch_size)
     source_key_columns, target_key_columns, key_indexes = _build_delta_key_columns(
         source_metadata,
@@ -2007,6 +2076,7 @@ def _sync_one_table_incremental(
 
     def flush_changes() -> None:
         nonlocal identity_active
+        _check_cancel(cancel)
         if not insert_rows and not update_rows and not delete_rows:
             return
         if insert_rows and not identity_active:
@@ -2023,7 +2093,9 @@ def _sync_one_table_incremental(
             insert_rows.clear()
 
     try:
+        _check_cancel(cancel)
         source_adapter.execute(source_cursor, source_sql)
+        _check_cancel(cancel)
         target_adapter.execute(target_read_cursor, target_sql)
         source_iterator = _iter_cursor_rows(source_cursor, batch_size)
         target_iterator = _iter_cursor_rows(target_read_cursor, batch_size)
@@ -2059,6 +2131,7 @@ def _sync_one_table_incremental(
         source_item = next_source_row()
         target_item = next_target_row()
         while source_item is not None or target_item is not None:
+            _check_cancel(cancel)
             if target_item is None or (source_item is not None and source_item[1] < target_item[1]):
                 insert_rows.append(source_item[0])
                 inserted_count += 1

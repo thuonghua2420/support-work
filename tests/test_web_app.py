@@ -208,6 +208,45 @@ class WebApplicationTests(unittest.TestCase):
         self.assertEqual("sample", settings.database)
         self.assertFalse(settings.trusted_connection)
 
+    def test_database_connection_history_hides_password_and_reuses_session_password(self) -> None:
+        app = AutoCompareWebApplication()
+        settings = DatabaseConnectionSettings(
+            database_type="SQL Server",
+            host="db-host",
+            port="1433",
+            database="source_db",
+            schema="dbo",
+            username="tester",
+            password="secret",
+            trusted_connection=False,
+            driver="ODBC Driver 18 for SQL Server",
+        )
+
+        app._remember_db_connection("main", settings)
+        public_history = app._public_database_connection_history()
+        restored = app._db_settings_for_role(
+            {
+                "database_type": "SQL Server",
+                "host": "db-host",
+                "port": "1433",
+                "database": "target_db",
+                "schema": "dbo",
+                "username": "tester",
+                "password": "",
+                "trusted_connection": False,
+                "driver": "ODBC Driver 18 for SQL Server",
+                "trust_server_certificate": True,
+                "encrypt": True,
+            },
+            "target",
+        )
+
+        self.assertEqual(1, len(public_history))
+        self.assertEqual("source_db", public_history[0]["database"])
+        self.assertEqual("", public_history[0]["password"])
+        self.assertEqual("secret", restored.password)
+        self.assertEqual("target_db", restored.database)
+
     def test_database_import_passes_existing_row_mode_to_workflow(self) -> None:
         app = AutoCompareWebApplication()
         payload = {

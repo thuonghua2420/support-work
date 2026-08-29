@@ -23,6 +23,8 @@ from .database_io import (
     DatabaseAdapter,
     DatabaseColumn,
     DatabaseConnectionSettings,
+    CancelChecker,
+    OperationCancelledError,
     TableMetadata,
     TableNotFoundError,
     apply_query_timeout,
@@ -50,6 +52,11 @@ JOIN_COLORS = (
     "#9333ea",
     "#ea580c",
 )
+
+
+def _check_cancel(cancel: CancelChecker | None) -> None:
+    if cancel is not None:
+        cancel()
 READ_STATEMENT_KEYS = {
     "select",
     "union",
@@ -160,8 +167,10 @@ class SqlDatabaseWorkspaceManager:
         run_mode: str = "all",
         write_token: str = "",
         log: Logger | None = None,
+        cancel: CancelChecker | None = None,
     ) -> dict[str, Any]:
         logger = log or (lambda _message: None)
+        _check_cancel(cancel)
         self._cleanup_expired()
         validated = validate_connection_settings(settings)
         dialect = database_sqlglot_dialect(validated.database_type)
@@ -215,6 +224,7 @@ class SqlDatabaseWorkspaceManager:
         failed = False
         try:
             for index, statement_sql in enumerate(statement_sqls, start=1):
+                _check_cancel(cancel)
                 expression = statement_exprs[index - 1]
                 statement_result = self._execute_one_statement(
                     workspace,
@@ -223,6 +233,7 @@ class SqlDatabaseWorkspaceManager:
                     statement_sql,
                     expression,
                     index,
+                    cancel,
                 )
                 workspace.statements.append(statement_result)
                 if statement_result.get("error"):
@@ -230,7 +241,8 @@ class SqlDatabaseWorkspaceManager:
                     break
 
             if not raw_mode and not failed:
-                self._analyze_and_spool_sources(workspace, adapter, connection, normalized_sql, expressions, dialect)
+                _check_cancel(cancel)
+                self._analyze_and_spool_sources(workspace, adapter, connection, normalized_sql, expressions, dialect, cancel)
 
             if failed:
                 _safe_rollback(connection)
@@ -240,6 +252,9 @@ class SqlDatabaseWorkspaceManager:
                 committed = True
             else:
                 _safe_rollback(connection)
+        except OperationCancelledError:
+            _safe_rollback(connection)
+            raise
         finally:
             connection.close()
 
@@ -295,8 +310,10 @@ class SqlDatabaseWorkspaceManager:
         *,
         relation_ids: Iterable[str] | None = None,
         log: Logger | None = None,
+        cancel: CancelChecker | None = None,
     ) -> dict[str, Any]:
         logger = log or (lambda _message: None)
+        _check_cancel(cancel)
         validated = validate_connection_settings(settings)
         workspace = self._get_workspace(workspace_id)
         if connection_fingerprint(validated) != workspace.fingerprint:
@@ -312,6 +329,7 @@ class SqlDatabaseWorkspaceManager:
         errors: list[str] = []
         try:
             for source in workspace.sources:
+                _check_cancel(cancel)
                 relation_id = str(source.get("relation_id", ""))
                 if selected and relation_id not in selected:
                     continue
@@ -329,8 +347,10 @@ class SqlDatabaseWorkspaceManager:
                     continue
                 try:
                     exported.append(
-                        self._export_one_source(workspace, source, relation, connection, adapter, output_path, logger)
+                        self._export_one_source(workspace, source, relation, connection, adapter, output_path, logger, cancel)
                     )
+                except OperationCancelledError:
+                    raise
                 except Exception as exc:
                     errors.append(f"{source.get('label', relation_id)}: {exc}")
         finally:
@@ -354,10 +374,12 @@ class SqlDatabaseWorkspaceManager:
         *,
         confirmed: bool = False,
         log: Logger | None = None,
+        cancel: CancelChecker | None = None,
     ) -> dict[str, Any]:
         if not confirmed:
             raise PermissionError("Update Data cần xác nhận riêng trước khi ghi vào database.")
         logger = log or (lambda _message: None)
+        _check_cancel(cancel)
         validated = validate_connection_settings(settings)
         workspace = self._get_workspace(workspace_id)
         if connection_fingerprint(validated) != workspace.fingerprint:
@@ -384,6 +406,7 @@ class SqlDatabaseWorkspaceManager:
         conflicts: list[dict[str, Any]] = []
         try:
             for row_payload in rows:
+                _check_cancel(cancel)
                 row_number = int(row_payload.get("row_number", 0))
                 row_token = str(row_payload.get("row_token", ""))
                 values = row_payload.get("values")
@@ -418,6 +441,7 @@ class SqlDatabaseWorkspaceManager:
                     update_values.append(_coerce_editor_value(raw_value, column))
                 if not update_columns:
                     continue
+                _check_cancel(cancel)
                 _update_row_by_pk(connection, adapter, metadata, update_columns, update_values, primary_keys, pk_values)
                 reloaded = _select_row_by_pk(connection, adapter, metadata, primary_keys, pk_values)
                 if reloaded is None:
@@ -495,13 +519,16 @@ class SqlDatabaseWorkspaceManager:
         statement_sql: str,
         expression: exp.Expression | None,
         statement_index: int,
+        cancel: CancelChecker | None = None,
     ) -> dict[str, Any]:
         cursor = connection.cursor()
         apply_query_timeout(cursor, self.config.query_timeout_seconds)
         statement_type = statement_type_name(expression, statement_sql)
         started = time.perf_counter()
         try:
+            _check_cancel(cancel)
             adapter.execute(cursor, statement_sql)
+            _check_cancel(cancel)
             elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
             result: dict[str, Any] = {
                 "statement_index": statement_index,
@@ -522,6 +549,7 @@ class SqlDatabaseWorkspaceManager:
                     columns,
                     self.config.export_batch_size,
                     self.config.workspace_spool_limit_mb,
+                    cancel,
                 )
                 item = _SpoolItem(
                     item_id=item_id,
@@ -536,6 +564,8 @@ class SqlDatabaseWorkspaceManager:
                 result["result_item_id"] = item_id
                 result["row_count"] = row_count
             return result
+        except OperationCancelledError:
+            raise
         except Exception as exc:
             return {
                 "statement_index": statement_index,
@@ -555,12 +585,15 @@ class SqlDatabaseWorkspaceManager:
         sql_text: str,
         expressions: list[exp.Expression],
         dialect: str,
+        cancel: CancelChecker | None = None,
     ) -> None:
+        _check_cancel(cancel)
         analysis = analyze_sql(sql_text, dialect)
         workspace.analysis = _jsonable(analysis)
         relations = _build_relations(workspace, adapter, connection, expressions, analysis, dialect)
         _decorate_column_usage(expressions, relations)
         for relation in relations:
+            _check_cancel(cancel)
             workspace.relations[relation["relation_id"]] = relation
             source = _source_summary_from_relation(relation)
             workspace.sources.append(source)
@@ -569,7 +602,9 @@ class SqlDatabaseWorkspaceManager:
             try:
                 cursor = connection.cursor()
                 apply_query_timeout(cursor, self.config.query_timeout_seconds)
+                _check_cancel(cancel)
                 adapter.execute(cursor, str(relation["source_sql"]))
+                _check_cancel(cancel)
                 metadata = _metadata_from_relation(relation)
                 if not metadata.columns and cursor.description:
                     metadata = TableMetadata(
@@ -592,10 +627,13 @@ class SqlDatabaseWorkspaceManager:
                     metadata.columns,
                     self.config.export_batch_size,
                     self.config.workspace_spool_limit_mb,
+                    cancel,
                 )
                 relation["row_count"] = row_count
                 source["row_count"] = row_count
                 source["item_id"] = _source_item_id(relation["relation_id"])
+            except OperationCancelledError:
+                raise
             except Exception as exc:
                 reason = f"Không thể đọc source data chính xác: {exc}"
                 relation["lineage_status"] = "unsupported"
@@ -708,10 +746,12 @@ class SqlDatabaseWorkspaceManager:
         adapter: DatabaseAdapter,
         output_path: Path,
         logger: Logger,
+        cancel: CancelChecker | None = None,
     ) -> dict[str, Any]:
         metadata = _metadata_from_relation(relation)
         item_id = str(source["item_id"])
         file_path = _unique_export_path(output_path, source, relation)
+        _check_cancel(cancel)
         negative_row, negative_reason = _find_negative_row(
             workspace,
             item_id,
@@ -719,15 +759,18 @@ class SqlDatabaseWorkspaceManager:
             connection,
             adapter,
             self.config.export_batch_size,
+            cancel,
         )
 
         def row_iter() -> Iterable[Sequence[str | None]]:
             for row in _iter_spooled_value_rows(workspace.sqlite_path, item_id):
+                _check_cancel(cancel)
                 yield [
                     format_database_value(row[index], column)
                     for index, column in enumerate(metadata.columns)
                 ]
             if negative_row is not None:
+                _check_cancel(cancel)
                 yield [
                     format_database_value(negative_row[index], column)
                     for index, column in enumerate(metadata.columns)
@@ -818,16 +861,19 @@ def _spool_cursor(
     columns: list[DatabaseColumn],
     batch_size: int,
     spool_limit_mb: int,
+    cancel: CancelChecker | None = None,
 ) -> int:
     row_number = 0
     max_bytes = max(1, int(spool_limit_mb)) * 1024 * 1024
     with workspace.lock, sqlite3.connect(workspace.sqlite_path) as spool:
         while True:
+            _check_cancel(cancel)
             rows = cursor.fetchmany(batch_size)
             if not rows:
                 break
             payloads = []
             for row in rows:
+                _check_cancel(cancel)
                 values = list(row)
                 row_number += 1
                 row_hash = _row_hash(values, columns)
@@ -1416,13 +1462,10 @@ def _decorate_column_usage(expressions: list[exp.Expression], relations: list[di
                 _collect_join_edges_from_condition(on, statement_relations, join_edges)
 
     union = _UnionFind()
-    edge_expression_by_key: dict[tuple[str, str], set[str]] = {}
-    for left, right, expression_sql in join_edges:
+    for left, right, _expression_sql in join_edges:
         union.add(left)
         union.add(right)
         union.union(left, right)
-        edge_expression_by_key.setdefault(left, set()).add(expression_sql)
-        edge_expression_by_key.setdefault(right, set()).add(expression_sql)
 
     groups: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for key in union.items:
@@ -1433,7 +1476,7 @@ def _decorate_column_usage(expressions: list[exp.Expression], relations: list[di
         group_id = f"J{group_index}"
         for member in members:
             group_by_key[member] = group_id
-            tooltip_by_key[member] = _join_tooltip(member, members, edge_expression_by_key, relation_lookup)
+            tooltip_by_key[member] = _join_tooltip(member, members, relation_lookup)
 
     color_by_group = {
         group_id: JOIN_COLORS[index % len(JOIN_COLORS)]
@@ -1546,22 +1589,13 @@ def _relation_has_column(relation: dict[str, Any], column_name: str) -> bool:
 def _join_tooltip(
     member: tuple[str, str],
     members: list[tuple[str, str]],
-    expressions_by_key: dict[tuple[str, str], set[str]],
     relation_lookup: dict[str, dict[str, Any]],
 ) -> str:
-    details: list[str] = [f"Column hiện tại: {_join_member_detail(member, relation_lookup)}"]
-    joined_members = [item for item in members if item != member]
-    if joined_members:
-        details.append("Join với:")
-        details.extend(f"- {_join_member_detail(item, relation_lookup)}" for item in joined_members)
-    expression_set: set[str] = set()
-    for item in members:
-        expression_set.update(expressions_by_key.get(item, set()))
-    expressions = sorted(expression_set)
-    if expressions:
-        details.append("Biểu thức JOIN:")
-        details.extend(f"- {expression}" for expression in expressions)
-    return "\n".join(details)
+    ordered_members = [member] + sorted(
+        (item for item in members if item != member),
+        key=lambda item: _join_member_sort_key(item, relation_lookup),
+    )
+    return "\n".join(_join_member_detail(item, relation_lookup) for item in ordered_members)
 
 
 def _join_member_detail(member: tuple[str, str], relation_lookup: dict[str, dict[str, Any]]) -> str:
@@ -1573,7 +1607,26 @@ def _join_member_detail(member: tuple[str, str], relation_lookup: dict[str, dict
     display_column = str(column.get("name") or column_name)
     index = column.get("index", "?")
     alias_text = f" AS {alias}" if alias else ""
-    return f"{qualified_name}{alias_text}.{display_column} (index #{index})"
+    return f"{qualified_name}{alias_text}, {display_column}, index #{index}"
+
+
+def _join_member_sort_key(member: tuple[str, str], relation_lookup: dict[str, dict[str, Any]]) -> tuple[Any, ...]:
+    relation_id, column_name = member
+    relation = relation_lookup.get(relation_id, {})
+    column = _column_dict_by_name(relation, column_name)
+    raw_index = column.get("index", 999_999)
+    try:
+        column_index = int(raw_index)
+    except (TypeError, ValueError):
+        column_index = 999_999
+    return (
+        int(relation.get("statement_index") or 0),
+        str(relation.get("scope_id") or ""),
+        str(relation.get("qualified_name") or relation.get("name") or relation_id).lower(),
+        str(relation.get("alias") or "").lower(),
+        column_index,
+        str(column.get("name") or column_name).lower(),
+    )
 
 
 def _column_dict_by_name(relation: dict[str, Any], column_name: str) -> dict[str, Any]:
@@ -1804,7 +1857,9 @@ def _find_negative_row(
     connection,
     adapter: DatabaseAdapter,
     batch_size: int,
+    cancel: CancelChecker | None = None,
 ) -> tuple[list[object] | None, str]:
+    _check_cancel(cancel)
     metadata = _metadata_from_relation(relation)
     if metadata.relation_type != "table":
         return None, "Negative record chỉ hỗ trợ base table."
@@ -1817,11 +1872,13 @@ def _find_negative_row(
         spool.execute(f"CREATE TEMP TABLE {temp_table} (key_hash TEXT PRIMARY KEY)")
         offset = 0
         while True:
+            _check_cancel(cancel)
             rows = _read_spool_rows(workspace.sqlite_path, item_id, offset, batch_size)
             if not rows:
                 break
             keys = []
             for row in rows:
+                _check_cancel(cancel)
                 values = _deserialize_row_payload(str(row["payload"]))
                 keys.append((_pk_hash(values, metadata.columns),))
             spool.executemany(f"INSERT OR IGNORE INTO {temp_table}(key_hash) VALUES (?)", keys)
@@ -1831,12 +1888,15 @@ def _find_negative_row(
         column_sql = ", ".join(adapter.quote_identifier(column.name) for column in metadata.columns)
         order_sql = ", ".join(adapter.quote_identifier(column.name) for column in primary_keys)
         sql = f"SELECT {column_sql} FROM {adapter.qualified_table(metadata)} ORDER BY {order_sql}"
+        _check_cancel(cancel)
         adapter.execute(cursor, sql)
         while True:
+            _check_cancel(cancel)
             rows = cursor.fetchmany(batch_size)
             if not rows:
                 break
             for row in rows:
+                _check_cancel(cancel)
                 values = list(row)
                 key_hash = _pk_hash(values, metadata.columns)
                 exists = spool.execute(f"SELECT 1 FROM {temp_table} WHERE key_hash = ?", (key_hash,)).fetchone()

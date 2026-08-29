@@ -6,7 +6,7 @@ import mimetypes
 import threading
 import uuid
 import webbrowser
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,7 +18,9 @@ from .app_config import AppConfig, load_app_config
 from .copy_ut import run_copy_ut_files
 from .database_io import (
     DatabaseConnectionSettings,
+    OperationCancelledError,
     database_type_options,
+    database_label,
     default_port,
     default_schema,
     export_csv_folder,
@@ -54,8 +56,25 @@ from .sql_database_workspace import SqlDatabaseWorkspaceManager
 APP_TITLE = "AutoCompare"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+DB_CONNECTION_HISTORY_LIMIT = 50
 STATIC_DIR = Path(__file__).resolve().parent / "web"
 Logger = Callable[[str], None]
+
+
+class CancelToken:
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    def cancel(self) -> None:
+        self._event.set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._event.is_set()
+
+    def throw_if_cancelled(self) -> None:
+        if self.cancelled:
+            raise OperationCancelledError("Tác vụ đã được hủy bởi người dùng.")
 
 
 @dataclass
@@ -63,6 +82,7 @@ class WebJob:
     id: str
     action: str
     label: str
+    cancel_token: CancelToken = field(repr=False)
     state: str = "queued"
     status: str = "Đang chờ..."
     logs: list[str] = field(default_factory=list)
@@ -87,6 +107,7 @@ class WebJob:
             "created_at": self.created_at,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "cancel_requested": self.cancel_token.cancelled,
         }
 
 
@@ -99,12 +120,12 @@ class JobManager:
         self,
         action: str,
         label: str,
-        operation: Callable[[Logger], dict[str, Any]],
+        operation: Callable[[Logger, CancelToken], dict[str, Any]],
     ) -> WebJob:
         with self._lock:
             if self._current is not None and self._current.state in {"queued", "running"}:
                 raise RuntimeError("Một tác vụ khác đang chạy. Vui lòng chờ tác vụ hiện tại hoàn tất.")
-            job = WebJob(id=uuid.uuid4().hex, action=action, label=label, status=label)
+            job = WebJob(id=uuid.uuid4().hex, action=action, label=label, cancel_token=CancelToken(), status=label)
             self._current = job
 
         worker = threading.Thread(target=self._run, args=(job, operation), daemon=True)
@@ -117,7 +138,18 @@ class JobManager:
                 return None
             return self._current.snapshot(cursor)
 
-    def _run(self, job: WebJob, operation: Callable[[Logger], dict[str, Any]]) -> None:
+    def cancel_current(self, job_id: str = "") -> dict[str, Any]:
+        with self._lock:
+            if self._current is None or self._current.state not in {"queued", "running"}:
+                return {"cancel_requested": False, "state": "idle"}
+            if job_id and self._current.id != job_id:
+                raise ValueError("Tác vụ cần hủy không còn là tác vụ đang chạy.")
+            self._current.cancel_token.cancel()
+            self._current.status = "Đang hủy tác vụ..."
+            self._current.logs.append("Đã gửi yêu cầu hủy. Hệ thống sẽ dừng tại điểm an toàn gần nhất.")
+            return {"cancel_requested": True, "job": self._current.snapshot()}
+
+    def _run(self, job: WebJob, operation: Callable[[Logger, CancelToken], dict[str, Any]]) -> None:
         with self._lock:
             job.state = "running"
             job.started_at = _now_iso()
@@ -127,7 +159,16 @@ class JobManager:
                 job.logs.append(str(message))
 
         try:
-            result = operation(log)
+            job.cancel_token.throw_if_cancelled()
+            result = operation(log, job.cancel_token)
+        except OperationCancelledError as exc:
+            with self._lock:
+                job.state = "cancelled"
+                job.status = "Đã hủy"
+                job.error = str(exc)
+                job.logs.append(str(exc))
+                job.finished_at = _now_iso()
+            return
         except Exception as exc:
             with self._lock:
                 job.state = "failed"
@@ -186,6 +227,9 @@ class AutoCompareWebApplication:
         self.jobs = JobManager()
         self._state_lock = threading.Lock()
         self._fixme_entries: list[WorkbookFixmeEntry] = []
+        self._db_connection_cache: dict[str, DatabaseConnectionSettings] = {}
+        self._db_connection_history: dict[str, DatabaseConnectionSettings] = {}
+        self._db_table_cache: dict[str, list[str]] = {}
 
     def bootstrap(self, port: int) -> dict[str, Any]:
         notes = self.note_store.load()
@@ -213,6 +257,9 @@ class AutoCompareWebApplication:
             },
             "database_workspace": asdict(self.config.database_workspace),
             "sqlserver_drivers": get_available_sqlserver_drivers(),
+            "database_connections": self._public_database_connection_cache(),
+            "database_connection_history": self._public_database_connection_history(),
+            "database_tables": self._public_database_table_cache(),
             "notes": [_note_to_dict(note) for note in notes],
             "excel_format_presets": [_excel_format_preset_to_dict(item) for item in excel_format_presets],
             "fixmes": self.fixme_snapshot(),
@@ -222,6 +269,99 @@ class AutoCompareWebApplication:
     def fixme_snapshot(self) -> list[dict[str, Any]]:
         with self._state_lock:
             return [_fixme_to_dict(entry, index) for index, entry in enumerate(self._fixme_entries)]
+
+    def _public_database_connection_cache(self) -> dict[str, dict[str, Any]]:
+        with self._state_lock:
+            return {
+                scope: _public_db_settings(settings)
+                for scope, settings in self._db_connection_cache.items()
+            }
+
+    def _public_database_connection_history(self) -> list[dict[str, Any]]:
+        with self._state_lock:
+            return [
+                _public_db_settings(settings)
+                for settings in reversed(list(self._db_connection_history.values()))
+            ]
+
+    def _public_database_table_cache(self) -> dict[str, list[str]]:
+        with self._state_lock:
+            return {scope: list(tables) for scope, tables in self._db_table_cache.items()}
+
+    def _remember_db_connection_history_unlocked(self, settings: DatabaseConnectionSettings) -> None:
+        key = _db_connection_history_key(settings)
+        if key in self._db_connection_history:
+            del self._db_connection_history[key]
+        self._db_connection_history[key] = settings
+        while len(self._db_connection_history) > DB_CONNECTION_HISTORY_LIMIT:
+            oldest_key = next(iter(self._db_connection_history))
+            del self._db_connection_history[oldest_key]
+
+    def _remember_db_connection_history(self, settings: DatabaseConnectionSettings) -> None:
+        validated = _db_settings(asdict(settings))
+        with self._state_lock:
+            self._remember_db_connection_history_unlocked(validated)
+
+    def _remember_db_connection(
+        self,
+        role: str,
+        settings: DatabaseConnectionSettings,
+        tables: list[str] | None = None,
+    ) -> None:
+        role = str(role or "main")
+        validated = _db_settings(asdict(settings))
+        with self._state_lock:
+            self._db_connection_cache[role] = validated
+            self._remember_db_connection_history_unlocked(validated)
+            if tables is not None:
+                self._db_table_cache[role] = list(tables)
+
+    def _db_settings_for_role(self, raw_settings: Any, role: str) -> DatabaseConnectionSettings:
+        settings = _db_settings(raw_settings)
+        role = str(role or "main")
+        if settings.password:
+            return settings
+        with self._state_lock:
+            cached = self._db_connection_cache.get(role)
+            history = list(self._db_connection_history.values())
+        if cached is not None and _db_settings_match_except_password(settings, cached):
+            return replace(settings, password=cached.password)
+        for previous in reversed(history):
+            if _db_settings_match_except_password(settings, previous):
+                return replace(settings, password=previous.password)
+        for previous in reversed(history):
+            if _db_settings_match_server_login_except_password(settings, previous):
+                return replace(settings, password=previous.password)
+        return settings
+
+    def enable_sql_write_mode(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.sql_workspace.enable_write_mode(self._db_settings_for_role(payload.get("settings"), "main"))
+
+    def switch_database_session_cache(self) -> dict[str, Any]:
+        with self._state_lock:
+            self._db_connection_cache["main"], self._db_connection_cache["target"] = (
+                self._db_connection_cache.get("target"),
+                self._db_connection_cache.get("main"),
+            )
+            self._db_connection_cache = {
+                scope: settings
+                for scope, settings in self._db_connection_cache.items()
+                if settings is not None
+            }
+            self._db_table_cache["main"], self._db_table_cache["target"] = (
+                self._db_table_cache.get("target", []),
+                self._db_table_cache.get("main", []),
+            )
+            self._db_table_cache = {
+                scope: list(tables)
+                for scope, tables in self._db_table_cache.items()
+                if tables
+            }
+        return {
+            "database_connections": self._public_database_connection_cache(),
+            "database_connection_history": self._public_database_connection_history(),
+            "database_tables": self._public_database_table_cache(),
+        }
 
     def save_note(self, payload: dict[str, Any]) -> list[dict[str, str]]:
         value = _text(payload, "value")
@@ -313,7 +453,67 @@ class AutoCompareWebApplication:
             "roots": _filesystem_roots(),
         }
 
-    def _operation(self, action: str, payload: dict[str, Any]) -> Callable[[Logger], dict[str, Any]]:
+    def _operation(self, action: str, payload: dict[str, Any]) -> Callable[[Logger, CancelToken], dict[str, Any]]:
+        if action == "db_normalize":
+            return lambda log, cancel: self._database_summary(
+                normalize_csv_folder(
+                    _text(payload, "csv_path"),
+                    self._db_settings_for_role(payload.get("settings"), "main"),
+                    log,
+                    cancel=cancel.throw_if_cancelled,
+                )
+            )
+        if action == "db_import":
+            return lambda log, cancel: self._database_summary(
+                import_csv_folder(
+                    _text(payload, "csv_path"),
+                    self._db_settings_for_role(payload.get("settings"), "main"),
+                    keep_identity=_bool(payload, "keep_identity"),
+                    log=log,
+                    existing_row_mode=str(payload.get("existing_row_mode", "append")),
+                    cancel=cancel.throw_if_cancelled,
+                )
+            )
+        if action == "db_export":
+            return lambda log, cancel: self._database_summary(
+                export_csv_folder(
+                    _text(payload, "csv_path"),
+                    self._db_settings_for_role(payload.get("settings"), "main"),
+                    payload.get("table_names"),
+                    log,
+                    cancel=cancel.throw_if_cancelled,
+                )
+            )
+        if action == "db_sync":
+            return lambda log, cancel: self._database_sync(payload, log, cancel)
+        if action == "db_sql_execute":
+            return lambda log, cancel: self.sql_workspace.execute(
+                _text(payload, "sql"),
+                self._db_settings_for_role(payload.get("settings"), "main"),
+                run_mode=str(payload.get("run_mode", "all")),
+                write_token=str(payload.get("write_token", "")),
+                log=log,
+                cancel=cancel.throw_if_cancelled,
+            )
+        if action == "db_sql_export":
+            return lambda log, cancel: self.sql_workspace.export_sources(
+                _text(payload, "workspace_id"),
+                self._db_settings_for_role(payload.get("settings"), "main"),
+                _text(payload, "output_folder"),
+                relation_ids=payload.get("relation_ids"),
+                log=log,
+                cancel=cancel.throw_if_cancelled,
+            )
+        if action == "db_sql_update":
+            return lambda log, cancel: self.sql_workspace.update_source_rows(
+                _text(payload, "workspace_id"),
+                self._db_settings_for_role(payload.get("settings"), "main"),
+                _text(payload, "relation_id"),
+                payload.get("rows") if isinstance(payload.get("rows"), list) else [],
+                confirmed=payload.get("confirmed") is True,
+                log=log,
+                cancel=cancel.throw_if_cancelled,
+            )
         operations: dict[str, Callable[[Logger], dict[str, Any]]] = {
             "compare": lambda log: self._compare(payload, log),
             "folder_compare": lambda log: self._folder_compare(payload, log),
@@ -445,7 +645,15 @@ class AutoCompareWebApplication:
             ),
             "apply_fixmes": lambda log: self._apply_fixmes(payload, log),
         }
-        return operations[action]
+        base_operation = operations[action]
+
+        def operation(log: Logger, cancel: CancelToken) -> dict[str, Any]:
+            cancel.throw_if_cancelled()
+            result = base_operation(log)
+            cancel.throw_if_cancelled()
+            return result
+
+        return operation
 
     def _load_sql_from_excel(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
         excel_path = _text(payload, "excel_path")
@@ -499,30 +707,41 @@ class AutoCompareWebApplication:
         return {"log_path": str(log_path)}
 
     def _db_test(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
-        settings = _db_settings(payload.get("settings"))
+        role = str(payload.get("role", "main"))
+        settings = self._db_settings_for_role(payload.get("settings"), role)
         test_database_connection(settings)
         log("Kết nối CSDL thành công.")
-        result: dict[str, Any] = {"verified": True, "role": str(payload.get("role", "main"))}
+        result: dict[str, Any] = {"verified": True, "role": role, "connection": _public_db_settings(settings)}
+        tables: list[str] | None = None
         if payload.get("load_tables"):
             tables = list_database_tables(settings)
             result["tables"] = tables
             log(f"Đã tải {len(tables)} table.")
+        self._remember_db_connection(role, settings, tables)
         return result
 
     def _db_list_databases(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
-        names = list_database_names(_db_settings(payload.get("settings")))
+        role = str(payload.get("role", "main"))
+        settings = self._db_settings_for_role(payload.get("settings"), role)
+        names = list_database_names(settings)
         log(f"Đã tải {len(names)} CSDL.")
-        return {"databases": names, "role": str(payload.get("role", "main"))}
+        self._remember_db_connection_history(settings)
+        return {"databases": names, "role": role, "connection": _public_db_settings(settings)}
 
     def _db_list_tables(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
-        tables = list_database_tables(_db_settings(payload.get("settings")))
+        role = str(payload.get("role", "main"))
+        settings = self._db_settings_for_role(payload.get("settings"), role)
+        tables = list_database_tables(settings)
         log(f"Đã tải {len(tables)} table.")
-        return {"tables": tables, "role": str(payload.get("role", "main"))}
+        with self._state_lock:
+            self._remember_db_connection_history_unlocked(settings)
+            self._db_table_cache[role] = list(tables)
+        return {"tables": tables, "role": role, "connection": _public_db_settings(settings)}
 
-    def _database_sync(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
+    def _database_sync(self, payload: dict[str, Any], log: Logger, cancel: CancelToken | None = None) -> dict[str, Any]:
         summary = sync_database_tables(
-            _db_settings(payload.get("source_settings")),
-            _db_settings(payload.get("target_settings")),
+            self._db_settings_for_role(payload.get("source_settings"), "main"),
+            self._db_settings_for_role(payload.get("target_settings"), "target"),
             table_names=payload.get("table_names"),
             record_limit=payload.get("record_limit"),
             keep_identity=_bool(payload, "keep_identity", True),
@@ -531,6 +750,7 @@ class AutoCompareWebApplication:
             sync_mode=str(payload.get("sync_mode", "incremental")),
             batch_size=payload.get("batch_size"),
             delete_target_only=_bool(payload, "delete_target_only", True),
+            cancel=cancel.throw_if_cancelled if cancel else None,
         )
         return {
             "action_name": summary.action_name,
@@ -644,8 +864,14 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
                 job = self.app.start_action(action, payload)
                 self._send_json({"job": job.snapshot()}, HTTPStatus.ACCEPTED)
                 return
+            if parsed.path == "/api/jobs/cancel":
+                self._send_json(self.app.jobs.cancel_current(str(payload.get("job_id", ""))))
+                return
+            if parsed.path == "/api/database/session/switch":
+                self._send_json(self.app.switch_database_session_cache())
+                return
             if parsed.path == "/api/sql-workspace/write-mode/enable":
-                self._send_json(self.app.sql_workspace.enable_write_mode(_db_settings(payload.get("settings"))))
+                self._send_json(self.app.enable_sql_write_mode(payload))
                 return
             if parsed.path == "/api/sql-workspace/write-mode/disable":
                 self._send_json(self.app.sql_workspace.disable_write_mode(str(payload.get("write_token", ""))))
@@ -785,6 +1011,69 @@ def _db_settings(raw_value: Any) -> DatabaseConnectionSettings:
         trust_server_certificate=raw_value.get("trust_server_certificate", True) is True,
         encrypt=raw_value.get("encrypt", True) is True,
     )
+
+
+def _public_db_settings(settings: DatabaseConnectionSettings) -> dict[str, Any]:
+    return {
+        "database_type": database_label(settings.database_type),
+        "host": settings.host,
+        "database": settings.database,
+        "schema": settings.schema,
+        "port": settings.port,
+        "username": settings.username,
+        "password": "",
+        "trusted_connection": settings.trusted_connection,
+        "driver": settings.driver,
+        "trust_server_certificate": settings.trust_server_certificate,
+        "encrypt": settings.encrypt,
+    }
+
+
+def _db_settings_match_except_password(left: DatabaseConnectionSettings, right: DatabaseConnectionSettings) -> bool:
+    return (
+        database_label(left.database_type).casefold() == database_label(right.database_type).casefold()
+        and left.host.strip().casefold() == right.host.strip().casefold()
+        and left.database.strip().casefold() == right.database.strip().casefold()
+        and left.schema.strip().casefold() == right.schema.strip().casefold()
+        and left.port.strip() == right.port.strip()
+        and left.username.strip().casefold() == right.username.strip().casefold()
+        and left.trusted_connection == right.trusted_connection
+        and left.driver.strip().casefold() == right.driver.strip().casefold()
+        and left.trust_server_certificate == right.trust_server_certificate
+        and left.encrypt == right.encrypt
+    )
+
+
+def _db_settings_match_server_login_except_password(
+    left: DatabaseConnectionSettings,
+    right: DatabaseConnectionSettings,
+) -> bool:
+    return (
+        database_label(left.database_type).casefold() == database_label(right.database_type).casefold()
+        and left.host.strip().casefold() == right.host.strip().casefold()
+        and left.port.strip() == right.port.strip()
+        and left.username.strip().casefold() == right.username.strip().casefold()
+        and left.trusted_connection == right.trusted_connection
+        and left.driver.strip().casefold() == right.driver.strip().casefold()
+        and left.trust_server_certificate == right.trust_server_certificate
+        and left.encrypt == right.encrypt
+    )
+
+
+def _db_connection_history_key(settings: DatabaseConnectionSettings) -> str:
+    parts = (
+        database_label(settings.database_type),
+        settings.host,
+        settings.database,
+        settings.schema,
+        settings.port,
+        settings.username,
+        str(settings.trusted_connection),
+        settings.driver,
+        str(settings.trust_server_certificate),
+        str(settings.encrypt),
+    )
+    return "\x1f".join(str(part).strip().casefold() for part in parts)
 
 
 def _fixme_to_dict(entry: WorkbookFixmeEntry, index: int) -> dict[str, Any]:

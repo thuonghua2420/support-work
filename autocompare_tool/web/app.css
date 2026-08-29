@@ -251,7 +251,9 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .database-layout { display: grid; grid-template-columns: minmax(320px, .76fr) minmax(460px, 1.24fr); gap: var(--layout-gap); align-items: start; }
 .connection-card { padding: var(--panel-padding); }
 .connection-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin-bottom: 18px; }
-.connection-fields .field.host-field, .connection-fields .field.auth-row { grid-column: span 2; }
+.connection-fields .field.host-field, .connection-fields .field.auth-row, .connection-fields .field.connection-history-field { grid-column: span 2; }
+.connection-history-field { padding: 10px; border: 1px solid #d8e4f0; border-radius: 10px; background: #f8fbfe; }
+.connection-history-field small { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.4; }
 .connection-fields .check-row { margin: 4px 0 0; }
 .connection-state { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 99px; color: #7c8998; background: #eff3f6; font-size: 9px; font-weight: 750; text-transform: uppercase; }
 .connection-state.verified { color: var(--green); background: var(--green-soft); }
@@ -476,6 +478,8 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .activity-header { display: flex; align-items: center; justify-content: space-between; height: 43px; padding: 0 13px; color: #bfd0e2; background: #0f2035; }
 .activity-header > div { display: flex; align-items: center; gap: 8px; }
 .activity-header strong { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.activity-actions { display: flex; align-items: center; gap: 8px; }
+.activity-actions .danger-button { min-height: 28px; padding: 0 10px; border-radius: 8px; font-size: 10px; }
 .activity-header .icon-button { width: 28px; height: 28px; border-color: rgba(255,255,255,.1); color: #8fa5be; background: transparent; }
 .activity-log, #activity-log { flex: 1; min-height: 0; height: auto; margin: 0; padding: 14px 16px; overflow: auto; color: #b9cbe0; background: #13253c; font: 11px/1.65 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; }
 
@@ -568,7 +572,7 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
   .choice-grid, .two-column, .tool-grid, .table-picker, .connection-fields, .flow-fields { grid-template-columns: 1fr; }
   .browse-button { padding-inline: 10px; }
   .flow-arrow { margin: 0 auto; transform: rotate(90deg); }
-  .connection-fields .field.host-field, .connection-fields .field.auth-row { grid-column: span 1; }
+  .connection-fields .field.host-field, .connection-fields .field.auth-row, .connection-fields .field.connection-history-field { grid-column: span 1; }
   .sync-connections { display: block; }
   .sync-direction { margin: 10px auto; transform: rotate(90deg); }
   .form-actions { align-items: stretch; flex-direction: column; }

@@ -111,4 +111,7 @@
 - Require both a visible browser confirmation and backend `confirmed: true` validation for destructive file and DB actions.
 - Never return database passwords in bootstrap, job status, logs, or result payloads.
 - Never persist database passwords in the browser input cache; restoring connection fields must leave password boxes empty.
+- Browser-persisted database connection history may contain only non-sensitive fields such as type, host, port, database, schema, driver, username, and auth flags.
+- If a verified DB connection is restored after refresh, reuse only the server's in-memory session password cache and only when all non-secret connection fields still match.
+- Long-running DB actions should accept a cooperative cancel checker, check it between batches/files/tables, and roll back active write transactions before surfacing cancellation.
 - Use the server-side filesystem picker for absolute local paths; browsers cannot provide those paths through standard upload controls.
