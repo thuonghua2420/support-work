@@ -142,6 +142,13 @@ Current output formatting:
 - Exported string columns are quoted.
 - Exported numeric columns are not quoted.
 
+### SQL Workspace
+
+Behavior:
+
+- SQL analysis shows every table/reference occurrence so aliases, CTE references, and query scopes remain visible.
+- The table-analysis copy button exports only unique physical database table names in analysis order, formatted as `Table1, Table2, Table3`; CTE and derived-query references are excluded.
+
 Important rule:
 
 - Import does not truncate tables.

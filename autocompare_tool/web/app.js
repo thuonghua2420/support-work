@@ -19,6 +19,7 @@ const state = {
   sourceTables: [],
   selectedTables: [],
   syncProgress: null,
+  sqlAnalysisTables: [],
   sqlWorkspace: {
     workspaceId: "",
     writeToken: "",
@@ -642,7 +643,12 @@ function bindForms() {
   $("#sql-format").addEventListener("click", () => runSqlAction("sql_format"));
   $("#sql-analyze").addEventListener("click", () => runSqlAction("sql_analyze"));
   $("#sql-load-excel").addEventListener("click", runSqlExcelLoad);
+  $("#sql-input").addEventListener("input", () => {
+    clearSqlAnalysisTables();
+    markSqlWorkspaceStale();
+  });
   $("#copy-formatted-sql").addEventListener("click", copyFormattedSql);
+  $("#copy-sql-tables")?.addEventListener("click", copyAnalyzedSqlTables);
   $("#sql-run-current")?.addEventListener("click", () => runSqlExecute("current"));
   $("#sql-run-all")?.addEventListener("click", () => runSqlExecute("all"));
   $("#sql-write-mode")?.addEventListener("click", toggleSqlWriteMode);
@@ -1767,6 +1773,7 @@ function consumeJobResult(job) {
       const analysisPanel = $("#sql-analysis");
       analysisPanel.classList.add("hidden");
       analysisPanel.open = false;
+      clearSqlAnalysisTables();
     }
   }
   if (job.action === "db_sql_execute") {
@@ -1776,6 +1783,7 @@ function consumeJobResult(job) {
       const analysisPanel = $("#sql-analysis");
       analysisPanel.classList.add("hidden");
       analysisPanel.open = false;
+      clearSqlAnalysisTables();
     }
   }
   if (job.action === "db_sql_update") {
@@ -1939,15 +1947,35 @@ function splitSqlStatements(sql) {
 async function copyFormattedSql() {
   const sql = $("#sql-formatted-output").value;
   if (!sql) return;
+  await writeClipboardText(sql, $("#sql-formatted-output"));
+  showToast("Đã sao chép SQL đã format.", "success");
+}
+
+async function copyAnalyzedSqlTables() {
+  if (!state.sqlAnalysisTables.length) return;
+  await writeClipboardText(state.sqlAnalysisTables.join(", "));
+  showToast(`Đã sao chép ${state.sqlAnalysisTables.length} table database.`, "success");
+}
+
+async function writeClipboardText(text, fallbackElement = null) {
   try {
-    await navigator.clipboard.writeText(sql);
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
+    await navigator.clipboard.writeText(text);
   } catch (_error) {
-    const output = $("#sql-formatted-output");
+    const temporaryElement = !fallbackElement;
+    const output = fallbackElement || document.createElement("textarea");
+    if (temporaryElement) {
+      output.value = text;
+      output.style.position = "fixed";
+      output.style.left = "-9999px";
+      output.style.top = "0";
+      document.body.appendChild(output);
+    }
     output.focus();
     output.select();
     document.execCommand("copy");
+    if (temporaryElement) output.remove();
   }
-  showToast("Đã sao chép SQL đã format.", "success");
 }
 
 function renderSqlAnalysis(result) {
@@ -1973,6 +2001,8 @@ function renderSqlAnalysis(result) {
   $("#sql-subquery-count").textContent = String(subqueries.length);
   $("#sql-projection-count").textContent = String(projections.length);
   $("#sql-clause-count").textContent = String(clauses.length);
+  state.sqlAnalysisTables = sqlDatabaseTableNames(tables);
+  updateCopySqlTablesButton();
 
   $("#sql-table-body").innerHTML = tables.length ? tables.map((item, index) => `
     <tr>
@@ -2023,6 +2053,35 @@ function renderSqlAnalysis(result) {
       <small>${escapeHtml(item.scope_name)}</small>
       <code class="sql-code">${escapeHtml(item.expression)}</code>
     </article>`).join("") : sqlEmpty("Không có GROUP BY, ORDER BY hoặc LIMIT.");
+}
+
+function sqlDatabaseTableNames(tables) {
+  const seen = new Set();
+  const result = [];
+  (Array.isArray(tables) ? tables : []).forEach((item) => {
+    if (item?.source_type !== "TABLE") return;
+    const tableName = String(item.qualified_name || item.name || "").trim();
+    if (!tableName) return;
+    const key = tableName.toLocaleLowerCase("vi");
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(tableName);
+  });
+  return result;
+}
+
+function updateCopySqlTablesButton() {
+  const button = $("#copy-sql-tables");
+  if (!button) return;
+  button.disabled = state.sqlAnalysisTables.length === 0;
+  button.textContent = state.sqlAnalysisTables.length
+    ? `Sao chép ${state.sqlAnalysisTables.length} table`
+    : "Sao chép table";
+}
+
+function clearSqlAnalysisTables() {
+  state.sqlAnalysisTables = [];
+  updateCopySqlTablesButton();
 }
 
 function sqlScopeHtml(item) {
