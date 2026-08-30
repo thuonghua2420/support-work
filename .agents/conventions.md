@@ -107,6 +107,7 @@
 - Web job and legacy GUI worker logs should be readable by non-developers.
 - Include relative CSV paths when processing many files.
 - Distinguish skipped files from errors.
+- Keep the web activity log history across tasks; add start/end timestamps, elapsed time, and a separator line after each task.
 
 ## Web UI Rules
 

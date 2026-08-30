@@ -51,6 +51,8 @@ Giao diện Tkinter cũ vẫn có thể mở tạm thời bằng:
 
 Các thao tác xóa, import, export và đồng bộ luôn yêu cầu xác nhận rõ ràng trên giao diện web. DB import không tự truncate table.
 
+Nhật ký tác vụ nằm ở bong bóng góc phải dưới. Log không tự xóa khi chạy tác vụ mới; mỗi tác vụ có thời gian bắt đầu/kết thúc, thời gian xử lý và dòng phân cách `-----------------------------------------`.
+
 ## Format ảnh và workbook Excel
 
 Chọn folder chứa workbook `.xlsx`, `.xlsm`, `.xlsb` hoặc `.xls`. Công cụ áp dụng font và cỡ chữ cho toàn bộ sheet, đưa mỗi sheet về ô `A1`, kéo thanh cuộn ngang/dọc về đầu và chọn sheet đầu tiên trước khi lưu. Khi bật căn ảnh, công cụ dùng logic tham khảo từ `sampleformatimage/sample.vba` để resize ảnh, tách ảnh trái/phải, ghép theo row overlap và sắp xếp lại trong các vùng `Input`, `Steps`, `Output` để ảnh không đè lên nhau. Logic này chạy trực tiếp qua Excel COM nên `.xlsx` cũng căn ảnh được, không cần workbook chứa macro.
@@ -193,7 +195,7 @@ Trang Database dùng một hub kết nối nhỏ ở phần tiêu đề; bấm *
 - **Database 1** dùng cho CSV import/export, SQL Workspace và làm nguồn đồng bộ.
 - **Database 2** chỉ dùng làm database đích khi đồng bộ.
 
-Tab **SQL Workspace** kế thừa formatter/analyzer cũ, đồng thời có thể chạy SQL trực tiếp trên Database 1. `Format` và `Analyze` vẫn chạy khi chưa kết nối DB. `Run current` chạy vùng đang bôi đen hoặc statement tại caret; `Run all` chạy toàn bộ statement theo thứ tự. Mặc định backend chỉ cho statement đọc. DDL/DML cần bật **Write mode**, token tạm thời gắn với fingerprint của Database 1 và tự hết hạn theo `[database_workspace].write_mode_timeout_minutes`; đổi connection sẽ hủy verified state, tắt Write mode và đánh dấu kết quả SQL cũ là stale.
+Tab **SQL Workspace** kế thừa formatter/analyzer cũ, đồng thời có thể chạy SQL trực tiếp trên Database 1. `Format SQL`, `Phân tích toàn bộ` và `Load sheet & format` dùng chung một editor; SQL đã format sẽ ghi đè trực tiếp vào vùng **SQL đầu vào**. Các chức năng format/phân tích vẫn chạy khi chưa kết nối DB. `Chạy hiện tại` chạy vùng đang bôi đen hoặc statement tại caret; `Chạy toàn bộ` chạy toàn bộ statement theo thứ tự. Mặc định backend chỉ cho statement đọc. DDL/DML cần bật **Ghi DB**, token tạm thời gắn với fingerprint của Database 1 và tự hết hạn theo `[database_workspace].write_mode_timeout_minutes`; đổi connection sẽ hủy verified state, tắt chế độ ghi và đánh dấu kết quả SQL cũ là stale.
 
 Kết quả query được đọc bằng `fetchmany()` và spool tạm theo workspace để phân trang, không `fetchall()` toàn bộ result set. Source Data chỉ hiển thị record khi module lineage chứng minh được query rewrite exact; nếu gặp aggregate, CTE/derived phức tạp, correlated subquery hoặc cấu trúc chưa hỗ trợ thì card vẫn hiện nhưng không fallback sang toàn table.
 

@@ -12,6 +12,7 @@ const state = {
   job: null,
   jobCursor: 0,
   handledJobs: new Set(),
+  loggedJobStarts: new Set(),
   pollTimer: null,
   dbVerified: { main: false, source: false, target: false },
   databaseNames: { main: [], source: [], target: [] },
@@ -36,6 +37,8 @@ const UI_CACHE_KEY = "autocompare:last-inputs:v1";
 const DB_HISTORY_CACHE_KEY = "autocompare:database-history:v1";
 const UI_CACHE_DEBOUNCE_MS = 250;
 const DB_HISTORY_LIMIT = 50;
+const ACTIVITY_LOG_READY_TEXT = "AutoCompare đã sẵn sàng.";
+const ACTIVITY_LOG_SEPARATOR = "-----------------------------------------";
 const CANCELLABLE_ACTIONS = new Set([
   "db_test",
   "db_list_databases",
@@ -87,6 +90,7 @@ async function init() {
     if (state.bootstrap.job) {
       state.job = state.bootstrap.job;
       state.jobCursor = 0;
+      appendJobStartLog(state.job);
       await pollJob();
     } else {
       setJobVisual("idle", "Sẵn sàng");
@@ -209,13 +213,13 @@ function prepareDatabaseWorkspaceLayout() {
 
 function enhanceSqlWorkspacePanel(panel) {
   const toolbarText = $(".sql-editor-toolbar small", panel);
-  if (toolbarText) toolbarText.textContent = "Format/Analyze dùng parser; Run dùng Database 1 đã kết nối";
-  const actions = $(".sql-editor-actions > div", panel);
+  if (toolbarText) toolbarText.textContent = "Format/Phân tích dùng parser; chạy SQL dùng Database 1 đã kết nối";
+  const actions = $("#sql-db-actions", panel) || $(".sql-toolbar-actions", panel);
   if (actions && !$("#sql-run-current")) {
     actions.insertAdjacentHTML("beforeend", `
-      <button class="secondary-button" id="sql-run-current" type="button">Run current</button>
-      <button class="secondary-button" id="sql-run-all" type="button">Run all</button>
-      <button class="ghost-button" id="sql-write-mode" type="button">Write mode OFF</button>`);
+      <button class="secondary-button small" id="sql-run-current" type="button">Chạy hiện tại</button>
+      <button class="secondary-button small" id="sql-run-all" type="button">Chạy toàn bộ</button>
+      <button class="ghost-button small" id="sql-write-mode" type="button">Ghi DB OFF</button>`);
   }
   panel.insertAdjacentHTML("beforeend", `
     <section class="card sql-workspace-export">
@@ -250,10 +254,22 @@ function syncDatabaseCommonLayout(group, tab) {
 
 function bindActivityPanel() {
   const panel = $("#activity-panel");
-  $("#activity-toggle").addEventListener("click", () => panel.classList.toggle("collapsed"));
-  $("#job-status-button").addEventListener("click", () => panel.classList.remove("collapsed"));
+  $("#activity-toggle").addEventListener("click", () => {
+    panel.classList.toggle("collapsed");
+    updateActivityToggleTitle();
+  });
+  $("#job-status-button").addEventListener("click", () => {
+    panel.classList.remove("collapsed");
+    updateActivityToggleTitle();
+  });
   $("#clear-log").addEventListener("click", () => { $("#activity-log").textContent = ""; });
   $("#cancel-job").addEventListener("click", cancelCurrentJob);
+  updateActivityToggleTitle();
+}
+
+function updateActivityToggleTitle() {
+  const collapsed = $("#activity-panel")?.classList.contains("collapsed");
+  $("#activity-toggle")?.setAttribute("title", collapsed ? "Mở nhật ký tác vụ" : "Thu gọn nhật ký tác vụ");
 }
 
 function bindUiCache() {
@@ -283,7 +299,7 @@ function shouldCacheControl(control) {
   const id = control.id.toLowerCase();
   if (id.includes("password")) return false;
   if (control.matches("[data-db-history-select]")) return false;
-  if (id === "activity-log" || id === "sql-formatted-output" || id === "path-current" || id === "path-root-select" || id === "save-file-name") return false;
+  if (id === "activity-log" || id === "path-current" || id === "path-root-select" || id === "save-file-name") return false;
   if (id.startsWith("note-") || id.startsWith("confirm-")) return false;
   return true;
 }
@@ -645,9 +661,10 @@ function bindForms() {
   $("#sql-load-excel").addEventListener("click", runSqlExcelLoad);
   $("#sql-input").addEventListener("input", () => {
     clearSqlAnalysisTables();
+    $("#sql-statement-count").textContent = "0 statement";
     markSqlWorkspaceStale();
   });
-  $("#copy-formatted-sql").addEventListener("click", copyFormattedSql);
+  $("#copy-current-sql").addEventListener("click", copyCurrentSql);
   $("#copy-sql-tables")?.addEventListener("click", copyAnalyzedSqlTables);
   $("#sql-run-current")?.addEventListener("click", () => runSqlExecute("current"));
   $("#sql-run-all")?.addEventListener("click", () => runSqlExecute("all"));
@@ -1641,6 +1658,45 @@ function formatDuration(totalSeconds) {
   return `${remain}s`;
 }
 
+function formatDateTime(value) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return String(value || "");
+  const pad = (number) => String(number).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join("-") + ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function jobDuration(job) {
+  const startedAt = job?.started_at || job?.created_at;
+  const finishedAt = job?.finished_at || new Date().toISOString();
+  const start = startedAt ? new Date(startedAt) : null;
+  const finish = finishedAt ? new Date(finishedAt) : null;
+  if (!start || !finish || Number.isNaN(start.getTime()) || Number.isNaN(finish.getTime())) return "Không xác định";
+  const elapsedMs = Math.max(0, finish.getTime() - start.getTime());
+  if (elapsedMs > 0 && elapsedMs < 1000) return "dưới 1s";
+  return formatDuration(elapsedMs / 1000);
+}
+
+function appendJobStartLog(job) {
+  if (!job?.id || state.loggedJobStarts.has(job.id)) return;
+  state.loggedJobStarts.add(job.id);
+  appendActivityLogLines([
+    `[${formatDateTime(job.started_at || job.created_at)}] Bắt đầu tác vụ: ${job.label || job.action || ""}`,
+  ]);
+}
+
+function appendJobFinishLog(job, statusText, detail = "") {
+  appendActivityLogLines([
+    `[${formatDateTime(job?.finished_at)}] Kết thúc tác vụ: ${statusText}`,
+    `Thời gian xử lý: ${jobDuration(job)}`,
+    ...(detail ? [`Kết quả: ${detail}`] : []),
+    ACTIVITY_LOG_SEPARATOR,
+  ]);
+}
+
 async function startAction(action, payload) {
   if (state.job && ["queued", "running"].includes(state.job.state)) {
     showToast("Một tác vụ khác đang chạy. Vui lòng chờ hoàn tất.", "error");
@@ -1652,7 +1708,7 @@ async function startAction(action, payload) {
     state.jobCursor = 0;
     setJobVisual("running", state.job.label);
     $("#activity-subtitle").textContent = state.job.label;
-    $("#activity-log").textContent = "";
+    appendJobStartLog(state.job);
     setBusy(true);
     schedulePoll(100);
   } catch (error) {
@@ -1706,6 +1762,7 @@ function updateJobState(job) {
   if (["queued", "running"].includes(job.state)) {
     setBusy(true);
     setJobVisual("running", job.status || job.label);
+    appendJobStartLog(job);
     return;
   }
   setBusy(false);
@@ -1719,18 +1776,24 @@ function updateJobState(job) {
   if (job.state === "cancelled") {
     setJobVisual("idle", "Đã hủy");
     $("#activity-panel").classList.remove("collapsed");
+    updateActivityToggleTitle();
+    appendJobFinishLog(job, "Đã hủy", job.error || "Tác vụ đã được hủy.");
     showToast(job.error || "Tác vụ đã được hủy.", "success", 5500);
     return;
   }
   if (job.state === "failed") {
     setJobVisual("error", "Tác vụ thất bại");
     $("#activity-panel").classList.remove("collapsed");
+    updateActivityToggleTitle();
+    appendJobFinishLog(job, "Thất bại", job.error || "Tác vụ thất bại.");
     showToast(job.error || "Tác vụ thất bại.", "error", 7000);
     return;
   }
   setJobVisual("success", "Hoàn tất");
   consumeJobResult(job);
-  showToast(summaryMessage(job), "success", 5500);
+  const message = summaryMessage(job);
+  appendJobFinishLog(job, "Hoàn tất", message);
+  showToast(message, "success", 5500);
 }
 
 function consumeJobResult(job) {
@@ -1765,9 +1828,12 @@ function consumeJobResult(job) {
       markSqlWorkspaceStale();
       saveUiCacheDebounced();
     }
-    $("#sql-formatted-output").value = result.formatted_sql || "";
+    if (result.formatted_sql) {
+      $("#sql-input").value = result.formatted_sql;
+      markSqlWorkspaceStale();
+      saveUiCacheDebounced();
+    }
     $("#sql-statement-count").textContent = `${result.statement_count || 0} statement`;
-    $("#sql-output-card").classList.remove("hidden");
     if (job.action === "sql_analyze") renderSqlAnalysis(result);
     else {
       const analysisPanel = $("#sql-analysis");
@@ -1850,13 +1916,13 @@ async function toggleSqlWriteMode() {
       // Local token is temporary; clearing it is enough when the server already dropped it.
     }
     disableSqlWriteModeLocal();
-    showToast("Đã tắt Write mode.", "success");
+    showToast("Đã tắt chế độ ghi DB.", "success");
     return;
   }
   if (!requireVerified("main")) return;
   const confirmed = await confirmAction(
-    "Bật Write mode cho SQL editor?",
-    "DDL/DML sẽ được phép chạy trong 30 phút cho Database 1 hiện tại. Batch Run all sẽ rollback nếu có lỗi khi database hỗ trợ transaction; một số DDL/MySQL/Oracle có thể implicit commit."
+    "Bật chế độ ghi DB cho SQL editor?",
+    "DDL/DML sẽ được phép chạy trong 30 phút cho Database 1 hiện tại. Chạy toàn bộ sẽ rollback nếu có lỗi khi database hỗ trợ transaction; một số DDL/MySQL/Oracle có thể implicit commit."
   );
   if (!confirmed) return;
   try {
@@ -1867,7 +1933,7 @@ async function toggleSqlWriteMode() {
     state.sqlWorkspace.writeToken = result.write_token || "";
     state.sqlWorkspace.writeExpiresAt = result.expires_at || "";
     updateSqlWriteModeButton();
-    showToast("Write mode đã bật.", "success");
+    showToast("Chế độ ghi DB đã bật.", "success");
   } catch (error) {
     showToast(error.message, "error", 7000);
   }
@@ -1885,7 +1951,7 @@ function updateSqlWriteModeButton() {
   const enabled = Boolean(state.sqlWorkspace.writeToken);
   button.classList.toggle("danger-button", enabled);
   button.classList.toggle("ghost-button", !enabled);
-  button.textContent = enabled ? "Write mode ON" : "Write mode OFF";
+  button.textContent = enabled ? "Ghi DB ON" : "Ghi DB OFF";
 }
 
 function markSqlWorkspaceStale() {
@@ -1944,11 +2010,11 @@ function splitSqlStatements(sql) {
   return ranges;
 }
 
-async function copyFormattedSql() {
-  const sql = $("#sql-formatted-output").value;
-  if (!sql) return;
-  await writeClipboardText(sql, $("#sql-formatted-output"));
-  showToast("Đã sao chép SQL đã format.", "success");
+async function copyCurrentSql() {
+  const sql = $("#sql-input").value;
+  if (!sql.trim()) return;
+  await writeClipboardText(sql, $("#sql-input"));
+  showToast("Đã sao chép SQL trong editor.", "success");
 }
 
 async function copyAnalyzedSqlTables() {
@@ -2543,9 +2609,16 @@ function setBusy(busy) {
 }
 
 function appendLogs(lines) {
-  const log = $("#activity-log");
   const visibleLines = lines.filter((line) => !consumeSyncProgressLog(line));
   if (!visibleLines.length) return;
+  appendActivityLogLines(visibleLines);
+}
+
+function appendActivityLogLines(lines) {
+  const log = $("#activity-log");
+  const visibleLines = lines.map((line) => String(line ?? ""));
+  if (!visibleLines.length) return;
+  if (log.textContent.trim() === ACTIVITY_LOG_READY_TEXT) log.textContent = "";
   const prefix = log.textContent && !log.textContent.endsWith("\n") ? "\n" : "";
   log.textContent += prefix + visibleLines.join("\n") + "\n";
   log.scrollTop = log.scrollHeight;

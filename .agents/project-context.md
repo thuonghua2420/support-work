@@ -20,7 +20,7 @@ The web UI is organized by a left-side navigation menu:
 - `Copy UT Files`: source/target copy workflow.
 - `Database`: DB connection, CSV normalize/import/export, and database-to-database synchronization.
 
-Long-running actions run one at a time in a background job. The web UI shows live status and incremental logs in the activity panel.
+Long-running actions run one at a time in a background job. The web UI shows live status and incremental logs in a bottom-right floating activity bubble that expands into the task log panel. The log keeps previous task history, adds start/end timestamps, shows elapsed time, and writes a separator after each completed task.
 
 ### Run Compare
 
@@ -142,18 +142,19 @@ Current output formatting:
 - Exported string columns are quoted.
 - Exported numeric columns are not quoted.
 
-### SQL Workspace
-
-Behavior:
-
-- SQL analysis shows every table/reference occurrence so aliases, CTE references, and query scopes remain visible.
-- The table-analysis copy button exports only unique physical database table names in analysis order, formatted as `Table1, Table2, Table3`; CTE and derived-query references are excluded.
-
 Important rule:
 
 - Import does not truncate tables.
 - Import skips computed/generated/rowversion columns.
 - Identity columns are included only when users choose to keep identity values and the adapter can support that database behavior.
+
+### SQL Workspace
+
+Behavior:
+
+- SQL format, analysis, and Excel SQL loading use one shared editor; formatted SQL overwrites the editor content instead of appearing in a separate output panel.
+- SQL analysis shows every table/reference occurrence so aliases, CTE references, and query scopes remain visible.
+- The table-analysis copy button exports only unique physical database table names in analysis order, formatted as `Table1, Table2, Table3`; CTE and derived-query references are excluded.
 
 ## Domain Terms
 

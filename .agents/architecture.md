@@ -396,7 +396,7 @@ Selected folder or Excel file
 ```text
 SQL text + selected dialect
   -> parse all statements into SQLGlot ASTs
-  -> format each statement with pretty output
+  -> format each statement with pretty output and update the SQL editor in place
   -> traverse query scopes
   -> collect tables/aliases + conditions + CTE/subquery/projection/clause metadata
   -> return structured JSON for the web result panels

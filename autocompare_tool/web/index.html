@@ -234,8 +234,8 @@
 
           <form class="card sql-editor-card" id="sql-studio-form">
             <div class="sql-editor-toolbar">
-              <div><span class="step-number">01</span><div><h3>SQL đầu vào</h3><small>Không thực thi SQL và không kết nối database</small></div></div>
-              <label class="sql-dialect-control"><span>Dialect</span><select id="sql-dialect">
+              <div class="sql-editor-title"><span class="step-number">01</span><div><h3>SQL đầu vào</h3><small>Format ghi đè vào editor; phân tích/chạy dùng SQL hiện tại</small></div><span class="count-badge" id="sql-statement-count">0 statement</span></div>
+              <div class="sql-editor-header-controls"><label class="sql-dialect-control"><span>Dialect</span><select id="sql-dialect">
                 <option value="">Tự động / SQL phổ thông</option>
                 <option value="tsql">SQL Server (T-SQL)</option>
                 <option value="mysql">MySQL</option>
@@ -247,7 +247,15 @@
                 <option value="spark">Spark SQL</option>
                 <option value="databricks">Databricks</option>
                 <option value="duckdb">DuckDB</option>
-              </select></label>
+              </select></label></div>
+              <div class="sql-toolbar-actions">
+                <div class="sql-action-group">
+                  <button class="secondary-button small" id="copy-current-sql" type="button">Sao chép SQL</button>
+                  <button class="secondary-button small" id="sql-format" type="button">Format SQL</button>
+                  <button class="primary-button small" id="sql-analyze" type="button">Phân tích toàn bộ <b>→</b></button>
+                </div>
+                <div class="sql-action-group sql-db-action-group" id="sql-db-actions"></div>
+              </div>
             </div>
             <div class="sql-excel-loader">
               <label class="field"><span>File Excel chứa SQL</span><span class="path-control"><input id="sql-excel-path" autocomplete="off"><button class="browse-button" type="button" data-browse-target="sql-excel-path" data-browse-kind="file" data-browse-ext="xlsx,xlsm,xltx,xltm">Chọn</button></span></label>
@@ -256,16 +264,7 @@
               <small>Đọc số thứ tự ở cột A; SQL chỉ lấy từ cột B. Nếu cột C cùng row có nội dung, hệ thống sẽ chèn nội dung đó thành comment cho dòng SQL tương ứng.</small>
             </div>
             <div class="sql-editor-wrap"><span class="sql-gutter" aria-hidden="true">SQL</span><textarea id="sql-input" rows="18" spellcheck="false" placeholder="Dán câu SQL vào đây..." required></textarea></div>
-            <div class="sql-editor-actions">
-              <span class="hint">Hỗ trợ nhiều statement; chọn đúng dialect để nhận diện cú pháp đặc thù chính xác nhất.</span>
-              <div><button class="secondary-button" id="sql-format" type="button">Format SQL</button><button class="primary-button" id="sql-analyze" type="button">Phân tích toàn bộ <b>→</b></button></div>
-            </div>
           </form>
-
-          <section class="card sql-output-card hidden" id="sql-output-card">
-            <div class="card-heading"><div><span class="step-number">02</span><h3>SQL đã format</h3><span class="count-badge" id="sql-statement-count">0 statement</span></div><button class="secondary-button small" id="copy-formatted-sql" type="button">Sao chép</button></div>
-            <textarea class="sql-formatted-output" id="sql-formatted-output" rows="18" readonly spellcheck="false"></textarea>
-          </section>
 
           <details class="card sql-analysis hidden" id="sql-analysis">
             <summary class="sql-analysis-summary">
@@ -425,7 +424,7 @@
   </div>
 
   <aside class="activity-panel collapsed" id="activity-panel" aria-label="Nhật ký tác vụ">
-    <button class="activity-handle" id="activity-toggle" type="button"><span class="activity-icon">⌘</span><span><strong>Nhật ký tác vụ</strong><small id="activity-subtitle">Chưa có hoạt động</small></span><b>⌃</b></button>
+    <button class="activity-handle" id="activity-toggle" type="button" title="Mở nhật ký tác vụ"><span class="activity-icon">LOG</span><span><strong>Nhật ký tác vụ</strong><small id="activity-subtitle">Chưa có hoạt động</small></span><b>⌃</b></button>
     <div class="activity-body"><div class="activity-header"><div><span class="status-dot"></span><strong id="activity-title">Sẵn sàng</strong></div><div class="activity-actions"><button class="danger-button small hidden" id="cancel-job" type="button">Hủy tác vụ</button><button class="icon-button" id="clear-log" type="button" title="Xóa log">×</button></div></div><pre id="activity-log">AutoCompare đã sẵn sàng.</pre></div>
   </aside>
 
