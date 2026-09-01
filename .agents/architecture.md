@@ -10,6 +10,7 @@ run.bat
     -> web_app.py -> web/index.html + web/app.css + web/app.js
       -> app_config.py      -> autocompare_config.ini
       -> processor.py       -> excel_writer.py -> compare.py -> csv_table.py
+      -> compare_workbook_view.py -> generated compare .xlsx
       -> folder_compare.py  -> excel_writer.py -> compare.py -> csv_table.py
       -> excel_image_formatter.py -> Microsoft Excel Desktop COM
       -> excel_format_presets.py -> excel_format_presets.json
@@ -36,6 +37,7 @@ Owns:
 - Web request validation, destructive-action confirmation enforcement, and mapping request payloads into existing workflow calls.
 - Server-side local path browsing for directory/file selection.
 - In-memory FIXME review state for the latest compare run.
+- In-memory compare workbook references for the browser preview; sheet data is loaded only from generated compare workbooks, not arbitrary browser-supplied paths.
 
 Rules:
 
@@ -147,6 +149,18 @@ Owns:
 Keep:
 
 - Compare workbook text labels in `[excel_headers]` and style colors in `[excel_compare_style]` of `autocompare_config.ini`.
+
+### `autocompare_tool/compare_workbook_view.py`
+
+Owns:
+
+- Building the Case/workbook/sheet index for the latest generated compare output.
+- Reading compare workbook sheets with `openpyxl` and serializing cell values, compare colors, row heights, column widths, and FIXME cell mappings for the web preview. Font and size stay controlled by the web UI.
+
+Rules:
+
+- Read only workbook references stored by `web_app.py` after compare workflows.
+- Keep preview data close to the real workbook output so browser colors and mapped/unmapped columns match the exported Excel file.
 
 ### `autocompare_tool/excel_image_formatter.py`
 

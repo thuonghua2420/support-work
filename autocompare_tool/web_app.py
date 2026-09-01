@@ -15,6 +15,11 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 from .app_config import AppConfig, load_app_config
+from .compare_workbook_view import (
+    CompareWorkbookReference,
+    build_compare_view_index,
+    read_compare_sheet,
+)
 from .copy_ut import run_copy_ut_files
 from .database_io import (
     DatabaseConnectionSettings,
@@ -227,6 +232,7 @@ class AutoCompareWebApplication:
         self.jobs = JobManager()
         self._state_lock = threading.Lock()
         self._fixme_entries: list[WorkbookFixmeEntry] = []
+        self._compare_workbooks: list[CompareWorkbookReference] = []
         self._db_connection_cache: dict[str, DatabaseConnectionSettings] = {}
         self._db_connection_history: dict[str, DatabaseConnectionSettings] = {}
         self._db_table_cache: dict[str, list[str]] = {}
@@ -263,12 +269,30 @@ class AutoCompareWebApplication:
             "notes": [_note_to_dict(note) for note in notes],
             "excel_format_presets": [_excel_format_preset_to_dict(item) for item in excel_format_presets],
             "fixmes": self.fixme_snapshot(),
+            "compare_view": self.compare_view_index(),
             "job": self.jobs.snapshot(),
         }
 
     def fixme_snapshot(self) -> list[dict[str, Any]]:
         with self._state_lock:
             return [_fixme_to_dict(entry, index) for index, entry in enumerate(self._fixme_entries)]
+
+    def compare_view_index(self) -> dict[str, Any]:
+        with self._state_lock:
+            workbooks = list(self._compare_workbooks)
+        return build_compare_view_index(workbooks)
+
+    def compare_sheet_snapshot(self, workbook_id: str, sheet_name: str) -> dict[str, Any]:
+        try:
+            index = int(workbook_id)
+        except ValueError as exc:
+            raise ValueError("Workbook compare không hợp lệ.") from exc
+        with self._state_lock:
+            workbooks = list(self._compare_workbooks)
+            fixme_entries = list(self._fixme_entries)
+        if index < 0 or index >= len(workbooks):
+            raise ValueError("Workbook compare không tồn tại trong lần so sánh hiện tại.")
+        return read_compare_sheet(workbooks[index], sheet_name, fixme_entries)
 
     def _public_database_connection_cache(self) -> dict[str, dict[str, Any]]:
         with self._state_lock:
@@ -676,7 +700,16 @@ class AutoCompareWebApplication:
         if not isinstance(selected, list) or not selected:
             raise ValueError("Vui lòng chọn ít nhất một tùy chọn so sánh.")
         summary = process_root(_text(payload, "root"), log=log, selected_workflow_keys=set(map(str, selected)))
-        self._set_fixmes(summary.fixme_entries)
+        workbooks = [
+            CompareWorkbookReference(
+                case_folder_name=test_case.case_path.name,
+                workbook_path=workbook.output_path,
+                workbook_name=workbook.output_path.name,
+            )
+            for test_case in summary.test_cases
+            for workbook in test_case.workbooks
+        ]
+        self._set_compare_result(summary.fixme_entries, workbooks)
         workbook_count = sum(len(case.workbooks) for case in summary.test_cases)
         return {
             "processed_count": summary.processed_count,
@@ -685,6 +718,7 @@ class AutoCompareWebApplication:
             "errors": summary.errors,
             "fixme_count": len(summary.fixme_entries),
             "fixmes": self.fixme_snapshot(),
+            "compare_view": self.compare_view_index(),
         }
 
     def _folder_compare(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
@@ -694,12 +728,22 @@ class AutoCompareWebApplication:
             _text(payload, "output"),
             log=log,
         )
-        self._set_fixmes(summary.fixme_entries)
+        self._set_compare_result(
+            summary.fixme_entries,
+            [
+                CompareWorkbookReference(
+                    case_folder_name=f"{summary.left_dir.name} - {summary.right_dir.name}",
+                    workbook_path=summary.output_path,
+                    workbook_name=summary.output_path.name,
+                )
+            ],
+        )
         return {
             "output_path": str(summary.output_path),
             "sheet_count": summary.sheet_count,
             "fixme_count": len(summary.fixme_entries),
             "fixmes": self.fixme_snapshot(),
+            "compare_view": self.compare_view_index(),
         }
 
     def _copy_ut(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
@@ -796,6 +840,15 @@ class AutoCompareWebApplication:
         with self._state_lock:
             self._fixme_entries = list(entries)
 
+    def _set_compare_result(
+        self,
+        fixme_entries: list[WorkbookFixmeEntry],
+        workbooks: list[CompareWorkbookReference],
+    ) -> None:
+        with self._state_lock:
+            self._fixme_entries = list(fixme_entries)
+            self._compare_workbooks = list(workbooks)
+
     @staticmethod
     def _file_summary(summary: Any) -> dict[str, Any]:
         return _jsonable(summary)
@@ -836,6 +889,18 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/fixmes":
                 self._send_json({"fixmes": self.app.fixme_snapshot()})
+                return
+            if parsed.path == "/api/compare-view":
+                self._send_json({"compare_view": self.app.compare_view_index()})
+                return
+            if parsed.path == "/api/compare-view/sheet":
+                query = parse_qs(parsed.query)
+                self._send_json(
+                    self.app.compare_sheet_snapshot(
+                        query.get("workbook_id", [""])[0],
+                        query.get("sheet", [""])[0],
+                    )
+                )
                 return
             if parsed.path == "/api/fs":
                 query = parse_qs(parsed.query)

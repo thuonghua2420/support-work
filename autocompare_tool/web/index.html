@@ -125,6 +125,27 @@
               </table>
             </div>
           </section>
+
+          <section class="card compare-preview-card hidden" id="compare-preview-card">
+            <div class="card-heading">
+              <div><span class="step-number">04</span><h3>Xem trực tiếp file Compare</h3><span class="count-badge" id="compare-preview-meta">0 workbook</span></div>
+              <div class="inline-actions"><button class="secondary-button small" id="refresh-compare-preview" type="button">Tải lại view</button><button class="primary-button small" id="apply-fixmes-preview" type="button">Áp dụng Note</button></div>
+            </div>
+            <div class="compare-preview-shell">
+              <header class="compare-preview-tabs">
+                <div class="compare-tab-line"><span>Case</span><div class="compare-tabs" id="compare-case-tabs"></div></div>
+                <div class="compare-tab-line"><span>File compare</span><div class="compare-tabs" id="compare-workbook-tabs"></div></div>
+              </header>
+              <div class="compare-grid-wrap">
+                <div class="compare-preview-status" id="compare-preview-status">Chọn case, file compare và sheet để xem dữ liệu.</div>
+                <table class="compare-grid hidden" id="compare-preview-table"></table>
+              </div>
+              <footer class="compare-sheet-footer">
+                <span>Sheet</span>
+                <div class="compare-tabs sheet-tabs" id="compare-sheet-tabs"></div>
+              </footer>
+            </div>
+          </section>
         </section>
 
         <section class="page" id="page-folder-compare" data-title="Compare Csv With Path" data-eyebrow="WORKSPACE / FOLDER COMPARE">

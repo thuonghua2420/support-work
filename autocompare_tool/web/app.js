@@ -8,7 +8,9 @@ const state = {
   fixmeFilters: {},
   fixmeSelections: {},
   fixmeCheckedRows: new Set(),
-  fixmeSort: { field: "", direction: "asc" },
+  fixmeSortTouched: false,
+  fixmeSorts: defaultFixmeSorts(),
+  compareView: { cases: [], activeCaseId: "", activeWorkbookId: "", activeSheetName: "", sheet: null, loadingKey: "" },
   job: null,
   jobCursor: 0,
   handledJobs: new Set(),
@@ -37,6 +39,14 @@ const UI_CACHE_KEY = "autocompare:last-inputs:v1";
 const DB_HISTORY_CACHE_KEY = "autocompare:database-history:v1";
 const UI_CACHE_DEBOUNCE_MS = 250;
 const DB_HISTORY_LIMIT = 50;
+const COMPARE_PREVIEW_COLORS = {
+  a1Background: "#FFC7CE",
+  headerBackground: "#C6EFCE",
+  nameBackground: "#E2EFDA",
+  diffBackground: "#E5CCFF",
+  diffText: "#9C0006",
+  text: "#000000",
+};
 const ACTIVITY_LOG_READY_TEXT = "AutoCompare đã sẵn sàng.";
 const ACTIVITY_LOG_SEPARATOR = "-----------------------------------------";
 const CANCELLABLE_ACTIONS = new Set([
@@ -51,6 +61,16 @@ const CANCELLABLE_ACTIONS = new Set([
   "db_sql_export",
   "db_sql_update",
 ]);
+
+function defaultFixmeSorts() {
+  return [
+    { field: "case_folder_name", direction: "asc" },
+    { field: "workbook_name", direction: "asc" },
+    { field: "csv_sheet_name", direction: "asc" },
+    { field: "record_number", direction: "asc" },
+  ];
+}
+
 let uiCacheTimer = null;
 let uiCacheRestoring = false;
 let uiCacheBound = false;
@@ -63,6 +83,7 @@ document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
   prepareDatabaseWorkspaceLayout();
+  prepareCompareReviewLayout();
   bindNavigation();
   bindMobileMenu();
   bindTabs();
@@ -74,6 +95,7 @@ async function init() {
     state.notes = state.bootstrap.notes || [];
     state.excelFormatPresets = state.bootstrap.excel_format_presets || [];
     state.fixmes = state.bootstrap.fixmes || [];
+    state.compareView = normalizeCompareView(state.bootstrap.compare_view);
     state.databaseHistory = loadDatabaseHistoryCache(state.bootstrap.database_connection_history || []);
     saveDatabaseHistoryCache();
     hydrateDefaults();
@@ -83,6 +105,7 @@ async function init() {
     refreshFixmeNoteOptions();
     renderExcelFormatPresets();
     renderFixmes();
+    renderComparePreview();
     renderTables();
     restoreUiCache();
     restoreDatabaseSessionConnections();
@@ -98,6 +121,28 @@ async function init() {
   } catch (error) {
     showToast(error.message, "error", 7000);
     setJobVisual("error", "Không thể khởi tạo");
+  }
+}
+
+function prepareCompareReviewLayout() {
+  const comparePage = $("#page-compare");
+  const previewCard = $("#compare-preview-card", comparePage);
+  const fixmeCard = $(".fixme-card", comparePage);
+  if (previewCard && fixmeCard && previewCard.compareDocumentPosition(fixmeCard) & Node.DOCUMENT_POSITION_PRECEDING) {
+    comparePage.insertBefore(previewCard, fixmeCard);
+  }
+  const previewStep = $(".step-number", previewCard);
+  const fixmeStep = $(".step-number", fixmeCard);
+  if (previewStep) previewStep.textContent = "03";
+  if (fixmeStep) fixmeStep.textContent = "04";
+  if (previewCard && !$("#compare-bulk-tools")) {
+    $(".card-heading", previewCard)?.insertAdjacentHTML("afterend", `
+      <div class="compare-bulk-toolbar hidden" id="compare-bulk-tools">
+        <span id="compare-checked-count">0 dòng đã tick</span>
+        <select id="compare-bulk-note"></select>
+        <button class="secondary-button small" id="compare-bulk-assign" type="button">Gán note cho dòng đã tick</button>
+        <button class="ghost-button small" id="compare-bulk-clear" type="button">Bỏ tick</button>
+      </div>`);
   }
 }
 
@@ -832,16 +877,23 @@ function bindForms() {
   $("#fixme-bulk-clear").addEventListener("click", clearBulkFixmeNotes);
   $("#fixme-clear-filters").addEventListener("click", clearFixmeFilters);
   $("#fixme-check-visible").addEventListener("change", toggleVisibleFixmeRows);
-  $("#apply-fixmes").addEventListener("click", () => {
+  $("#apply-fixmes").addEventListener("click", applySelectedFixmeNotes);
+  $("#apply-fixmes-preview").addEventListener("click", applySelectedFixmeNotes);
+  $("#refresh-compare-preview").addEventListener("click", refreshComparePreview);
+  $("#compare-bulk-note")?.addEventListener("change", updateCompareBulkToolbarState);
+  $("#compare-bulk-assign")?.addEventListener("click", assignCompareBulkNote);
+  $("#compare-bulk-clear")?.addEventListener("click", clearCompareRowSelection);
+
+  $$('[data-browse-target]').forEach((button) => button.addEventListener("click", () => openPathPicker(button)));
+}
+
+function applySelectedFixmeNotes() {
     const selections = Object.fromEntries(Object.entries(state.fixmeSelections).filter(([, value]) => value));
     if (!Object.keys(selections).length) {
       showToast("Vui lòng gán ít nhất một note cho dòng FIXME.", "error");
       return;
     }
     startAction("apply_fixmes", { selections });
-  });
-
-  $$('[data-browse-target]').forEach((button) => button.addEventListener("click", () => openPathPicker(button)));
 }
 
 function bindDialogs() {
@@ -1173,8 +1225,11 @@ function renderFixmes() {
     select.addEventListener("change", () => {
       if (select.value) state.fixmeSelections[select.dataset.fixmeIndex] = select.value;
       else delete state.fixmeSelections[select.dataset.fixmeIndex];
-      if (state.fixmeSort.field === "note" || state.fixmeFilters.note) renderFixmes();
-      else updateFixmeToolbarState(filteredEntries);
+      if ((state.fixmeSorts || []).some((sort) => sort.field === "note") || state.fixmeFilters.note) renderFixmes();
+      else {
+        updateFixmeToolbarState(filteredEntries);
+        syncComparePreviewNoteControls();
+      }
     });
   });
   $$("[data-fixme-check-index]").forEach((checkbox) => {
@@ -1183,20 +1238,27 @@ function renderFixmes() {
       if (checkbox.checked) state.fixmeCheckedRows.add(index);
       else state.fixmeCheckedRows.delete(index);
       updateFixmeToolbarState(filteredEntries);
+      syncComparePreviewNoteControls();
+      updateCompareBulkToolbarState();
     });
   });
   updateFixmeToolbarState(filteredEntries);
+  syncComparePreviewNoteControls();
 }
 
 function refreshFixmeNoteOptions() {
   const bulkSelect = $("#fixme-bulk-note");
   const noteFilter = $("#fixme-filter-note");
+  const compareBulkSelect = $("#compare-bulk-note");
   const previousBulkNote = bulkSelect.value;
   const previousNoteFilter = noteFilter.value;
+  const previousCompareBulkNote = compareBulkSelect?.value || "";
   bulkSelect.innerHTML = fixmeNoteOptionsHtml("Chọn note");
   noteFilter.innerHTML = fixmeNoteOptionsHtml("Tất cả");
+  if (compareBulkSelect) compareBulkSelect.innerHTML = fixmeNoteOptionsHtml("Chọn note");
   if (state.notes.some((note) => note.value === previousBulkNote)) bulkSelect.value = previousBulkNote;
   if (state.notes.some((note) => note.value === previousNoteFilter)) noteFilter.value = previousNoteFilter;
+  if (compareBulkSelect && state.notes.some((note) => note.value === previousCompareBulkNote)) compareBulkSelect.value = previousCompareBulkNote;
 
   $$('select[data-fixme-index]').forEach((select) => {
     const currentValue = select.value;
@@ -1204,6 +1266,8 @@ function refreshFixmeNoteOptions() {
     state.notes.forEach((note) => select.add(new Option(note.value, note.value)));
     if (state.notes.some((note) => note.value === currentValue)) select.value = currentValue;
   });
+  syncComparePreviewNoteControls();
+  updateCompareBulkToolbarState();
   updateFixmeToolbarState();
   updateSqlDirtyButtons();
   if ($("#sql-export-all") && !state.sqlWorkspace.exportable) $("#sql-export-all").disabled = true;
@@ -1231,14 +1295,17 @@ function filteredFixmes() {
 }
 
 function sortedFixmes(entries) {
-  const field = state.fixmeSort.field;
-  if (!field) return entries;
-  const direction = state.fixmeSort.direction === "desc" ? -1 : 1;
+  const sorts = Array.isArray(state.fixmeSorts) ? state.fixmeSorts.filter((sort) => sort.field) : defaultFixmeSorts();
+  if (!sorts.length) return entries;
   return entries
     .map((entry, order) => ({ entry, order }))
     .sort((left, right) => {
-      const compared = compareFixmeSortValues(fixmeFieldValue(left.entry, field), fixmeFieldValue(right.entry, field), field);
-      return compared ? compared * direction : left.order - right.order;
+      for (const sort of sorts) {
+        const direction = sort.direction === "desc" ? -1 : 1;
+        const compared = compareFixmeSortValues(fixmeFieldValue(left.entry, sort.field), fixmeFieldValue(right.entry, sort.field), sort.field);
+        if (compared) return compared * direction;
+      }
+      return left.order - right.order;
     })
     .map((item) => item.entry);
 }
@@ -1285,26 +1352,45 @@ function updateFixmeFilter(event) {
 
 function updateFixmeSort(field) {
   if (!field) return;
-  if (state.fixmeSort.field === field) {
-    state.fixmeSort.direction = state.fixmeSort.direction === "asc" ? "desc" : "asc";
+  const currentSorts = state.fixmeSortTouched && Array.isArray(state.fixmeSorts) ? [...state.fixmeSorts] : [];
+  const existingIndex = currentSorts.findIndex((sort) => sort.field === field);
+  if (existingIndex >= 0) {
+    const existing = currentSorts[existingIndex];
+    currentSorts[existingIndex] = { field, direction: existing.direction === "asc" ? "desc" : "asc" };
   } else {
-    state.fixmeSort = { field, direction: "asc" };
+    currentSorts.push({ field, direction: "asc" });
   }
+  state.fixmeSortTouched = true;
+  state.fixmeSorts = currentSorts;
   renderFixmes();
+}
+
+function fixmeSortForField(field) {
+  const sorts = Array.isArray(state.fixmeSorts) ? state.fixmeSorts : [];
+  const index = sorts.findIndex((sort) => sort.field === field);
+  if (index < 0) return null;
+  return { ...sorts[index], order: index + 1 };
 }
 
 function updateFixmeSortHeaders() {
   $$("[data-fixme-sort]").forEach((button) => {
-    const active = button.dataset.fixmeSort === state.fixmeSort.field;
-    const direction = active ? state.fixmeSort.direction : "";
-    button.classList.toggle("active", active);
+    const sort = fixmeSortForField(button.dataset.fixmeSort);
+    const direction = sort?.direction || "";
+    button.classList.toggle("active", Boolean(sort));
     button.classList.toggle("asc", direction === "asc");
     button.classList.toggle("desc", direction === "desc");
-    button.setAttribute("aria-sort", active ? (direction === "desc" ? "descending" : "ascending") : "none");
-    button.title = active ? `Đang sort ${direction === "desc" ? "giảm dần" : "tăng dần"}` : "Bấm để sort tăng dần";
+    button.dataset.sortOrder = sort ? String(sort.order) : "";
+    button.setAttribute("aria-sort", sort ? (direction === "desc" ? "descending" : "ascending") : "none");
+    button.title = sort
+      ? `Uu tien sort ${sort.order}: ${direction === "desc" ? "giam dan" : "tang dan"}`
+      : "Bam de them vao thu tu sort";
   });
 }
 
+function clearFixmeSorts() {
+  state.fixmeSortTouched = false;
+  state.fixmeSorts = defaultFixmeSorts();
+}
 function clearFixmeFilters() {
   state.fixmeFilters = {};
   $$("[data-fixme-filter]").forEach((control) => { control.value = ""; });
@@ -1386,12 +1472,15 @@ function updateFixmeToolbarState(filteredEntries = filteredFixmes()) {
   $("#fixme-bulk-assign").disabled = busy || scopedTargets === 0 || !valueOf("fixme-bulk-note");
   $("#fixme-bulk-clear").disabled = busy || scopedTargets === 0;
   $("#apply-fixmes").disabled = busy || noteCount === 0;
+  $("#apply-fixmes-preview").disabled = busy || noteCount === 0;
+  $("#refresh-compare-preview").disabled = busy || !state.compareView.cases?.length;
 }
 
 function resetFixmeReviewState() {
   state.fixmeFilters = {};
   state.fixmeSelections = {};
   state.fixmeCheckedRows = new Set();
+  clearFixmeSorts();
   $$("[data-fixme-filter]").forEach((control) => { control.value = ""; });
 }
 
@@ -1407,6 +1496,458 @@ function pruneFixmeSelectionsToNotes() {
   Object.keys(state.fixmeSelections).forEach((index) => {
     if (!knownNotes.has(state.fixmeSelections[index])) delete state.fixmeSelections[index];
   });
+}
+
+function normalizeCompareView(view) {
+  const current = state.compareView || {};
+  const cases = Array.isArray(view?.cases) ? view.cases.map((caseItem, caseIndex) => ({
+    id: String(caseItem.id || `case-${caseIndex}`),
+    name: String(caseItem.name || `Case ${caseIndex + 1}`),
+    workbooks: Array.isArray(caseItem.workbooks) ? caseItem.workbooks.map((workbook, workbookIndex) => ({
+      id: String(workbook.id ?? workbookIndex),
+      name: String(workbook.name || `Workbook ${workbookIndex + 1}`),
+      path: String(workbook.path || ""),
+      error: String(workbook.error || ""),
+      sheets: Array.isArray(workbook.sheets) ? workbook.sheets.map((sheet, sheetIndex) => ({
+        name: String(sheet.name || `Sheet${sheetIndex + 1}`),
+      })) : [],
+    })) : [],
+  })) : [];
+  return {
+    cases,
+    activeCaseId: current.activeCaseId || "",
+    activeWorkbookId: current.activeWorkbookId || "",
+    activeSheetName: current.activeSheetName || "",
+    sheet: null,
+    loadingKey: "",
+  };
+}
+
+function renderComparePreview() {
+  const card = $("#compare-preview-card");
+  if (!card) return;
+  const cases = state.compareView.cases || [];
+  card.classList.toggle("hidden", cases.length === 0);
+  if (!cases.length) {
+    state.compareView.sheet = null;
+    return;
+  }
+
+  const active = ensureActiveCompareSelection();
+  const workbookCount = cases.reduce((total, caseItem) => total + (caseItem.workbooks?.length || 0), 0);
+  $("#compare-preview-meta").textContent = `${workbookCount} workbook`;
+  renderCompareCaseTabs(cases, active.caseItem);
+  renderCompareWorkbookTabs(active.caseItem, active.workbook);
+  renderCompareSheetTabs(active.workbook, active.sheet);
+
+  if (!active.workbook) {
+    showComparePreviewStatus("Case đang chọn chưa có file compare.");
+    return;
+  }
+  if (active.workbook.error) {
+    showComparePreviewStatus(`Không đọc được workbook: ${active.workbook.error}`);
+    return;
+  }
+  if (!active.sheet) {
+    showComparePreviewStatus("Workbook đang chọn chưa có sheet để hiển thị.");
+    return;
+  }
+  loadActiveCompareSheet();
+}
+
+function ensureActiveCompareSelection() {
+  const cases = state.compareView.cases || [];
+  const caseItem = cases.find((item) => item.id === state.compareView.activeCaseId) || cases[0] || null;
+  state.compareView.activeCaseId = caseItem?.id || "";
+
+  const workbooks = caseItem?.workbooks || [];
+  const workbook = workbooks.find((item) => item.id === state.compareView.activeWorkbookId) || workbooks[0] || null;
+  state.compareView.activeWorkbookId = workbook?.id || "";
+
+  const sheets = workbook?.sheets || [];
+  const sheet = sheets.find((item) => item.name === state.compareView.activeSheetName) || sheets[0] || null;
+  state.compareView.activeSheetName = sheet?.name || "";
+  return { caseItem, workbook, sheet };
+}
+
+function renderCompareCaseTabs(cases, activeCase) {
+  const container = $("#compare-case-tabs");
+  container.innerHTML = cases.map((caseItem) =>
+    `<button class="compare-tab ${caseItem.id === activeCase?.id ? "active" : ""}" data-compare-case="${escapeHtml(caseItem.id)}" type="button" title="${escapeHtml(caseItem.name)}">${escapeHtml(caseItem.name)}</button>`
+  ).join("");
+  $$("[data-compare-case]", container).forEach((button) => button.addEventListener("click", () => {
+    state.compareView.activeCaseId = button.dataset.compareCase;
+    state.compareView.activeWorkbookId = "";
+    state.compareView.activeSheetName = "";
+    state.compareView.sheet = null;
+    renderComparePreview();
+  }));
+}
+
+function renderCompareWorkbookTabs(caseItem, activeWorkbook) {
+  const container = $("#compare-workbook-tabs");
+  const workbooks = caseItem?.workbooks || [];
+  container.innerHTML = workbooks.map((workbook) =>
+    `<button class="compare-tab ${workbook.id === activeWorkbook?.id ? "active" : ""} ${workbook.error ? "error" : ""}" data-compare-workbook="${escapeHtml(workbook.id)}" type="button" title="${escapeHtml(workbook.path || workbook.name)}">${escapeHtml(workbook.name)}</button>`
+  ).join("");
+  $$("[data-compare-workbook]", container).forEach((button) => button.addEventListener("click", () => {
+    state.compareView.activeWorkbookId = button.dataset.compareWorkbook;
+    state.compareView.activeSheetName = "";
+    state.compareView.sheet = null;
+    renderComparePreview();
+  }));
+}
+
+function renderCompareSheetTabs(workbook, activeSheet) {
+  const container = $("#compare-sheet-tabs");
+  const sheets = workbook?.sheets || [];
+  container.innerHTML = sheets.map((sheet) =>
+    `<button class="compare-tab ${sheet.name === activeSheet?.name ? "active" : ""}" data-compare-sheet="${escapeHtml(sheet.name)}" type="button" title="${escapeHtml(sheet.name)}">${escapeHtml(sheet.name)}</button>`
+  ).join("");
+  $$("[data-compare-sheet]", container).forEach((button) => button.addEventListener("click", () => {
+    state.compareView.activeSheetName = button.dataset.compareSheet;
+    state.compareView.sheet = null;
+    renderComparePreview();
+  }));
+}
+
+async function refreshComparePreview() {
+  try {
+    const response = await api("/api/compare-view");
+    state.compareView = normalizeCompareView(response.compare_view);
+    renderComparePreview();
+    showToast("Đã tải lại view file compare.", "success");
+  } catch (error) {
+    showToast(error.message, "error", 7000);
+  }
+}
+
+function reloadActiveCompareSheet() {
+  if (!state.compareView.cases?.length) return;
+  state.compareView.sheet = null;
+  state.compareView.loadingKey = "";
+  renderComparePreview();
+}
+
+async function loadActiveCompareSheet() {
+  const active = ensureActiveCompareSelection();
+  if (!active.workbook || !active.sheet || active.workbook.error) return;
+  const key = `${active.workbook.id}\u001f${active.sheet.name}`;
+  if (state.compareView.sheet?.key === key) {
+    renderCompareSheet();
+    return;
+  }
+  if (state.compareView.loadingKey === key) return;
+  state.compareView.loadingKey = key;
+  showComparePreviewStatus(`Đang tải sheet ${active.sheet.name}...`);
+  try {
+    const sheet = await api(`/api/compare-view/sheet?workbook_id=${encodeURIComponent(active.workbook.id)}&sheet=${encodeURIComponent(active.sheet.name)}`);
+    if (state.compareView.loadingKey !== key) return;
+    state.compareView.sheet = { ...sheet, key };
+    state.compareView.loadingKey = "";
+    renderCompareSheet();
+  } catch (error) {
+    if (state.compareView.loadingKey !== key) return;
+    state.compareView.loadingKey = "";
+    showComparePreviewStatus(error.message);
+  }
+}
+
+function showComparePreviewStatus(message) {
+  $("#compare-preview-status").textContent = message;
+  $("#compare-preview-status").classList.remove("hidden");
+  $("#compare-preview-table").classList.add("hidden");
+}
+
+function renderCompareSheet() {
+  const sheet = state.compareView.sheet;
+  const active = ensureActiveCompareSelection();
+  if (!sheet || sheet.key !== `${active.workbook?.id}\u001f${active.sheet?.name}`) return;
+  const table = $("#compare-preview-table");
+  const widths = Array.isArray(sheet.column_widths) ? sheet.column_widths : [];
+  const letters = Array.isArray(sheet.column_letters) ? sheet.column_letters : [];
+  const rows = Array.isArray(sheet.rows) ? sheet.rows : [];
+  table.innerHTML = `
+    <colgroup>
+      <col class="compare-row-number-col">
+      ${widths.map(() => `<col class="compare-value-col">`).join("")}
+      <col class="compare-check-col">
+    </colgroup>
+    <thead><tr><th class="compare-corner"></th>${letters.map((letter) => `<th>${escapeHtml(letter)}</th>`).join("")}<th class="compare-check-header"></th></tr></thead>
+    <tbody>${rows.map((row) => `
+      <tr>
+        <th class="compare-row-number">${escapeHtml(row.number)}</th>
+        ${(row.cells || []).map((cell) => compareCellHtml(cell, row)).join("")}
+        ${compareCheckCellHtml(row)}
+      </tr>`).join("")}</tbody>`;
+  $("#compare-preview-status").classList.add("hidden");
+  table.classList.remove("hidden");
+  bindCompareCellCopyControls(table);
+  bindCompareFixmeControls();
+  updateCompareBulkToolbarState();
+}
+
+function compareCellHtml(cell, row) {
+  const fixmeIndices = Array.isArray(cell.fixme_indices) ? cell.fixme_indices : [];
+  const classes = ["compare-cell", ...compareCellColorClasses(cell, row)];
+  if (Number(cell?.row || row?.number || 0) === 2) classes.push("compare-header-cell");
+  if (compareCellBelongsToDiffPair(cell, row)) classes.push("compare-diff-cell");
+  if (cell.style?.wrap) classes.push("wrap");
+  if (fixmeIndices.length) classes.push("compare-fixme-cell");
+  return `<td class="${classes.join(" ")}">${compareCellContent(cell, fixmeIndices)}</td>`;
+}
+
+function compareCheckCellHtml(row) {
+  const rowNumber = Number(row?.number || 0);
+  if (rowNumber === 2) {
+    return `<td class="compare-check-cell compare-check-all-cell"><input id="compare-check-visible" type="checkbox" title="Chon/bo chon tat ca dong sai khac dang hien thi"></td>`;
+  }
+  const indices = compareRowFixmeIndices(row);
+  if (!indices.length) return `<td class="compare-check-cell"></td>`;
+  const checked = indices.every((index) => state.fixmeCheckedRows.has(String(index))) ? "checked" : "";
+  return `<td class="compare-check-cell"><input type="checkbox" data-compare-fixme-check="${escapeHtml(indices.join(","))}" ${checked}></td>`;
+}
+
+function compareRowFixmeIndices(row) {
+  const indices = [];
+  (row?.cells || []).forEach((cell) => {
+    if (Array.isArray(cell.fixme_indices)) indices.push(...cell.fixme_indices);
+  });
+  return uniqueStrings(indices.map(String));
+}
+
+function compareCellColorClasses(cell, row) {
+  const colorStyle = compareCellColorStyle(cell, row);
+  const classes = [];
+  const background = safeCssColor(colorStyle.background);
+  const color = safeCssColor(colorStyle.color);
+  const backgroundClass = compareColorClass("bg", background);
+  const colorClass = compareColorClass("text", color);
+  if (backgroundClass) classes.push(backgroundClass);
+  if (colorClass) classes.push(colorClass);
+  return classes;
+}
+
+function compareColorClass(kind, color) {
+  const normalized = String(color || "").toUpperCase();
+  if (kind === "bg" && normalized === COMPARE_PREVIEW_COLORS.a1Background) return "compare-bg-a1";
+  if (kind === "bg" && normalized === COMPARE_PREVIEW_COLORS.headerBackground) return "compare-bg-header";
+  if (kind === "bg" && normalized === COMPARE_PREVIEW_COLORS.nameBackground) return "compare-bg-name";
+  if (kind === "bg" && normalized === COMPARE_PREVIEW_COLORS.diffBackground) return "compare-bg-diff";
+  if (kind === "text" && normalized === COMPARE_PREVIEW_COLORS.diffText) return "compare-text-diff";
+  if (kind === "text" && normalized === COMPARE_PREVIEW_COLORS.text) return "compare-text-normal";
+  return "";
+}
+
+function compareCellColorStyle(cell, row) {
+  const style = cell?.style || {};
+  const fallback = compareCellFallbackColors(cell, row);
+  return {
+    background: style.background || fallback.background || "",
+    color: style.color || fallback.color || "",
+  };
+}
+
+function compareCellFallbackColors(cell, row) {
+  const rowNumber = Number(cell?.row || row?.number || 0);
+  const column = Number(cell?.column || 0);
+  const value = String(cell?.value || "").trim();
+  if (rowNumber === 1 && column === 1) {
+    return { background: COMPARE_PREVIEW_COLORS.a1Background, color: COMPARE_PREVIEW_COLORS.diffText };
+  }
+  if (rowNumber === 2 && value) {
+    return { background: COMPARE_PREVIEW_COLORS.headerBackground, color: COMPARE_PREVIEW_COLORS.text };
+  }
+  if (rowNumber >= 3 && (column === 1 || column === 2)) {
+    return { background: COMPARE_PREVIEW_COLORS.nameBackground, color: COMPARE_PREVIEW_COLORS.text };
+  }
+  if (rowNumber >= 3 && compareCellBelongsToDiffPair(cell, row)) {
+    return { background: COMPARE_PREVIEW_COLORS.diffBackground, color: COMPARE_PREVIEW_COLORS.diffText };
+  }
+  if (Array.isArray(cell?.fixme_indices) && cell.fixme_indices.length) {
+    return { color: COMPARE_PREVIEW_COLORS.text };
+  }
+  return {};
+}
+
+function compareCellBelongsToDiffPair(cell, row) {
+  const column = Number(cell?.column || 0);
+  if (column < 3) return false;
+  const pairStart = column - ((column - 3) % 2);
+  if (!compareHeaderCellValue(pairStart) || !compareHeaderCellValue(pairStart + 1)) return false;
+  const cells = Array.isArray(row?.cells) ? row.cells : [];
+  const left = cells.find((item) => Number(item.column) === pairStart);
+  const right = cells.find((item) => Number(item.column) === pairStart + 1);
+  if (!left || !right) return false;
+  return String(left.value ?? "") !== String(right.value ?? "");
+}
+
+function compareHeaderCellValue(column) {
+  const headerRow = (state.compareView.sheet?.rows || []).find((row) => Number(row.number) === 2);
+  const headerCell = headerRow?.cells?.find((cell) => Number(cell.column) === column);
+  return String(headerCell?.value || "").trim();
+}
+
+function safeCssColor(value) {
+  const text = String(value || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(text) ? text : "";
+}
+
+function compareCellContent(cell, fixmeIndices) {
+  if (fixmeIndices.length) {
+    const workbookValue = String(cell.value || "");
+    const existingNote = workbookValue && workbookValue !== "FIXME" && !fixmeIndices.some((index) => state.fixmeSelections[index])
+      ? `<div class="compare-existing-note">${escapeHtml(workbookValue)}</div>`
+      : "";
+    return `<select data-compare-fixme-indices="${escapeHtml(fixmeIndices.join(","))}" data-compare-fixme-value="${escapeHtml(workbookValue)}" ${state.notes.length ? "" : "disabled"}>${compareFixmeOptionsHtml(fixmeIndices, workbookValue)}</select>${existingNote}`;
+  }
+  return `<textarea class="compare-cell-value" readonly title="Click để chọn/copy value">${escapeHtml(cell.value)}</textarea>`;
+}
+
+function bindCompareCellCopyControls(root) {
+  $$(".compare-cell-value", root).forEach((textarea) => {
+    textarea.addEventListener("focus", () => textarea.select());
+    textarea.addEventListener("click", () => textarea.select());
+  });
+}
+
+function compareFixmeOptionsHtml(indices, workbookValue = "") {
+  let selectedValues = uniqueStrings(indices.map((index) => state.fixmeSelections[index]).filter(Boolean));
+  if (!selectedValues.length && workbookValue && workbookValue !== "FIXME") {
+    const noteValues = new Set(state.notes.map((note) => note.value));
+    selectedValues = uniqueStrings(workbookValue.split(/\r?\n/).map((value) => value.trim()).filter((value) => noteValues.has(value)));
+  }
+  const mixed = selectedValues.length > 1;
+  return [
+    mixed ? `<option value="__mixed" selected>Nhiều note</option>` : "",
+    `<option value="">Chọn ghi chú</option>`,
+    ...state.notes.map((note) =>
+      `<option value="${escapeHtml(note.value)}" ${selectedValues.length === 1 && note.value === selectedValues[0] ? "selected" : ""}>${escapeHtml(note.value)}</option>`
+    ),
+  ].join("");
+}
+
+function bindCompareFixmeControls() {
+  $("#compare-check-visible")?.addEventListener("change", toggleVisibleCompareFixmeRows);
+  $$("[data-compare-fixme-check]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      compareFixmeIndicesFromSelect(checkbox).forEach((index) => {
+        if (checkbox.checked) state.fixmeCheckedRows.add(String(index));
+        else state.fixmeCheckedRows.delete(String(index));
+      });
+      syncFixmeRowChecks();
+      updateFixmeToolbarState();
+      updateCompareBulkToolbarState();
+    });
+  });
+  $$("[data-compare-fixme-indices]").forEach((select) => {
+    select.addEventListener("change", () => {
+      if (select.value === "__mixed") return;
+      const indices = compareFixmeIndicesFromSelect(select);
+      indices.forEach((index) => {
+        if (select.value) state.fixmeSelections[index] = select.value;
+        else delete state.fixmeSelections[index];
+      });
+      renderFixmes();
+      syncComparePreviewNoteControls();
+    });
+  });
+  syncComparePreviewNoteControls();
+}
+
+function visibleCompareFixmeIndices() {
+  const indices = [];
+  $$("[data-compare-fixme-check]").forEach((checkbox) => {
+    indices.push(...compareFixmeIndicesFromSelect(checkbox));
+  });
+  return uniqueStrings(indices.map(String));
+}
+
+function toggleVisibleCompareFixmeRows(event) {
+  visibleCompareFixmeIndices().forEach((index) => {
+    if (event.target.checked) state.fixmeCheckedRows.add(index);
+    else state.fixmeCheckedRows.delete(index);
+  });
+  syncFixmeRowChecks();
+  syncComparePreviewNoteControls();
+  updateFixmeToolbarState();
+  updateCompareBulkToolbarState();
+}
+
+function assignCompareBulkNote() {
+  const note = valueOf("compare-bulk-note");
+  const targets = visibleCompareFixmeIndices().filter((index) => state.fixmeCheckedRows.has(index));
+  if (!note) {
+    showToast("Vui lòng chọn note cần gán.", "error");
+    $("#compare-bulk-note")?.focus();
+    return;
+  }
+  if (!targets.length) {
+    showToast("Vui lòng tick ít nhất một dòng sai khác trong preview.", "error");
+    return;
+  }
+  targets.forEach((index) => { state.fixmeSelections[index] = note; });
+  renderFixmes();
+  syncComparePreviewNoteControls();
+  updateCompareBulkToolbarState();
+  showToast(`Đã gán note cho ${targets.length} dòng đã tick.`, "success");
+}
+
+function clearCompareRowSelection() {
+  visibleCompareFixmeIndices().forEach((index) => state.fixmeCheckedRows.delete(index));
+  syncFixmeRowChecks();
+  syncComparePreviewNoteControls();
+  updateFixmeToolbarState();
+  updateCompareBulkToolbarState();
+}
+
+function updateCompareBulkToolbarState() {
+  const toolbar = $("#compare-bulk-tools");
+  if (!toolbar) return;
+  const visible = visibleCompareFixmeIndices();
+  const checkedCount = visible.filter((index) => state.fixmeCheckedRows.has(index)).length;
+  toolbar.classList.toggle("hidden", visible.length === 0);
+  $("#compare-checked-count").textContent = `${checkedCount} / ${visible.length} dòng đã tick`;
+  const checkAll = $("#compare-check-visible");
+  if (checkAll) {
+    checkAll.checked = visible.length > 0 && checkedCount === visible.length;
+    checkAll.indeterminate = checkedCount > 0 && checkedCount < visible.length;
+  }
+  const busy = document.body.classList.contains("is-busy");
+  $("#compare-bulk-assign").disabled = busy || checkedCount === 0 || !valueOf("compare-bulk-note");
+  $("#compare-bulk-clear").disabled = busy || checkedCount === 0;
+}
+
+function syncFixmeRowChecks() {
+  $$("[data-fixme-check-index]").forEach((checkbox) => {
+    checkbox.checked = state.fixmeCheckedRows.has(String(checkbox.dataset.fixmeCheckIndex));
+  });
+}
+
+function compareFixmeIndicesFromSelect(select) {
+  return String(select.dataset.compareFixmeIndices || select.dataset.compareFixmeCheck || "")
+    .split(",")
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value >= 0);
+}
+
+function syncComparePreviewNoteControls() {
+  $$("[data-compare-fixme-check]").forEach((checkbox) => {
+    const indices = compareFixmeIndicesFromSelect(checkbox);
+    const checkedCount = indices.filter((index) => state.fixmeCheckedRows.has(String(index))).length;
+    checkbox.checked = indices.length > 0 && checkedCount === indices.length;
+    checkbox.indeterminate = checkedCount > 0 && checkedCount < indices.length;
+  });
+  $$("[data-compare-fixme-indices]").forEach((select) => {
+    const indices = compareFixmeIndicesFromSelect(select);
+    select.innerHTML = compareFixmeOptionsHtml(indices, select.dataset.compareFixmeValue || "");
+    select.disabled = state.notes.length === 0;
+    const existingNote = select.nextElementSibling;
+    if (existingNote?.classList.contains("compare-existing-note")) {
+      existingNote.classList.toggle("hidden", indices.some((index) => state.fixmeSelections[index]));
+    }
+  });
+  updateCompareBulkToolbarState();
 }
 
 function renderNotes() {
@@ -1804,6 +2345,10 @@ function consumeJobResult(job) {
     resetFixmeReviewState();
     renderFixmes();
   }
+  if (result.compare_view) {
+    state.compareView = normalizeCompareView(result.compare_view);
+    renderComparePreview();
+  }
   if (job.action === "db_test" && result.verified) {
     setVerified(result.role, true);
     if (result.role === "main" && Array.isArray(result.tables)) {
@@ -1855,6 +2400,9 @@ function consumeJobResult(job) {
   if (job.action === "db_sql_update") {
     state.sqlWorkspace.dirty = {};
     markSqlWorkspaceStale();
+  }
+  if (job.action === "apply_fixmes") {
+    reloadActiveCompareSheet();
   }
 }
 
@@ -2602,10 +3150,11 @@ function setBusy(busy) {
     cancelButton.disabled = !canCancel || Boolean(state.job?.cancel_requested);
     cancelButton.textContent = state.job?.cancel_requested ? "Đang hủy..." : "Hủy tác vụ";
   }
-  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #db-switch-connections, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes').forEach((button) => {
+  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #db-switch-connections, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, #compare-bulk-assign, #compare-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes, #apply-fixmes-preview, #refresh-compare-preview').forEach((button) => {
     button.disabled = busy || (button.id === "delete-excel-format-preset" && !valueOf("excel-format-preset"));
   });
   updateFixmeToolbarState();
+  updateCompareBulkToolbarState();
 }
 
 function appendLogs(lines) {

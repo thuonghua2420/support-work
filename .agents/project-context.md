@@ -80,6 +80,10 @@ Displayed fields:
 
 Users can add/update/delete combobox note values and meanings. Applying notes writes selected note text back to the matching workbook `FIXME` cells.
 
+The web UI also renders the latest compare workbooks directly in the browser with Case, workbook, and sheet tabs. This preview reads the generated `.xlsx` files, keeps compare cell colors for visual diff cues, shows mapped and unmapped compare columns, and uses note comboboxes with a right-side checkbox column for bulk note assignment on rows that map to workbook `FIXME` entries. Font and size follow the web UI for consistency.
+
+FIXME Review supports multi-header sorting. The default order is Case, workbook, sheet, then record number. After the first user click, clicked headers build a custom priority list in click order; clicking an existing sorted header toggles only its direction.
+
 ### File Utilities
 
 Input:
