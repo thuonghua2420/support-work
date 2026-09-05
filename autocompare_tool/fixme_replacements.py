@@ -48,7 +48,7 @@ def apply_fixme_replacements(
             unique_notes = _unique_in_order(notes)
             cell = worksheet.cell(row, column)
             cell.value = "\n".join(unique_notes)
-            cell.alignment = Alignment(wrap_text=True)
+            cell.alignment = Alignment(wrap_text=False)
         workbook.save(workbook_path)
 
     return FixmeReplacementResult(

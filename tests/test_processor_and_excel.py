@@ -124,6 +124,7 @@ class ProcessorAndExcelTests(unittest.TestCase):
 
             workbook = load_workbook(compare_new)
             self.assertEqual(workbook["table"]["F4"].value, "KNOWN_DIFF")
+            self.assertFalse(workbook["table"]["F4"].alignment.wrap_text)
 
     def test_apply_fixme_replacements_updates_multiple_rows(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -209,6 +210,7 @@ class ProcessorAndExcelTests(unittest.TestCase):
             self.assertTrue(worksheet["C4"].font.bold)
             self.assertTrue(worksheet["F4"].font.color.rgb.endswith("444444"))
             self.assertFalse(worksheet["F4"].font.bold)
+            self.assertFalse(worksheet["F4"].alignment.wrap_text)
 
     def test_compare_workbook_displays_null_but_leaves_empty_blank(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

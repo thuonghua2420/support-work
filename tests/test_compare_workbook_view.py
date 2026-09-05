@@ -11,6 +11,7 @@ try:
         CompareWorkbookReference,
         build_compare_view_index,
         read_compare_sheet,
+        scan_compare_workbook_fixmes,
     )
     from autocompare_tool.app_config import ExcelHeaderConfig
     from autocompare_tool.excel_writer import write_compare_workbook_with_fixmes
@@ -20,6 +21,7 @@ except ImportError:  # pragma: no cover - optional dependency guard for minimal 
     CompareWorkbookReference = None
     build_compare_view_index = None
     read_compare_sheet = None
+    scan_compare_workbook_fixmes = None
     ExcelHeaderConfig = None
     write_compare_workbook_with_fixmes = None
 
@@ -92,6 +94,33 @@ class CompareWorkbookViewTests(unittest.TestCase):
             sheet = read_compare_sheet(reference, "Theme", [])
 
         self.assertEqual("#000000", sheet["rows"][2]["cells"][2]["style"]["color"])
+
+    def test_scan_compare_workbook_fixmes_reports_remaining_fixme_cells(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "compare.xlsx"
+            workbook = Workbook()
+            worksheet = workbook.active
+            worksheet.title = "customers"
+            worksheet["H4"] = "FIXME"
+            worksheet["H5"] = "KNOWN_DIFF"
+            worksheet["H6"] = "note with FIXME text"
+            workbook.save(output)
+
+            locations = scan_compare_workbook_fixmes([CompareWorkbookReference("UT01", output, output.name)])
+
+        self.assertEqual(
+            [
+                {
+                    "case_folder_name": "UT01",
+                    "workbook_name": "compare.xlsx",
+                    "workbook_path": str(output),
+                    "sheet_name": "customers",
+                    "cell": "H4",
+                    "value": "FIXME",
+                }
+            ],
+            locations,
+        )
 
 
 def _write_text(path: Path, content: str) -> None:

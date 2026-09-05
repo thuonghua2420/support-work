@@ -8,6 +8,7 @@ const state = {
   fixmeFilters: {},
   fixmeSelections: {},
   fixmeCheckedRows: new Set(),
+  fixmeScanLocations: [],
   fixmeSortTouched: false,
   fixmeSorts: defaultFixmeSorts(),
   compareView: { cases: [], activeCaseId: "", activeWorkbookId: "", activeSheetName: "", sheet: null, loadingKey: "" },
@@ -135,8 +136,13 @@ function prepareCompareReviewLayout() {
   }
   const previewStep = $(".step-number", previewCard);
   const fixmeStep = $(".step-number", fixmeCard);
+  const previewTitle = $("h3", previewCard);
+  const fixmeTitle = $("h3", fixmeCard);
   if (previewStep) previewStep.textContent = "03";
   if (fixmeStep) fixmeStep.textContent = "04";
+  if (previewTitle) previewTitle.textContent = "Review FIXME";
+  if (fixmeTitle) fixmeTitle.textContent = "Review FIXME Expand";
+  fixmeCard?.classList.add("collapsed");
   if (previewCard && !$("#compare-bulk-tools")) {
     $(".card-heading", previewCard)?.insertAdjacentHTML("afterend", `
       <div class="compare-bulk-toolbar hidden" id="compare-bulk-tools">
@@ -879,6 +885,8 @@ function bindForms() {
   $("#apply-fixmes").addEventListener("click", applySelectedFixmeNotes);
   $("#apply-fixmes-preview").addEventListener("click", applySelectedFixmeNotes);
   $("#refresh-compare-preview").addEventListener("click", refreshComparePreview);
+  $("#check-fixmes")?.addEventListener("click", checkRemainingFixmes);
+  $("#toggle-fixme-expand")?.addEventListener("click", toggleFixmeExpand);
   $("#compare-bulk-note")?.addEventListener("change", updateCompareBulkToolbarState);
   $("#compare-bulk-assign")?.addEventListener("click", assignCompareBulkNote);
   $("#compare-bulk-clear")?.addEventListener("click", clearCompareRowSelection);
@@ -893,6 +901,17 @@ function applySelectedFixmeNotes() {
       return;
     }
     startAction("apply_fixmes", { selections });
+}
+
+function toggleFixmeExpand() {
+  const card = $("#fixme-expand-card");
+  if (!card) return;
+  const collapsed = card.classList.toggle("collapsed");
+  $("#toggle-fixme-expand").textContent = collapsed ? "Mở rộng" : "Thu gọn";
+}
+
+function checkRemainingFixmes() {
+  startAction("check_fixmes", {});
 }
 
 function bindDialogs() {
@@ -1217,7 +1236,7 @@ function renderFixmes() {
       <td><span class="diff-value">${escapeHtml(entry.left_value)}</span></td>
       <td><span class="diff-value">${escapeHtml(entry.right_value)}</span></td>
       <td>${escapeHtml(entry.record_number)}</td>
-      <td><select data-fixme-index="${entry.index}">${fixmeNoteOptionsHtml("Chọn ghi chú", state.fixmeSelections[entry.index])}</select></td>
+      <td><select data-fixme-index="${entry.index}">${fixmeNoteOptionsHtml("Chọn ý nghĩa", state.fixmeSelections[entry.index])}</select></td>
     </tr>`).join("") : `<tr class="fixme-empty-row"><td colspan="9">Không có dòng phù hợp với filter hiện tại.</td></tr>`;
 
   $$('select[data-fixme-index]').forEach((select) => {
@@ -1252,17 +1271,17 @@ function refreshFixmeNoteOptions() {
   const previousBulkNote = bulkSelect.value;
   const previousNoteFilter = noteFilter.value;
   const previousCompareBulkNote = compareBulkSelect?.value || "";
-  bulkSelect.innerHTML = fixmeNoteOptionsHtml("Chọn note");
+  bulkSelect.innerHTML = fixmeNoteOptionsHtml("Chọn ý nghĩa");
   noteFilter.innerHTML = fixmeNoteOptionsHtml("Tất cả");
-  if (compareBulkSelect) compareBulkSelect.innerHTML = fixmeNoteOptionsHtml("Chọn note");
+  if (compareBulkSelect) compareBulkSelect.innerHTML = fixmeNoteOptionsHtml("Chọn ý nghĩa");
   if (state.notes.some((note) => note.value === previousBulkNote)) bulkSelect.value = previousBulkNote;
   if (state.notes.some((note) => note.value === previousNoteFilter)) noteFilter.value = previousNoteFilter;
   if (compareBulkSelect && state.notes.some((note) => note.value === previousCompareBulkNote)) compareBulkSelect.value = previousCompareBulkNote;
 
   $$('select[data-fixme-index]').forEach((select) => {
     const currentValue = select.value;
-    select.replaceChildren(new Option("Chọn ghi chú", ""));
-    state.notes.forEach((note) => select.add(new Option(note.value, note.value)));
+    select.replaceChildren(new Option("Chọn ý nghĩa", ""));
+    state.notes.forEach((note) => select.add(new Option(noteOptionLabel(note), note.value)));
     if (state.notes.some((note) => note.value === currentValue)) select.value = currentValue;
   });
   syncComparePreviewNoteControls();
@@ -1274,8 +1293,12 @@ function refreshFixmeNoteOptions() {
 
 function fixmeNoteOptionsHtml(placeholder, selectedValue = "") {
   return [`<option value="">${escapeHtml(placeholder)}</option>`, ...state.notes.map((note) =>
-    `<option value="${escapeHtml(note.value)}" ${note.value === selectedValue ? "selected" : ""}>${escapeHtml(note.value)}</option>`
+    `<option value="${escapeHtml(note.value)}" ${note.value === selectedValue ? "selected" : ""} title="Ghi chú: ${escapeHtml(note.value)}">${escapeHtml(noteOptionLabel(note))}</option>`
   )].join("");
+}
+
+function noteOptionLabel(note) {
+  return String(note?.meaning || note?.value || "");
 }
 
 function fixmeWorkbookHtml(entry) {
@@ -1473,6 +1496,7 @@ function updateFixmeToolbarState(filteredEntries = filteredFixmes()) {
   $("#apply-fixmes").disabled = busy || noteCount === 0;
   $("#apply-fixmes-preview").disabled = busy || noteCount === 0;
   $("#refresh-compare-preview").disabled = busy || !state.compareView.cases?.length;
+  $("#check-fixmes").disabled = busy || !state.compareView.cases?.length;
 }
 
 function resetFixmeReviewState() {
@@ -1529,6 +1553,7 @@ function renderComparePreview() {
   card.classList.toggle("hidden", cases.length === 0);
   if (!cases.length) {
     state.compareView.sheet = null;
+    updateFixmeToolbarState();
     return;
   }
 
@@ -1538,6 +1563,7 @@ function renderComparePreview() {
   renderCompareCaseTabs(cases, active.caseItem);
   renderCompareWorkbookTabs(active.caseItem, active.workbook);
   renderCompareSheetTabs(active.workbook, active.sheet);
+  updateFixmeToolbarState();
 
   if (!active.workbook) {
     showComparePreviewStatus("Case đang chọn chưa có file compare.");
@@ -1821,9 +1847,9 @@ function compareFixmeOptionsHtml(indices, workbookValue = "") {
   const mixed = selectedValues.length > 1;
   return [
     mixed ? `<option value="__mixed" selected>Nhiều note</option>` : "",
-    `<option value="">Chọn ghi chú</option>`,
+    `<option value="">Chọn ý nghĩa</option>`,
     ...state.notes.map((note) =>
-      `<option value="${escapeHtml(note.value)}" ${selectedValues.length === 1 && note.value === selectedValues[0] ? "selected" : ""}>${escapeHtml(note.value)}</option>`
+      `<option value="${escapeHtml(note.value)}" ${selectedValues.length === 1 && note.value === selectedValues[0] ? "selected" : ""} title="Ghi chú: ${escapeHtml(note.value)}">${escapeHtml(noteOptionLabel(note))}</option>`
     ),
   ].join("");
 }
@@ -2343,12 +2369,20 @@ function consumeJobResult(job) {
   if (result.connection) rememberDatabaseHistory(result.connection);
   if (Array.isArray(result.fixmes)) {
     state.fixmes = result.fixmes;
+    state.fixmeScanLocations = [];
+    $("#fixme-scan-result")?.removeAttribute("data-checked");
     resetFixmeReviewState();
     renderFixmes();
+    renderFixmeScanResult();
   }
   if (result.compare_view) {
     state.compareView = normalizeCompareView(result.compare_view);
     renderComparePreview();
+  }
+  if (Array.isArray(result.fixme_scan_locations)) {
+    state.fixmeScanLocations = result.fixme_scan_locations;
+    $("#fixme-scan-result")?.setAttribute("data-checked", "1");
+    renderFixmeScanResult();
   }
   if (job.action === "db_test" && result.verified) {
     setVerified(result.role, true);
@@ -2405,6 +2439,40 @@ function consumeJobResult(job) {
   if (job.action === "apply_fixmes") {
     reloadActiveCompareSheet();
   }
+}
+
+function renderFixmeScanResult() {
+  const container = $("#fixme-scan-result");
+  if (!container) return;
+  const locations = Array.isArray(state.fixmeScanLocations) ? state.fixmeScanLocations : [];
+  if (!locations.length) {
+    if (container.dataset.checked === "1") {
+      container.classList.remove("hidden", "has-fixmes");
+      container.innerHTML = `<strong>Không còn FIXME.</strong><span>Tất cả file compare hiện tại đã được xử lý.</span>`;
+    } else {
+      container.classList.add("hidden");
+      container.innerHTML = "";
+    }
+    return;
+  }
+  container.dataset.checked = "1";
+  container.classList.remove("hidden");
+  container.classList.add("has-fixmes");
+  container.innerHTML = `
+    <strong>Còn ${locations.length} cell FIXME</strong>
+    <div class="table-wrap fixme-scan-table-wrap">
+      <table class="fixme-scan-table">
+        <thead><tr><th>Case</th><th>Workbook</th><th>Sheet</th><th>Cell</th><th>Value</th></tr></thead>
+        <tbody>${locations.map((item) => `
+          <tr>
+            <td>${escapeHtml(item.case_folder_name)}</td>
+            <td title="${escapeHtml(item.workbook_path)}">${escapeHtml(item.workbook_name)}</td>
+            <td>${escapeHtml(item.sheet_name)}</td>
+            <td>${escapeHtml(item.cell)}</td>
+            <td>${escapeHtml(item.value)}</td>
+          </tr>`).join("")}</tbody>
+      </table>
+    </div>`;
 }
 
 function runSqlAction(action) {
@@ -3107,6 +3175,10 @@ function summaryMessage(job) {
   const result = job.result || {};
   if (job.action === "compare") return `Đã xử lý ${result.processed_count || 0} case, tạo ${result.workbook_count || 0} workbook và tìm thấy ${result.fixme_count || 0} FIXME.`;
   if (job.action === "folder_compare") return `Đã tạo ${result.sheet_count || 0} sheet, tìm thấy ${result.fixme_count || 0} FIXME.`;
+  if (job.action === "check_fixmes") {
+    const count = result.fixme_location_count || 0;
+    return count ? `Vẫn còn ${count} cell FIXME trong file compare.` : "Không còn cell FIXME trong các file compare.";
+  }
   if (job.action === "format_excel_images") return `Đã format ${result.processed_count || 0}/${result.file_count || 0} workbook, chuẩn hóa ${result.workbook_format_sheet_count || 0} sheet, giữ size cũ tại ${result.font_size_skipped_row_count || 0} row; lỗi ${result.error_count || 0}.`;
   if (job.action === "sql_format") return `Đã format ${result.statement_count || 0} câu lệnh SQL.`;
   if (job.action === "sql_load_excel") return `Đã đọc ${result.entry_count || 0} SQL từ Excel và format ${result.statement_count || 0} statement.`;
@@ -3151,7 +3223,7 @@ function setBusy(busy) {
     cancelButton.disabled = !canCancel || Boolean(state.job?.cancel_requested);
     cancelButton.textContent = state.job?.cancel_requested ? "Đang hủy..." : "Hủy tác vụ";
   }
-  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #db-switch-connections, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, #compare-bulk-assign, #compare-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes, #apply-fixmes-preview, #refresh-compare-preview').forEach((button) => {
+  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #db-switch-connections, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, #compare-bulk-assign, #compare-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes, #apply-fixmes-preview, #refresh-compare-preview, #check-fixmes').forEach((button) => {
     button.disabled = busy || (button.id === "delete-excel-format-preset" && !valueOf("excel-format-preset"));
   });
   updateFixmeToolbarState();

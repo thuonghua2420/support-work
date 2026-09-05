@@ -75,62 +75,65 @@
             <div class="form-actions"><span class="hint">Excel sẽ được tạo trong <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>ExportCompare</span><b>→</b></button></div>
           </form>
 
-          <section class="card fixme-card">
+          <section class="card fixme-card collapsed" id="fixme-expand-card">
             <div class="card-heading">
               <div><span class="step-number">03</span><h3>Review FIXME</h3><span class="count-badge" id="fixme-count">0</span></div>
-              <div class="inline-actions"><button class="secondary-button" id="manage-notes" type="button">Quản lý Note</button><button class="primary-button small" id="apply-fixmes" type="button">Áp dụng Note</button></div>
+              <div class="inline-actions"><button class="ghost-button small" id="toggle-fixme-expand" type="button">Mở rộng</button><button class="primary-button small" id="apply-fixmes" type="button">Áp dụng Note</button></div>
             </div>
-            <div class="empty-state" id="fixme-empty"><span>✓</span><strong>Chưa có mục cần review</strong><p>FIXME từ lần so sánh gần nhất sẽ xuất hiện tại đây.</p></div>
-            <div class="fixme-toolbar hidden" id="fixme-tools">
-              <div class="fixme-summary">
-                <strong id="fixme-visible-count">0 / 0</strong>
-                <small id="fixme-note-count">0 dòng đã gán note</small>
+            <div class="collapsible-body" id="fixme-expand-body">
+              <div class="empty-state" id="fixme-empty"><span>✓</span><strong>Chưa có mục cần review</strong><p>FIXME từ lần so sánh gần nhất sẽ xuất hiện tại đây.</p></div>
+              <div class="fixme-toolbar hidden" id="fixme-tools">
+                <div class="fixme-summary">
+                  <strong id="fixme-visible-count">0 / 0</strong>
+                  <small id="fixme-note-count">0 dòng đã gán note</small>
+                </div>
+                <div class="fixme-bulk-actions">
+                  <button class="secondary-button small" id="fixme-select-filtered" type="button">Chọn lọc</button>
+                  <button class="ghost-button small" id="fixme-clear-selection" type="button">Bỏ chọn</button>
+                  <select id="fixme-bulk-scope"><option value="filtered">Dòng đang lọc</option><option value="checked">Dòng đã tick</option></select>
+                  <select id="fixme-bulk-note"></select>
+                  <button class="secondary-button small" id="fixme-bulk-assign" type="button">Gán note</button>
+                  <button class="ghost-button small" id="fixme-bulk-clear" type="button">Xóa note</button>
+                </div>
               </div>
-              <div class="fixme-bulk-actions">
-                <button class="secondary-button small" id="fixme-select-filtered" type="button">Chọn lọc</button>
-                <button class="ghost-button small" id="fixme-clear-selection" type="button">Bỏ chọn</button>
-                <select id="fixme-bulk-scope"><option value="filtered">Dòng đang lọc</option><option value="checked">Dòng đã tick</option></select>
-                <select id="fixme-bulk-note"></select>
-                <button class="secondary-button small" id="fixme-bulk-assign" type="button">Gán note</button>
-                <button class="ghost-button small" id="fixme-bulk-clear" type="button">Xóa note</button>
+              <div class="table-wrap hidden" id="fixme-table-wrap">
+                <table class="fixme-table">
+                  <thead>
+                    <tr>
+                      <th class="select-column"><input id="fixme-check-visible" type="checkbox" title="Chọn/bỏ chọn các dòng đang lọc"></th>
+                      <th><button class="sort-header" data-fixme-sort="case_folder_name" type="button">Case</button></th>
+                      <th><button class="sort-header" data-fixme-sort="workbook_name" type="button">Workbook</button></th>
+                      <th><button class="sort-header" data-fixme-sort="csv_sheet_name" type="button">Sheet</button></th>
+                      <th><button class="sort-header" data-fixme-sort="column_name" type="button">Column</button></th>
+                      <th><button class="sort-header" data-fixme-sort="left_value" type="button">Giá trị trái</button></th>
+                      <th><button class="sort-header" data-fixme-sort="right_value" type="button">Giá trị phải</button></th>
+                      <th><button class="sort-header" data-fixme-sort="record_number" type="button">Record</button></th>
+                      <th><button class="sort-header" data-fixme-sort="note" type="button">Ghi chú</button></th>
+                    </tr>
+                    <tr class="fixme-filter-row">
+                      <th><button class="icon-button tiny" id="fixme-clear-filters" type="button" title="Xóa tất cả filter">×</button></th>
+                      <th><input data-fixme-filter="case_folder_name" placeholder="Lọc"></th>
+                      <th><input data-fixme-filter="workbook_name" placeholder="Lọc"></th>
+                      <th><input data-fixme-filter="csv_sheet_name" placeholder="Lọc"></th>
+                      <th><input data-fixme-filter="column_name" placeholder="Lọc"></th>
+                      <th><input data-fixme-filter="left_value" placeholder="Lọc"></th>
+                      <th><input data-fixme-filter="right_value" placeholder="Lọc"></th>
+                      <th><input data-fixme-filter="record_number" placeholder="Lọc"></th>
+                      <th><select id="fixme-filter-note" data-fixme-filter="note"></select></th>
+                    </tr>
+                  </thead>
+                  <tbody id="fixme-body"></tbody>
+                </table>
               </div>
-            </div>
-            <div class="table-wrap hidden" id="fixme-table-wrap">
-              <table class="fixme-table">
-                <thead>
-                  <tr>
-                    <th class="select-column"><input id="fixme-check-visible" type="checkbox" title="Chọn/bỏ chọn các dòng đang lọc"></th>
-                    <th><button class="sort-header" data-fixme-sort="case_folder_name" type="button">Case</button></th>
-                    <th><button class="sort-header" data-fixme-sort="workbook_name" type="button">Workbook</button></th>
-                    <th><button class="sort-header" data-fixme-sort="csv_sheet_name" type="button">Sheet</button></th>
-                    <th><button class="sort-header" data-fixme-sort="column_name" type="button">Column</button></th>
-                    <th><button class="sort-header" data-fixme-sort="left_value" type="button">Giá trị trái</button></th>
-                    <th><button class="sort-header" data-fixme-sort="right_value" type="button">Giá trị phải</button></th>
-                    <th><button class="sort-header" data-fixme-sort="record_number" type="button">Record</button></th>
-                    <th><button class="sort-header" data-fixme-sort="note" type="button">Ghi chú</button></th>
-                  </tr>
-                  <tr class="fixme-filter-row">
-                    <th><button class="icon-button tiny" id="fixme-clear-filters" type="button" title="Xóa tất cả filter">×</button></th>
-                    <th><input data-fixme-filter="case_folder_name" placeholder="Lọc"></th>
-                    <th><input data-fixme-filter="workbook_name" placeholder="Lọc"></th>
-                    <th><input data-fixme-filter="csv_sheet_name" placeholder="Lọc"></th>
-                    <th><input data-fixme-filter="column_name" placeholder="Lọc"></th>
-                    <th><input data-fixme-filter="left_value" placeholder="Lọc"></th>
-                    <th><input data-fixme-filter="right_value" placeholder="Lọc"></th>
-                    <th><input data-fixme-filter="record_number" placeholder="Lọc"></th>
-                    <th><select id="fixme-filter-note" data-fixme-filter="note"></select></th>
-                  </tr>
-                </thead>
-                <tbody id="fixme-body"></tbody>
-              </table>
             </div>
           </section>
 
           <section class="card compare-preview-card hidden" id="compare-preview-card">
             <div class="card-heading">
               <div><span class="step-number">04</span><h3>Xem trực tiếp file Compare</h3><span class="count-badge" id="compare-preview-meta">0 workbook</span></div>
-              <div class="inline-actions"><button class="secondary-button small" id="refresh-compare-preview" type="button">Tải lại view</button><button class="primary-button small" id="apply-fixmes-preview" type="button">Áp dụng Note</button></div>
+              <div class="inline-actions"><button class="secondary-button small" id="refresh-compare-preview" type="button">Tải lại view</button><button class="secondary-button small" id="check-fixmes" type="button">Check FIXME</button><button class="secondary-button small" id="manage-notes" type="button">Quản lý Note</button><button class="primary-button small" id="apply-fixmes-preview" type="button">Áp dụng Note</button></div>
             </div>
+            <div class="fixme-scan-result hidden" id="fixme-scan-result"></div>
             <div class="compare-preview-shell">
               <header class="compare-preview-tabs">
                 <div class="compare-tab-line"><span>Case</span><div class="compare-tabs" id="compare-case-tabs"></div></div>

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from .app_config import ExcelCompareStyleConfig, ExcelHeaderConfig, load_app_config
@@ -252,6 +252,7 @@ def _write_sheet(
             fixme_cell = worksheet.cell(row_index, fixme_col)
             fixme_cell.value = headers.fixme_text
             fixme_cell.font = styles.fixme_font
+            fixme_cell.alignment = Alignment(wrap_text=False)
 
     worksheet.cell(1, 2).value = diff_field_count
     worksheet.cell(1, 2).font = styles.base_font

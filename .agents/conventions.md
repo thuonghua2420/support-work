@@ -90,7 +90,7 @@
 - Keep `diff_font_color` and `a1_font_color` separate: mismatch cells use `diff_font_color` and bold text, while A1 and final-column `FIXME` cells are not bold.
 - Metadata columns skipped by compare are listed in `compare.py`.
 - `excel_writer.py` should return mismatch metadata whenever processor/GUI needs review data.
-- If multiple mismatch rows point to one final-column `FIXME` cell, applying notes joins unique selected notes with line breaks.
+- If multiple mismatch rows point to one final-column `FIXME` cell, applying notes joins unique selected notes with line breaks but keeps wrap text disabled.
 
 ## Testing Rules
 

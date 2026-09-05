@@ -19,6 +19,7 @@ from .compare_workbook_view import (
     CompareWorkbookReference,
     build_compare_view_index,
     read_compare_sheet,
+    scan_compare_workbook_fixmes,
 )
 from .copy_ut import run_copy_ut_files
 from .database_io import (
@@ -215,6 +216,7 @@ class AutoCompareWebApplication:
         "db_export": "Đang xuất CSDL ra CSV...",
         "db_sync": "Đang đồng bộ hai CSDL...",
         "apply_fixmes": "Đang áp dụng ghi chú FIXME...",
+        "check_fixmes": "Đang kiểm tra FIXME còn lại...",
     }
     CONFIRMED_ACTIONS = {
         "delete_contains",
@@ -670,6 +672,7 @@ class AutoCompareWebApplication:
                 log=log,
             ),
             "apply_fixmes": lambda log: self._apply_fixmes(payload, log),
+            "check_fixmes": lambda log: self._check_fixmes(log),
         }
         base_operation = operations[action]
 
@@ -837,6 +840,30 @@ class AutoCompareWebApplication:
             f"trong {result.workbook_count} file Excel."
         )
         return {"cell_count": result.cell_count, "workbook_count": result.workbook_count}
+
+    def _check_fixmes(self, log: Logger) -> dict[str, Any]:
+        with self._state_lock:
+            workbooks = list(self._compare_workbooks)
+        if not workbooks:
+            raise ValueError("Chưa có file compare từ lần so sánh hiện tại để kiểm tra.")
+        locations = scan_compare_workbook_fixmes(workbooks)
+        if not locations:
+            log("Không còn cell nào có text FIXME trong các file compare hiện tại.")
+        else:
+            log(f"Tìm thấy {len(locations)} cell còn text FIXME:")
+            for location in locations[:200]:
+                log(
+                    f"- {location['case_folder_name']} | {location['workbook_name']} | "
+                    f"{location['sheet_name']}!{location['cell']}"
+                )
+            if len(locations) > 200:
+                log(f"... còn {len(locations) - 200} vị trí khác.")
+        return {
+            "fixme_exists": bool(locations),
+            "fixme_location_count": len(locations),
+            "fixme_scan_locations": locations,
+            "compare_view": self.compare_view_index(),
+        }
 
     def _set_fixmes(self, entries: list[WorkbookFixmeEntry]) -> None:
         with self._state_lock:

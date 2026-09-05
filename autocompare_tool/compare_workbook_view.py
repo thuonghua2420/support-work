@@ -140,6 +140,34 @@ def read_compare_sheet(
         workbook.close()
 
 
+def scan_compare_workbook_fixmes(workbooks: Sequence[CompareWorkbookReference]) -> list[dict[str, Any]]:
+    locations: list[dict[str, Any]] = []
+    for reference in workbooks:
+        if not reference.workbook_path.exists() or not reference.workbook_path.is_file():
+            continue
+        workbook = load_workbook(reference.workbook_path, read_only=True, data_only=False)
+        try:
+            for worksheet in workbook.worksheets:
+                for row in worksheet.iter_rows():
+                    for cell in row:
+                        value = _display_value(cell.value).strip()
+                        if value.upper() != "FIXME":
+                            continue
+                        locations.append(
+                            {
+                                "case_folder_name": reference.case_folder_name or "Compare",
+                                "workbook_name": reference.workbook_name,
+                                "workbook_path": str(reference.workbook_path),
+                                "sheet_name": worksheet.title,
+                                "cell": cell.coordinate,
+                                "value": value,
+                            }
+                        )
+        finally:
+            workbook.close()
+    return locations
+
+
 def _case_id(case_name: str, index: int) -> str:
     return f"case-{index}"
 

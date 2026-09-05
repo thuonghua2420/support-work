@@ -155,7 +155,7 @@ Keep:
 Owns:
 
 - Building the Case/workbook/sheet index for the latest generated compare output.
-- Reading compare workbook sheets with `openpyxl` and serializing cell values, compare colors, row heights, column widths, and FIXME cell mappings for the web preview. Font and size stay controlled by the web UI.
+- Reading compare workbook sheets with `openpyxl` and serializing cell values, compare colors, row heights, column widths, and FIXME cell mappings for the web preview. It also scans current compare workbooks for remaining exact `FIXME` markers after note application. Font and size stay controlled by the web UI.
 
 Rules:
 
