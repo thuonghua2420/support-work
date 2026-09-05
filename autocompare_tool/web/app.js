@@ -11,6 +11,8 @@ const state = {
   fixmeScanLocations: [],
   fixmeSortTouched: false,
   fixmeSorts: defaultFixmeSorts(),
+  folderComparePairs: [],
+  folderPairDrag: null,
   compareView: { cases: [], activeCaseId: "", activeWorkbookId: "", activeSheetName: "", sheet: null, loadingKey: "" },
   job: null,
   jobCursor: 0,
@@ -111,6 +113,7 @@ async function init() {
     renderComparePreview();
     renderTables();
     restoreUiCache();
+    updateFolderCompareMode();
     restoreDatabaseSessionConnections();
     bindUiCache();
     if (state.bootstrap.job) {
@@ -660,12 +663,22 @@ function bindForms() {
   });
   $("#folder-compare-form").addEventListener("submit", (event) => {
     event.preventDefault();
+    const exportMode = $('input[name="folder-export-mode"]:checked')?.value || "single";
+    if (exportMode === "separate" && !state.folderComparePairs.length) {
+      loadFolderComparePairs();
+      return;
+    }
     startAction("folder_compare", {
       left: valueOf("folder-left"),
       right: valueOf("folder-right"),
       output: valueOf("folder-output"),
+      export_mode: exportMode,
+      pairs: exportMode === "separate" ? collectFolderComparePairs() : [],
     });
   });
+  $$('input[name="folder-export-mode"]').forEach((control) => control.addEventListener("change", updateFolderCompareMode));
+  $("#load-folder-pairs")?.addEventListener("click", loadFolderComparePairs);
+  ["folder-left", "folder-right"].forEach((id) => $(`#${id}`)?.addEventListener("change", resetFolderComparePairs));
   $("#copy-ut-form").addEventListener("submit", (event) => {
     event.preventDefault();
     startAction("copy_ut", { source: valueOf("copy-source"), target: valueOf("copy-target") });
@@ -912,6 +925,92 @@ function toggleFixmeExpand() {
 
 function checkRemainingFixmes() {
   startAction("check_fixmes", {});
+}
+
+function updateFolderCompareMode() {
+  const exportMode = $('input[name="folder-export-mode"]:checked')?.value || "single";
+  $("#folder-pair-panel")?.classList.toggle("hidden", exportMode !== "separate");
+}
+
+function resetFolderComparePairs() {
+  state.folderComparePairs = [];
+  renderFolderComparePairs();
+}
+
+async function loadFolderComparePairs() {
+  try {
+    const response = await api("/api/folder-compare/pairs", {
+      method: "POST",
+      body: { left: valueOf("folder-left"), right: valueOf("folder-right") },
+    });
+    state.folderComparePairs = Array.isArray(response.pairs) ? response.pairs : [];
+    renderFolderComparePairs();
+    showToast(`Đã quét ${state.folderComparePairs.length} pair CSV.`, "success", 3500);
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
+function collectFolderComparePairs() {
+  return $$("#folder-pair-body tr[data-index]").map((row) => ({
+    left_name: row.querySelector("[data-pair-left]")?.dataset.pairLeft || "",
+    right_name: row.querySelector("[data-pair-right]")?.dataset.pairRight || "",
+    output_name: row.querySelector("[data-pair-output]")?.value?.trim() || "",
+  }));
+}
+
+function renderFolderComparePairs() {
+  const body = $("#folder-pair-body");
+  if (!body) return;
+  if (!state.folderComparePairs.length) {
+    body.innerHTML = `<tr><td colspan="3">Không tìm thấy file CSV trong hai folder.</td></tr>`;
+    return;
+  }
+  body.innerHTML = state.folderComparePairs.map((pair, index) => `
+    <tr data-index="${index}">
+      <td draggable="true" data-pair-side="left" data-pair-left="${escapeHtml(pair.left_name || "")}" title="${escapeHtml(pair.left_name || "")}">${escapeHtml(pair.left_name || "(trống)")}</td>
+      <td draggable="true" data-pair-side="right" data-pair-right="${escapeHtml(pair.right_name || "")}" title="${escapeHtml(pair.right_name || "")}">${escapeHtml(pair.right_name || "(trống)")}</td>
+      <td><input data-pair-output value="${escapeHtml(pair.output_name || "")}" placeholder="compare_${index + 1}.xlsx"></td>
+    </tr>
+  `).join("");
+  $$("#folder-pair-body [data-pair-side]").forEach((cell) => {
+    cell.addEventListener("dragstart", handleFolderPairDragStart);
+    cell.addEventListener("dragover", handleFolderPairDragOver);
+    cell.addEventListener("drop", handleFolderPairDrop);
+    cell.addEventListener("dragend", handleFolderPairDragEnd);
+  });
+}
+
+function handleFolderPairDragStart(event) {
+  const cell = event.currentTarget;
+  state.folderPairDrag = { side: cell.dataset.pairSide, index: Number(cell.closest("tr")?.dataset.index) };
+  cell.classList.add("dragging");
+  event.dataTransfer.effectAllowed = "move";
+}
+
+function handleFolderPairDragOver(event) {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+}
+
+function handleFolderPairDrop(event) {
+  event.preventDefault();
+  const target = event.currentTarget;
+  const targetIndex = Number(target.closest("tr")?.dataset.index);
+  const drag = state.folderPairDrag;
+  if (!drag || drag.side !== target.dataset.pairSide || !Number.isInteger(drag.index) || drag.index === targetIndex) return;
+  state.folderComparePairs = collectFolderComparePairs();
+  const field = drag.side === "left" ? "left_name" : "right_name";
+  const values = state.folderComparePairs.map((pair) => pair[field] || "");
+  const [moved] = values.splice(drag.index, 1);
+  values.splice(targetIndex, 0, moved);
+  state.folderComparePairs = state.folderComparePairs.map((pair, index) => ({ ...pair, [field]: values[index] || "" }));
+  renderFolderComparePairs();
+}
+
+function handleFolderPairDragEnd() {
+  $$("#folder-pair-body .dragging").forEach((cell) => cell.classList.remove("dragging"));
+  state.folderPairDrag = null;
 }
 
 function bindDialogs() {
@@ -3174,7 +3273,7 @@ async function updateSqlSource(relationId) {
 function summaryMessage(job) {
   const result = job.result || {};
   if (job.action === "compare") return `Đã xử lý ${result.processed_count || 0} case, tạo ${result.workbook_count || 0} workbook và tìm thấy ${result.fixme_count || 0} FIXME.`;
-  if (job.action === "folder_compare") return `Đã tạo ${result.sheet_count || 0} sheet, tìm thấy ${result.fixme_count || 0} FIXME.`;
+  if (job.action === "folder_compare") return `Đã tạo ${result.workbook_count || 1} workbook / ${result.sheet_count || 0} sheet, tìm thấy ${result.fixme_count || 0} FIXME.`;
   if (job.action === "check_fixmes") {
     const count = result.fixme_location_count || 0;
     return count ? `Vẫn còn ${count} cell FIXME trong file compare.` : "Không còn cell FIXME trong các file compare.";
@@ -3223,7 +3322,7 @@ function setBusy(busy) {
     cancelButton.disabled = !canCancel || Boolean(state.job?.cancel_requested);
     cancelButton.textContent = state.job?.cancel_requested ? "Đang hủy..." : "Hủy tác vụ";
   }
-  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #db-switch-connections, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, #compare-bulk-assign, #compare-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes, #apply-fixmes-preview, #refresh-compare-preview, #check-fixmes').forEach((button) => {
+  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #db-switch-connections, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, #compare-bulk-assign, #compare-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes, #apply-fixmes-preview, #refresh-compare-preview, #check-fixmes, #load-folder-pairs').forEach((button) => {
     button.disabled = busy || (button.id === "delete-excel-format-preset" && !valueOf("excel-format-preset"));
   });
   updateFixmeToolbarState();

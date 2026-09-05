@@ -206,6 +206,16 @@ table { width: 100%; border-collapse: collapse; min-width: 1050px; }
 th { position: sticky; top: 0; z-index: 1; padding: 10px 11px; color: #66768a; background: #f2f6fa; font-size: 9px; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
 td { max-width: 240px; padding: 10px 11px; border-top: 1px solid var(--line-soft); color: #415268; font-size: 11px; line-height: 1.45; vertical-align: top; overflow-wrap: anywhere; }
 tbody tr:hover { background: #f8fbff; }
+.folder-pair-panel { margin-top: var(--layout-gap); padding: 14px; border: 1px solid #cbdcf0; border-radius: 10px; background: #f8fbff; }
+.folder-pair-panel .card-heading { margin-bottom: 12px; }
+.folder-pair-panel h3 { margin: 0; font-size: 14px; color: #1f3349; }
+.folder-pair-panel p { margin: 4px 0 0; color: #718196; font-size: 11px; }
+.folder-pair-wrap { max-height: 360px; border-radius: 8px; background: white; }
+.folder-pair-table { min-width: 780px; table-layout: fixed; }
+.folder-pair-table th, .folder-pair-table td { width: 33.333%; max-width: none; }
+.folder-pair-table [data-pair-side] { cursor: grab; }
+.folder-pair-table [data-pair-side].dragging { opacity: .55; background: #eaf3ff; }
+.folder-pair-table input { width: 100%; height: 30px; padding: 0 8px; border: 1px solid #cbd7e6; border-radius: 6px; color: #263d57; background: white; font-size: 11px; }
 .cell-stack strong, .cell-stack small { display: block; }
 .cell-stack small { margin-top: 2px; color: #8a98a9; }
 .diff-value { display: block; max-height: 68px; overflow: auto; padding: 6px 7px; border-radius: 6px; background: #f7f9fb; white-space: pre-wrap; }
@@ -326,6 +336,13 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .switch:checked::after { transform: translateX(16px); }
 .import-mode-fieldset { min-width: 0; margin: 18px 0; padding: 0; border: 0; }
 .import-mode-fieldset legend { margin-bottom: 9px; color: #33475f; font-size: 11px; font-weight: 750; letter-spacing: .025em; text-transform: uppercase; }
+.folder-export-fieldset { display: flex; align-items: center; gap: 12px; margin: 16px 0 14px; }
+.folder-export-fieldset legend { float: left; min-width: 92px; margin: 0; padding-top: 7px; }
+.folder-export-fieldset::after { content: ""; display: block; clear: both; }
+.folder-export-options { display: inline-flex; align-items: center; gap: 6px; padding: 3px; border: 1px solid #cdd9e7; border-radius: 10px; background: #f6f9fc; }
+.folder-export-options label { display: inline-flex; align-items: center; min-height: 30px; padding: 0 12px; border-radius: 7px; color: #42556d; font-size: 11px; font-weight: 700; cursor: pointer; }
+.folder-export-options label:has(input:checked) { color: white; background: var(--blue); box-shadow: 0 5px 12px rgba(20,104,230,.16); }
+.folder-export-options input { position: absolute; opacity: 0; pointer-events: none; }
 .import-mode-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .sync-options .import-mode-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .import-mode-card { position: relative; display: flex; align-items: flex-start; gap: 9px; min-height: 92px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fafcfe; cursor: pointer; transition: .16s ease; }

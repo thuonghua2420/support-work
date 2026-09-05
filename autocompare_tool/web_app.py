@@ -53,7 +53,7 @@ from .file_utilities import (
 )
 from .fixme_notes import FixmeNote, FixmeNoteStore
 from .fixme_replacements import apply_fixme_replacements
-from .folder_compare import compare_csv_folders
+from .folder_compare import compare_csv_folder_pairs, compare_csv_folders, preview_folder_compare_pairs
 from .processor import process_root
 from .sql_excel_loader import format_excel_sql_entries, load_sql_entries_from_excel, render_raw_sql_entries
 from .sql_tools import analyze_sql, format_sql
@@ -418,6 +418,15 @@ class AutoCompareWebApplication:
         presets = self.excel_format_preset_store.delete(_text(payload, "name"))
         return [_excel_format_preset_to_dict(item) for item in presets]
 
+    def preview_folder_compare_pairs(self, payload: dict[str, Any]) -> dict[str, Any]:
+        pairs = preview_folder_compare_pairs(_text(payload, "left"), _text(payload, "right"))
+        return {
+            "pairs": [
+                {"left_name": pair.left_name, "right_name": pair.right_name, "output_name": pair.output_name}
+                for pair in pairs
+            ]
+        }
+
     def start_action(self, action: str, payload: dict[str, Any]) -> WebJob:
         extra_labels = {
             "db_sql_execute": "Dang chay SQL Workspace...",
@@ -727,6 +736,34 @@ class AutoCompareWebApplication:
         }
 
     def _folder_compare(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
+        mode = str(payload.get("export_mode", "single"))
+        if mode == "separate":
+            summary = compare_csv_folder_pairs(
+                _text(payload, "left"),
+                _text(payload, "right"),
+                _text(payload, "output"),
+                payload.get("pairs") if isinstance(payload.get("pairs"), list) else [],
+                log=log,
+            )
+            self._set_compare_result(
+                summary.fixme_entries,
+                [
+                    CompareWorkbookReference(
+                        case_folder_name=f"{summary.left_dir.name} - {summary.right_dir.name}",
+                        workbook_path=output_path,
+                        workbook_name=output_path.name,
+                    )
+                    for output_path in summary.output_paths
+                ],
+            )
+            return {
+                "output_path": str(summary.output_path),
+                "sheet_count": summary.sheet_count,
+                "workbook_count": summary.workbook_count,
+                "fixme_count": len(summary.fixme_entries),
+                "fixmes": self.fixme_snapshot(),
+                "compare_view": self.compare_view_index(),
+            }
         summary = compare_csv_folders(
             _text(payload, "left"),
             _text(payload, "right"),
@@ -746,6 +783,7 @@ class AutoCompareWebApplication:
         return {
             "output_path": str(summary.output_path),
             "sheet_count": summary.sheet_count,
+            "workbook_count": summary.workbook_count,
             "fixme_count": len(summary.fixme_entries),
             "fixmes": self.fixme_snapshot(),
             "compare_view": self.compare_view_index(),
@@ -979,6 +1017,9 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/notes/delete":
                 self._send_json({"notes": self.app.delete_note(payload)})
+                return
+            if parsed.path == "/api/folder-compare/pairs":
+                self._send_json(self.app.preview_folder_compare_pairs(payload))
                 return
             if parsed.path == "/api/excel-format-presets/save":
                 self._send_json({"presets": self.app.save_excel_format_preset(payload)})

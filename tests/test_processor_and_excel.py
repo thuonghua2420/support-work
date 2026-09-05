@@ -9,11 +9,13 @@ try:
     from autocompare_tool.app_config import ExcelCompareStyleConfig
     from autocompare_tool.excel_writer import WorkbookFixmeEntry, write_compare_workbook_with_fixmes
     from autocompare_tool.fixme_replacements import apply_fixme_replacements
-    from autocompare_tool.folder_compare import compare_csv_folders
+    from autocompare_tool.folder_compare import compare_csv_folder_pairs, compare_csv_folders, preview_folder_compare_pairs
     from autocompare_tool.processor import process_root
 except ImportError:  # pragma: no cover
     apply_fixme_replacements = None
     compare_csv_folders = None
+    compare_csv_folder_pairs = None
+    preview_folder_compare_pairs = None
     ExcelCompareStyleConfig = None
     Workbook = None
     WorkbookFixmeEntry = None
@@ -173,6 +175,41 @@ class ProcessorAndExcelTests(unittest.TestCase):
 
             workbook = load_workbook(output)
             self.assertEqual(set(workbook.sheetnames), {"left_only", "nested_child", "right_only", "shared"})
+
+    def test_compare_csv_folder_pairs_exports_one_workbook_per_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            left = root / "left"
+            right = root / "right"
+            output = root / "out"
+            left.mkdir()
+            right.mkdir()
+
+            _write_text(left / "customer_20260905_120000.csv", "id,name\n1,A\n")
+            _write_text(left / "order_20260905_120000.csv", "id,total\n1,10\n")
+            _write_text(right / "customer_20260905_120500.csv", "id,name\n1,B\n")
+            _write_text(right / "order_20260905_120500.csv", "id,total\n1,10\n")
+
+            self.assertIsNotNone(compare_csv_folder_pairs)
+            pairs = [
+                {
+                    "left_name": "customer_20260905_120000.csv",
+                    "right_name": "customer_20260905_120500.csv",
+                    "output_name": "customer_compare.xlsx",
+                },
+                {
+                    "left_name": "order_20260905_120000.csv",
+                    "right_name": "order_20260905_120500.csv",
+                    "output_name": "order_compare.xlsx",
+                },
+            ]
+            summary = compare_csv_folder_pairs(left, right, output, pairs)
+
+            self.assertEqual(summary.workbook_count, 2)
+            self.assertEqual(summary.sheet_count, 2)
+            self.assertTrue((output / "customer_compare.xlsx").exists())
+            self.assertTrue((output / "order_compare.xlsx").exists())
+            self.assertEqual(len(preview_folder_compare_pairs(left, right)), 2)
 
     def test_compare_workbook_uses_configurable_style_colors(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

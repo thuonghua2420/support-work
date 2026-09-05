@@ -73,6 +73,23 @@ def write_compare_workbook_with_fixmes(
     include_left_only_files: bool = False,
     recursive: bool = False,
 ) -> CompareWorkbookWriteResult:
+    pairs = _iter_compare_csv_files(before_dir, after_dir, include_left_only_files, recursive)
+    return write_compare_workbook_for_pairs(
+        pairs,
+        output_path,
+        excel_headers=excel_headers,
+        excel_style=excel_style,
+        case_folder_name=case_folder_name,
+    )
+
+
+def write_compare_workbook_for_pairs(
+    csv_pairs: list[tuple[Path, Path, str]],
+    output_path: Path,
+    excel_headers: ExcelHeaderConfig | None = None,
+    excel_style: ExcelCompareStyleConfig | None = None,
+    case_folder_name: str = "",
+) -> CompareWorkbookWriteResult:
     app_config = None if excel_headers is not None and excel_style is not None else load_app_config()
     headers = excel_headers or app_config.excel_headers
     styles = _build_styles(excel_style or app_config.excel_compare_style)
@@ -84,12 +101,7 @@ def write_compare_workbook_with_fixmes(
     used_sheet_names: set[str] = set()
     fixme_entries: list[WorkbookFixmeEntry] = []
 
-    for before_csv, after_csv, csv_display_name in _iter_compare_csv_files(
-        before_dir,
-        after_dir,
-        include_left_only_files,
-        recursive,
-    ):
+    for before_csv, after_csv, csv_display_name in csv_pairs:
         before_table = read_csv_table(before_csv) if before_csv.exists() else CsvTable([], [])
         after_table = read_csv_table(after_csv) if after_csv.exists() else CsvTable([], [])
         comparison = build_sheet_comparison(Path(csv_display_name).stem, before_table, after_table)

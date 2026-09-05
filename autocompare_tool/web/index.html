@@ -152,14 +152,33 @@
         </section>
 
         <section class="page" id="page-folder-compare" data-title="Compare Csv With Path" data-eyebrow="WORKSPACE / FOLDER COMPARE">
-          <div class="page-intro"><div><span class="section-kicker">So sánh nhanh</span><h2>Compare 2 thư mục CSV</h2><p>Quét các file csv cả hai phía, rồi tạo một file compare tổng hợp.</p></div><div class="visual-chip"><b>CSV</b><span>⇄</span><b>CSV</b><i>→ XLSX</i></div></div>
+          <div class="page-intro"><div><span class="section-kicker">So sánh nhanh</span><h2>Compare 2 thư mục CSV</h2><p>Chọn xuất một file tổng hợp hoặc xuất riêng từng file CSV thành từng workbook compare.</p></div><div class="visual-chip"><b>CSV</b><span>⇄</span><b>CSV</b><i>→ XLSX</i></div></div>
           <form class="card form-card" id="folder-compare-form">
             <div class="two-column">
               <label class="field"><span>Folder bên trái</span><span class="path-control"><input id="folder-left" required><button class="browse-button" type="button" data-browse-target="folder-left" data-browse-kind="directory">Chọn</button></span><small>Dữ liệu baseline / before</small></label>
               <label class="field"><span>Folder bên phải</span><span class="path-control"><input id="folder-right" required><button class="browse-button" type="button" data-browse-target="folder-right" data-browse-kind="directory">Chọn</button></span><small>Dữ liệu actual / after</small></label>
             </div>
-            <label class="field field-wide"><span>File Excel xuất ra</span><span class="path-control"><input id="folder-output" required><button class="browse-button" type="button" data-browse-target="folder-output" data-browse-kind="save" data-browse-ext="xlsx">Chọn</button></span></label>
-            <div class="form-actions"><span class="hint">Nếu thiếu đuôi <code>.xlsx</code>, hệ thống sẽ tự thêm.</span><button class="primary-button" type="submit">Tạo file so sánh <b>→</b></button></div>
+            <fieldset class="import-mode-fieldset folder-export-fieldset">
+              <legend>Kiểu export</legend>
+              <div class="folder-export-options">
+                <label><input type="radio" name="folder-export-mode" value="single" checked><span>Export 1 file</span></label>
+                <label><input type="radio" name="folder-export-mode" value="separate"><span>Export từng file</span></label>
+              </div>
+            </fieldset>
+            <label class="field field-wide"><span>File / folder Excel xuất ra</span><span class="path-control"><input id="folder-output" required><button class="browse-button" type="button" data-browse-target="folder-output" data-browse-kind="save" data-browse-ext="xlsx">Chọn</button></span></label>
+            <section class="folder-pair-panel hidden" id="folder-pair-panel">
+              <div class="card-heading compact">
+                <div><h3>Danh sách file CSV</h3><p>Kéo thả row để sắp lại pair trước khi export. Cột tên file xuất ra có thể sửa trực tiếp.</p></div>
+                <button class="secondary-button" type="button" id="load-folder-pairs">Quét file CSV</button>
+              </div>
+              <div class="table-wrap folder-pair-wrap">
+                <table class="folder-pair-table">
+                  <thead><tr><th>File folder bên trái</th><th>File folder bên phải</th><th>Tên file export</th></tr></thead>
+                  <tbody id="folder-pair-body"><tr><td colspan="3">Chưa quét file CSV.</td></tr></tbody>
+                </table>
+              </div>
+            </section>
+            <div class="form-actions"><span class="hint">Export 1 file giữ cơ chế cũ. Export từng file sẽ tạo folder theo tên path xuất ra nếu path có đuôi <code>.xlsx</code>.</span><button class="primary-button" type="submit">Tạo file so sánh <b>→</b></button></div>
           </form>
         </section>
 

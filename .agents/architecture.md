@@ -106,7 +106,9 @@ Owns:
 
 - Validation for two user-selected CSV folders.
 - Ad-hoc compare workbook generation outside the `UT*` root workflow.
-- Passing `include_left_only_files=True` and `recursive=True` so all CSV files under both selected folders are represented.
+- Passing `include_left_only_files=True` and `recursive=True` for the one-workbook mode so all CSV files under both selected folders are represented.
+- Direct-folder CSV pair preview for per-file export.
+- Per-file compare export, where each user-adjusted pair is written to its own workbook.
 
 ### `autocompare_tool/file_utilities.py`
 

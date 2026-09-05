@@ -55,13 +55,16 @@ Input:
 
 - A left CSV folder.
 - A right CSV folder.
-- An output Excel workbook path.
+- An output Excel workbook path for one-file export, or an output folder/path seed for per-file export.
 
 Behavior:
 
-- Generates one compare workbook for the two selected folders.
+- Supports two export modes:
+  - `Export 1 file`: generates one compare workbook for the two selected folders, preserving the original behavior.
+  - `Export từng file`: scans direct `*.csv` files from both folders, shows a three-column pairing table, lets users drag file names within each side to realign pairs, and exports each row to its own compare workbook.
 - Uses the same Excel writer and row/column comparison rules as the UT compare flow.
-- Recursively includes CSV files that exist only on the left or only on the right side.
+- One-file export recursively includes CSV files that exist only on the left or only on the right side.
+- Per-file export initially pairs exact file-name matches, then aligns remaining left/right files by sorted order so users can adjust timestamped or otherwise different file names before exporting.
 - Returns FIXME entries to the GUI review state.
 
 ### FIXME Review
