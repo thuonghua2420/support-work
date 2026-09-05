@@ -93,7 +93,7 @@ Trình duyệt web không cho phép website đọc đường dẫn tuyệt đố
 - `[folders]`: tên `Input`, `Output`, `Compare` và các folder before/after.
 - `[workbooks]`: tên các workbook được tạo.
 - `[excel_headers]`: header/text trong file compare Excel, gồm `FIXME`.
-- `[excel_compare_style]`: mã màu font/fill dùng khi tạo file compare Excel.
+- `[excel_compare_style]`: mã màu font/fill dùng khi tạo file compare Excel; `diff_font_color` dùng cho cell sai khác, `a1_font_color` dùng riêng cho ô A1.
 - `[compare_workflows]`: trạng thái mặc định của các luồng so sánh.
 - `[excel_image_format]`: marker và thông số layout cho chức năng căn ảnh Excel.
 

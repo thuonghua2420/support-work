@@ -68,12 +68,12 @@ class CompareWorkbookViewTests(unittest.TestCase):
         self.assertEqual("#FFC7CE", sheet["rows"][0]["cells"][0]["style"]["background"])
         self.assertEqual("#9C0006", sheet["rows"][0]["cells"][0]["style"]["color"])
         self.assertEqual("#C6EFCE", sheet["rows"][1]["cells"][0]["style"]["background"])
-        self.assertEqual("#000000", sheet["rows"][1]["cells"][0]["style"]["color"])
+        self.assertEqual("#006100", sheet["rows"][1]["cells"][0]["style"]["color"])
         self.assertEqual({"background", "color"}, set(sheet["rows"][1]["cells"][0]["style"]))
         self.assertEqual("#E2EFDA", sheet["rows"][2]["cells"][0]["style"]["background"])
         self.assertTrue(
             any(
-                cell["style"]["background"] == "#E5CCFF" and cell["style"]["color"] == "#9C0006"
+                cell["style"]["background"] == "#E5CCFF" and cell["style"]["color"] == "#FF0000"
                 for row in sheet["rows"]
                 for cell in row["cells"]
             )

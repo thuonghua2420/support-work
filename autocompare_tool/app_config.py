@@ -46,6 +46,7 @@ class ExcelCompareStyleConfig:
     base_font_color: str
     header_font_color: str
     diff_font_color: str
+    a1_font_color: str
     fixme_font_color: str
     a1_fill_color: str
     header_fill_color: str
@@ -126,8 +127,8 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
     parser = _read_config(path)
 
     folders = FolderConfig(
-        input_dir=_get(parser, "folders", "input_dir", "Input"),
-        output_dir=_get(parser, "folders", "output_dir", "Output"),
+        input_dir=_get(parser, "folders", "input_dir", "入力データ"),
+        output_dir=_get(parser, "folders", "output_dir", "出力（登録・更新）データ"),
         compare_dir=_get(parser, "folders", "compare_dir", "Compare"),
         before_htm_dir=_get(parser, "folders", "before_htm_dir", "before新システム出力データ"),
         after_htm_dir=_get(parser, "folders", "after_htm_dir", "after新システム出力データ"),
@@ -141,7 +142,7 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
             parser,
             "workbooks",
             "after_htc_vs_htm_file",
-            "Compare現行_vs_新_After_After.xlsx",
+            "Compare新-現行_After.xlsx",
         ),
         folder_compare_file=_get(parser, "workbooks", "folder_compare_file", "Compare_2_Folder_CSV.xlsx"),
     )
@@ -161,8 +162,9 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
     )
     excel_compare_style = ExcelCompareStyleConfig(
         base_font_color=_get_hex_color(parser, "excel_compare_style", "base_font_color", "000000"),
-        header_font_color=_get_hex_color(parser, "excel_compare_style", "header_font_color", "000000"),
-        diff_font_color=_get_hex_color(parser, "excel_compare_style", "diff_font_color", "9C0006"),
+        header_font_color=_get_hex_color(parser, "excel_compare_style", "header_font_color", "006100"),
+        diff_font_color=_get_hex_color(parser, "excel_compare_style", "diff_font_color", "FF0000"),
+        a1_font_color=_get_hex_color(parser, "excel_compare_style", "a1_font_color", "9C0006"),
         fixme_font_color=_get_hex_color(parser, "excel_compare_style", "fixme_font_color", "000000"),
         a1_fill_color=_get_hex_color(parser, "excel_compare_style", "a1_fill_color", "FFC7CE"),
         header_fill_color=_get_hex_color(parser, "excel_compare_style", "header_fill_color", "C6EFCE"),

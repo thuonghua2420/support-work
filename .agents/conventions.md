@@ -87,6 +87,7 @@
 - Compare workbooks are generated with `openpyxl`.
 - Sheet names must be sanitized and unique.
 - Diff cells are styled in `excel_writer.py`; compare workbook color codes are read from `[excel_compare_style]` in `autocompare_config.ini`.
+- Keep `diff_font_color` and `a1_font_color` separate: mismatch cells use `diff_font_color` and bold text, while A1 and final-column `FIXME` cells are not bold.
 - Metadata columns skipped by compare are listed in `compare.py`.
 - `excel_writer.py` should return mismatch metadata whenever processor/GUI needs review data.
 - If multiple mismatch rows point to one final-column `FIXME` cell, applying notes joins unique selected notes with line breaks.

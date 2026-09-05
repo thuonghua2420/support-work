@@ -220,7 +220,7 @@ def _compare_color_fallback(
     if row_index == 1 and column_index == 1:
         return {
             "background": _config_color(compare_style.a1_fill_color),
-            "color": _config_color(compare_style.diff_font_color),
+            "color": _config_color(compare_style.a1_font_color),
         }
     if row_index == 2 and _display_value(worksheet.cell(row_index, column_index).value).strip():
         return {

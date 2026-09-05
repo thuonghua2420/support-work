@@ -187,6 +187,7 @@ class ProcessorAndExcelTests(unittest.TestCase):
                 base_font_color="111111",
                 header_font_color="222222",
                 diff_font_color="333333",
+                a1_font_color="999999",
                 fixme_font_color="444444",
                 a1_fill_color="ABCDEF",
                 header_fill_color="123456",
@@ -199,11 +200,15 @@ class ProcessorAndExcelTests(unittest.TestCase):
             workbook = load_workbook(output)
             worksheet = workbook["table"]
             self.assertTrue(worksheet["A1"].fill.fgColor.rgb.endswith("ABCDEF"))
+            self.assertTrue(worksheet["A1"].font.color.rgb.endswith("999999"))
+            self.assertFalse(worksheet["A1"].font.bold)
             self.assertTrue(worksheet["A2"].fill.fgColor.rgb.endswith("123456"))
             self.assertTrue(worksheet["A3"].fill.fgColor.rgb.endswith("654321"))
             self.assertTrue(worksheet["C4"].fill.fgColor.rgb.endswith("FEDCBA"))
             self.assertTrue(worksheet["C4"].font.color.rgb.endswith("333333"))
+            self.assertTrue(worksheet["C4"].font.bold)
             self.assertTrue(worksheet["F4"].font.color.rgb.endswith("444444"))
+            self.assertFalse(worksheet["F4"].font.bold)
 
     def test_compare_workbook_displays_null_but_leaves_empty_blank(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

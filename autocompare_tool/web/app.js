@@ -42,9 +42,11 @@ const DB_HISTORY_LIMIT = 50;
 const COMPARE_PREVIEW_COLORS = {
   a1Background: "#FFC7CE",
   headerBackground: "#C6EFCE",
+  headerText: "#006100",
   nameBackground: "#E2EFDA",
   diffBackground: "#E5CCFF",
-  diffText: "#9C0006",
+  a1Text: "#9C0006",
+  diffText: "#FF0000",
   text: "#000000",
 };
 const ACTIVITY_LOG_READY_TEXT = "AutoCompare đã sẵn sàng.";
@@ -1731,6 +1733,8 @@ function compareColorClass(kind, color) {
   if (kind === "bg" && normalized === COMPARE_PREVIEW_COLORS.headerBackground) return "compare-bg-header";
   if (kind === "bg" && normalized === COMPARE_PREVIEW_COLORS.nameBackground) return "compare-bg-name";
   if (kind === "bg" && normalized === COMPARE_PREVIEW_COLORS.diffBackground) return "compare-bg-diff";
+  if (kind === "text" && normalized === COMPARE_PREVIEW_COLORS.a1Text) return "compare-text-a1";
+  if (kind === "text" && normalized === COMPARE_PREVIEW_COLORS.headerText) return "compare-text-header";
   if (kind === "text" && normalized === COMPARE_PREVIEW_COLORS.diffText) return "compare-text-diff";
   if (kind === "text" && normalized === COMPARE_PREVIEW_COLORS.text) return "compare-text-normal";
   return "";
@@ -1750,10 +1754,10 @@ function compareCellFallbackColors(cell, row) {
   const column = Number(cell?.column || 0);
   const value = String(cell?.value || "").trim();
   if (rowNumber === 1 && column === 1) {
-    return { background: COMPARE_PREVIEW_COLORS.a1Background, color: COMPARE_PREVIEW_COLORS.diffText };
+    return { background: COMPARE_PREVIEW_COLORS.a1Background, color: COMPARE_PREVIEW_COLORS.a1Text };
   }
   if (rowNumber === 2 && value) {
-    return { background: COMPARE_PREVIEW_COLORS.headerBackground, color: COMPARE_PREVIEW_COLORS.text };
+    return { background: COMPARE_PREVIEW_COLORS.headerBackground, color: COMPARE_PREVIEW_COLORS.headerText };
   }
   if (rowNumber >= 3 && (column === 1 || column === 2)) {
     return { background: COMPARE_PREVIEW_COLORS.nameBackground, color: COMPARE_PREVIEW_COLORS.text };

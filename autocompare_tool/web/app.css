@@ -243,7 +243,9 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .compare-bg-name { background: #E2EFDA; }
 .compare-bg-diff { background: #E5CCFF; }
 .compare-text-normal { color: #000000; }
-.compare-text-diff { color: #9C0006; }
+.compare-text-a1 { color: #9C0006; }
+.compare-text-header { color: #006100; }
+.compare-text-diff { color: #FF0000; }
 .compare-header-cell, .compare-diff-cell { font-weight: 700; }
 .compare-cell.wrap { white-space: pre-wrap; }
 .compare-cell-value { display: block; width: 100%; height: 26px; min-height: 26px; padding: 3px 6px; border: 0; border-radius: 0; color: inherit; background: transparent; box-shadow: none; resize: none; outline: 0; white-space: pre; overflow: auto; cursor: text; }

@@ -51,6 +51,7 @@ class CompareWorkbookStyles:
     base_font: Font
     header_font: Font
     diff_font: Font
+    a1_font: Font
     fixme_font: Font
     a1_fill: PatternFill
     header_fill: PatternFill
@@ -184,7 +185,7 @@ def _write_sheet(
     fixme_entries: list[WorkbookFixmeEntry] = []
 
     worksheet.cell(1, 1).value = headers.diff_count_title
-    worksheet.cell(1, 1).font = styles.diff_font
+    worksheet.cell(1, 1).font = styles.a1_font
     worksheet.cell(1, 1).fill = styles.a1_fill
 
     worksheet.cell(2, 1).value = headers.left_column_title
@@ -264,8 +265,9 @@ def _build_styles(style_config: ExcelCompareStyleConfig) -> CompareWorkbookStyle
     return CompareWorkbookStyles(
         base_font=Font(name=COMPARE_FONT_NAME, size=COMPARE_FONT_SIZE, color=style_config.base_font_color),
         header_font=Font(name=COMPARE_FONT_NAME, size=COMPARE_FONT_SIZE, bold=True, color=style_config.header_font_color),
-        diff_font=Font(name=COMPARE_FONT_NAME, size=COMPARE_FONT_SIZE, color=style_config.diff_font_color),
-        fixme_font=Font(name=COMPARE_FONT_NAME, size=COMPARE_FONT_SIZE, bold=True, color=style_config.fixme_font_color),
+        diff_font=Font(name=COMPARE_FONT_NAME, size=COMPARE_FONT_SIZE, bold=True, color=style_config.diff_font_color),
+        a1_font=Font(name=COMPARE_FONT_NAME, size=COMPARE_FONT_SIZE, bold=False, color=style_config.a1_font_color),
+        fixme_font=Font(name=COMPARE_FONT_NAME, size=COMPARE_FONT_SIZE, bold=False, color=style_config.fixme_font_color),
         a1_fill=PatternFill("solid", fgColor=style_config.a1_fill_color),
         header_fill=PatternFill("solid", fgColor=style_config.header_fill_color),
         name_fill=PatternFill("solid", fgColor=style_config.name_fill_color),
