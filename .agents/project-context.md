@@ -152,6 +152,15 @@ Important rule:
 - Import skips computed/generated/rowversion columns.
 - Identity columns are included only when users choose to keep identity values and the adapter can support that database behavior.
 
+### Excel Evidence Formatting
+
+Behavior:
+
+- Each sheet is split into old-system columns (A–R by default) and new-system columns (S onward), plus Input/Steps/Output row sections found from configured marker text in column A.
+- An image belongs to the resulting region containing its original top-left cell; an oversized image crossing another region does not change ownership.
+- Images in each of the six regions keep paste/z-order, are resized to the configured width, and are stacked independently with a 60 px default gap.
+- Section row space grows to fit the taller old/new stack and shrinks only when the removed trailing rows contain no cell values.
+
 ### SQL Workspace
 
 Behavior:

@@ -44,7 +44,7 @@ Giao diện Tkinter cũ vẫn có thể mở tạm thời bằng:
 - **So sánh 2 folder CSV**: quét đệ quy hai folder bất kỳ và tạo một workbook tổng hợp, bao gồm file chỉ tồn tại ở một phía.
 - **Tiện ích file**: đổi tên, xóa, di chuyển file/folder, đổi tên sheet Excel và tìm/xóa folder trống.
 - **Sao chép file UT**: chạy logic tương thích từ `copy_ut_files.py` và tạo log chi tiết trong `copy_logs`.
-- **Format ảnh Excel**: resize và sắp xếp ảnh trong workbook theo vùng Input/Steps/Output, đồng thời giữ nguyên ảnh, VBA và button.
+- **Format ảnh Excel**: resize và sắp xếp ảnh theo 6 vùng Evidence (hệ thống cũ/mới × Input/Steps/Output), đồng thời giữ nguyên ảnh, VBA và button.
 - **SQL Studio**: format SQL và phân tích table/alias, điều kiện, CTE, subquery, SELECT expression theo cây cú pháp.
 - **CSV ↔ Database**: test kết nối, chuẩn hóa CSV, import CSV và export table cho SQL Server, MySQL, PostgreSQL và Oracle.
 - **Đồng bộ 2 CSDL**: đồng bộ chênh lệch theo primary key, insert thêm hoặc truncate rồi đồng bộ lại.
@@ -55,7 +55,9 @@ Nhật ký tác vụ nằm ở bong bóng góc phải dưới. Log không tự x
 
 ## Format ảnh và workbook Excel
 
-Chọn folder chứa workbook `.xlsx`, `.xlsm`, `.xlsb` hoặc `.xls`. Công cụ áp dụng font và cỡ chữ cho toàn bộ sheet, đưa mỗi sheet về ô `A1`, kéo thanh cuộn ngang/dọc về đầu và chọn sheet đầu tiên trước khi lưu. Khi bật căn ảnh, công cụ dùng logic tham khảo từ `sampleformatimage/sample.vba` để resize ảnh, tách ảnh trái/phải, ghép theo row overlap và sắp xếp lại trong các vùng `Input`, `Steps`, `Output` để ảnh không đè lên nhau. Logic này chạy trực tiếp qua Excel COM nên `.xlsx` cũng căn ảnh được, không cần workbook chứa macro.
+Chọn folder chứa workbook `.xlsx`, `.xlsm`, `.xlsb` hoặc `.xls`. Công cụ áp dụng font và cỡ chữ cho toàn bộ sheet, đưa mỗi sheet về ô `A1`, kéo thanh cuộn ngang/dọc về đầu và chọn sheet đầu tiên trước khi lưu. Khi bật căn ảnh, mỗi sheet được chia thành 6 vùng: hệ thống cũ ở cột A–R, hệ thống mới từ cột S trở đi; ba vùng hàng bắt đầu tại các marker `Input`, `Steps`, `Output` trong cột A. Ảnh thuộc vùng chứa ô góc trên bên trái ban đầu của ảnh, kể cả khi phần còn lại của ảnh tràn sang vùng khác.
+
+Trong từng vùng, ảnh được xếp từ trên xuống theo thứ tự paste/z-order, ảnh nằm dưới cùng trong chồng ảnh được xử lý trước. Hai hệ thống được xếp độc lập nên không yêu cầu số ảnh đã dán phải bằng nhau. Ảnh giữ tỷ lệ, nhận width theo range cấu hình và cách nhau mặc định 60 px. Ảnh đầu vùng cách header 2 row; chiều cao vùng lấy theo phía chứa chuỗi ảnh dài hơn. Công cụ chèn thêm row khi thiếu chỗ và xóa phần row cuối vùng khi chúng thực sự trống. Logic chạy trực tiếp qua Excel COM nên `.xlsx` cũng căn ảnh được, không cần workbook chứa macro.
 
 Ô **Giữ nguyên size cho các row** nhận nhiều quy tắc, mỗi quy tắc một dòng:
 
@@ -66,7 +68,7 @@ Font name vẫn được áp dụng cho các row này; phần loại trừ chỉ
 
 Mặc định workbook được copy theo đúng cấu trúc folder vào thư mục con `Formatted` rồi mới xử lý. Chỉ chọn **Ghi đè file gốc** khi đã có backup. Cả hai chế độ đều yêu cầu xác nhận vì kết quả cũ cùng tên có thể bị ghi đè.
 
-Các marker sheet/shape/vùng ảnh và thông số layout như cột ảnh trái/phải, range width, border/header được cấu hình trong `[excel_image_format]` của `autocompare_config.ini`. Các chuỗi Nhật bị mojibake từ `sample.vba` được giữ trong config để dễ chỉnh khi gặp workbook khác encoding.
+Các marker sheet/shape/vùng hàng, biên cột A–R/S, anchor, range width, khoảng cách ảnh, border/header được cấu hình trong `[excel_image_format]` của `autocompare_config.ini`. Các chuỗi Nhật bị mojibake từ `sample.vba` được giữ trong config để dễ chỉnh khi gặp workbook khác encoding.
 
 Tính năng này cần Microsoft Excel Desktop trên máy Windows. Dùng Excel COM thay vì `openpyxl` để không làm mất VBA, ảnh hoặc button có sẵn. Các preset cá nhân được lưu trong `excel_format_presets.json` và file này không được commit vào Git.
 

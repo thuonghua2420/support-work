@@ -169,7 +169,7 @@ Owns:
 - Recursive discovery of `.xlsx`, `.xls`, `.xlsb`, and `.xlsm` workbooks.
 - Safe-copy output under `Formatted` or explicit in-place overwrite mode.
 - One hidden Microsoft Excel COM session per batch.
-- Native image layout based on the bundled VBA sample: collect picture shapes, split left/right by column, pair by vertical overlap, keep pairs inside Input/Steps/Output regions, resize to configured widths, and insert rows when needed to avoid overlaps.
+- Native image layout based on the bundled VBA sample: classify pictures into six regions from their original `TopLeftCell` (old/new system × Input/Steps/Output), preserve paste order via z-order, resize to configured widths, stack each column region independently with a configured pixel gap, and grow or shrink empty row space at section boundaries.
 - Workbook-wide font/font-size formatting, row exclusions, A1 selection, scroll reset, and first-sheet activation.
 
 Rules:
@@ -178,7 +178,7 @@ Rules:
 - Skip temporary `~$` workbooks, the output tree, and history/sample sheets excluded by configured markers.
 - Apply general font/view formatting to every worksheet; special-sheet exclusions affect only the image layout step.
 - Treat a plain exclusion as an exact, case-insensitive value anywhere in a row; treat `(Text, A1)` as a value check at one explicit cell.
-- Keep image-layout markers, dimensions, borders, and optional header/background settings in `[excel_image_format]` of `autocompare_config.ini`.
+- Keep row markers, old/new column boundaries, image anchors/sizes/gaps, borders, and optional header/background settings in `[excel_image_format]` of `autocompare_config.ini`.
 
 ### `autocompare_tool/excel_format_presets.py`
 

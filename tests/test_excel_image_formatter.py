@@ -120,6 +120,8 @@ class _FakeShapes:
             ]
         else:
             self._shapes = list(shapes_or_count)
+        for index, shape in enumerate(self._shapes, start=1):
+            shape.ZOrderPosition = index
 
     @property
     def Count(self) -> int:
@@ -146,6 +148,12 @@ class _FakeShape:
         self._height_rows = height_rows
         self.Width = 120.0
         self.LockAspectRatio = None
+        self.Placement = None
+        self.ZOrderPosition = 0
+
+    @property
+    def Height(self) -> float:
+        return self._height_rows * 15.0
 
     @property
     def TopLeftCell(self):
@@ -249,6 +257,7 @@ class _FakeSheet:
         self.activation_count = 0
         self.size_segments: list[tuple[int, int, float]] = []
         self.inserted_rows: list[tuple[int, int]] = []
+        self.deleted_rows: list[tuple[int, int]] = []
         self.borders: list[tuple[int, int, int, int, int, _FakeBorder]] = []
         self.Rows = _FakeRows(self)
         self.Columns = _FakeColumns(self)
@@ -338,8 +347,23 @@ class _FakeSheet:
         self.Cells._cells.update(shifted)
         self._ranges.clear()
         for shape in self.Shapes._shapes:
-            if shape._top_row >= start_row:
+            if shape.Placement != 3 and shape._top_row >= start_row:
                 shape._top_row += count
+
+    def delete_rows(self, start_row: int, count: int) -> None:
+        end_row = start_row + count - 1
+        shifted: dict[tuple[int, int], _FakeCell] = {}
+        for (row, column), cell in sorted(self.Cells._cells.items()):
+            if start_row <= row <= end_row:
+                continue
+            new_row = row - count if row > end_row else row
+            shifted[(new_row, column)] = _FakeCell(new_row, column, cell.Value2)
+        self.Cells._cells.clear()
+        self.Cells._cells.update(shifted)
+        self._ranges.clear()
+        for shape in self.Shapes._shapes:
+            if shape.Placement != 3 and shape._top_row > end_row:
+                shape._top_row -= count
 
 
 class _FakeRows:
@@ -360,6 +384,11 @@ class _FakeRowRange:
         start_row, end_row = _row_selector_parts(self._selector)
         self._sheet.inserted_rows.append((start_row, end_row))
         self._sheet.shift_rows(start_row, end_row - start_row + 1)
+
+    def Delete(self) -> None:
+        start_row, end_row = _row_selector_parts(self._selector)
+        self._sheet.deleted_rows.append((start_row, end_row))
+        self._sheet.delete_rows(start_row, end_row - start_row + 1)
 
 
 class _FakeColumns:
@@ -559,10 +588,10 @@ class ExcelImageFormatterTests(unittest.TestCase):
         self.assertFalse(workbook.close_save_changes)
         self.assertEqual(1, excel.ActiveWindow.ScrollRow)
         self.assertEqual(1, excel.ActiveWindow.ScrollColumn)
-        self.assertEqual((4, 2), formatted_shapes[0].position)
-        self.assertEqual((4, 21), formatted_shapes[1].position)
-        self.assertEqual((9, 2), formatted_shapes[2].position)
-        self.assertEqual((14, 21), formatted_shapes[3].position)
+        self.assertEqual((3, 2), formatted_shapes[0].position)
+        self.assertEqual((3, 21), formatted_shapes[1].position)
+        self.assertEqual((8, 2), formatted_shapes[2].position)
+        self.assertEqual((8, 21), formatted_shapes[3].position)
         self.assertEqual(_range_width_from_address("C1:S1"), formatted_shapes[0].Width)
         self.assertEqual(_range_width_from_address("V1:AL1"), formatted_shapes[1].Width)
         self.assertTrue(workbook.Worksheets._sheets[0].borders)
@@ -581,14 +610,19 @@ class ExcelImageFormatterTests(unittest.TestCase):
                 "autocompare_tool.excel_image_formatter._excel_application",
                 self._excel_context(excel),
             ):
-                summary = format_excel_images(temp_dir, overwrite_original=True, recursive=False)
+                summary = format_excel_images(
+                    temp_dir,
+                    overwrite_original=True,
+                    recursive=False,
+                    run_image_format=False,
+                )
 
             self.assertEqual(str(source.resolve()), excel.Workbooks.opened[0][0])
 
         self.assertIsNone(summary.output_root)
         self.assertEqual(1, summary.processed_count)
 
-    def test_workbook_error_is_reported_and_processing_continues(self) -> None:
+    def test_formats_old_and_new_system_images_independently_across_sections(self) -> None:
         sheets = lambda: [
             _FakeSheet(
                 "UT",
@@ -610,9 +644,11 @@ class ExcelImageFormatterTests(unittest.TestCase):
             ):
                 summary = format_excel_images(temp_dir)
 
-        self.assertEqual(0, summary.processed_count)
-        self.assertEqual(1, summary.error_count)
-        self.assertIn("Input/Steps", summary.errors[0])
+        self.assertEqual(1, summary.processed_count)
+        self.assertEqual(0, summary.error_count)
+        formatted_sheet = excel.Workbooks.opened[0][2].Worksheets.Item(1)
+        self.assertEqual((27, 2), formatted_sheet.Shapes.Item(1).position)
+        self.assertEqual((3, 21), formatted_sheet.Shapes.Item(2).position)
         self.assertTrue(excel.Workbooks.opened[0][2].closed)
 
     def test_formats_xlsx_with_native_image_formatter(self) -> None:
@@ -631,6 +667,21 @@ class ExcelImageFormatterTests(unittest.TestCase):
         self.assertEqual(1, summary.workbook_format_sheet_count)
         self.assertEqual([], excel.run_calls)
 
+    def test_reports_missing_section_markers_when_sheet_contains_images(self) -> None:
+        excel = _FakeExcel(lambda: [_FakeSheet("UT", 1)])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "report.xlsx").write_bytes(b"xlsx")
+            with patch(
+                "autocompare_tool.excel_image_formatter._excel_application",
+                self._excel_context(excel),
+            ):
+                summary = format_excel_images(temp_dir)
+
+        self.assertEqual(0, summary.processed_count)
+        self.assertEqual(1, summary.error_count)
+        self.assertIn("marker", summary.errors[0])
+
     def test_inserts_rows_when_resized_image_would_overlap_next_section_marker(self) -> None:
         shape = _FakeShape("Picture Tall", top_row=3, left_column=5, height_rows=20)
         sheet = _FakeSheet("UT", [shape], values={"A1": "Input", "A10": "Steps", "A30": "Output"})
@@ -645,9 +696,31 @@ class ExcelImageFormatterTests(unittest.TestCase):
                 summary = format_excel_images(temp_dir)
 
         self.assertEqual(1, summary.shape_count)
-        self.assertEqual((4, 2), shape.position)
-        self.assertEqual([(10, 25)], sheet.inserted_rows)
-        self.assertEqual("Steps", sheet.Cells.Item(26, 1).Value2)
+        self.assertEqual((3, 2), shape.position)
+        self.assertEqual([(10, 24)], sheet.inserted_rows)
+        self.assertEqual("Steps", sheet.Cells.Item(25, 1).Value2)
+
+    def test_uses_paste_z_order_instead_of_original_top_position(self) -> None:
+        first_pasted = _FakeShape("Picture first", top_row=12, left_column=5)
+        second_pasted = _FakeShape("Picture second", top_row=3, left_column=5)
+        sheet = _FakeSheet(
+            "UT",
+            [first_pasted, second_pasted],
+            values={"A1": "Input", "A20": "Steps", "A40": "Output"},
+        )
+        excel = _FakeExcel(lambda: [sheet])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "report.xlsx").write_bytes(b"xlsx")
+            with patch(
+                "autocompare_tool.excel_image_formatter._excel_application",
+                self._excel_context(excel),
+            ):
+                summary = format_excel_images(temp_dir)
+
+        self.assertEqual(0, summary.error_count)
+        self.assertEqual((3, 2), first_pasted.position)
+        self.assertEqual((8, 2), second_pasted.position)
 
     def test_applies_font_and_size_except_matching_rows(self) -> None:
         source_sheet = _FakeSheet(

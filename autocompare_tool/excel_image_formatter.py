@@ -42,6 +42,7 @@ XL_EDGE_LEFT = 7
 XL_EDGE_RIGHT = 10
 XL_MEDIUM = -4138
 XL_NEXT = 1
+XL_FREE_FLOATING = 3
 XL_SOLID = 1
 XL_THEME_COLOR_DARK1 = 1
 XL_VALUES = -4163
@@ -81,12 +82,8 @@ class _ShapeSnapshot:
     top_row: int
     bottom_row: int
     left_column: int
-
-
-@dataclass(frozen=True)
-class _ImagePair:
-    old_shape: _ShapeSnapshot | None
-    new_shape: _ShapeSnapshot | None
+    z_order: int
+    placement: int | None
 
 
 @dataclass(frozen=True)
@@ -318,13 +315,13 @@ def _format_sheet_images(
 ) -> int:
     _apply_base_image_layout(sheet, image_config)
     sections = _find_section_rows(sheet, image_config)
-    old_shapes, new_shapes = _collect_image_shapes(sheet, image_config, logger)
-    pairs = _pair_image_shapes(old_shapes, new_shapes, sections)
-    if pairs:
-        final_cursor_row = _layout_image_pairs(sheet, pairs, sections, image_config)
+    shapes = _collect_image_shapes(sheet, image_config, logger)
+    if shapes:
+        _validate_section_rows(sections, image_config)
+        final_cursor_row = _layout_image_regions(sheet, shapes, sections, image_config)
         if draw_format:
             _apply_image_draw_format(sheet, image_config, final_cursor_row, font_name)
-    return len(old_shapes) + len(new_shapes)
+    return len(shapes)
 
 
 def _apply_base_image_layout(sheet: Any, image_config: ExcelImageFormatConfig) -> None:
@@ -336,22 +333,18 @@ def _collect_image_shapes(
     sheet: Any,
     image_config: ExcelImageFormatConfig,
     logger: Logger,
-) -> tuple[list[_ShapeSnapshot], list[_ShapeSnapshot]]:
-    old_shapes: list[_ShapeSnapshot] = []
-    new_shapes: list[_ShapeSnapshot] = []
-    for shape in _iter_shapes(sheet.Shapes):
+) -> list[_ShapeSnapshot]:
+    snapshots: list[_ShapeSnapshot] = []
+    for collection_index, shape in enumerate(_iter_shapes(sheet.Shapes), start=1):
         if not _is_image_shape(shape, image_config):
             continue
-        snapshot = _snapshot_shape(shape, logger)
+        snapshot = _snapshot_shape(shape, collection_index, logger)
         if snapshot is None:
             continue
-        if snapshot.left_column < image_config.right_group_start_column:
-            old_shapes.append(snapshot)
-        else:
-            new_shapes.append(snapshot)
-    old_shapes.sort(key=lambda item: (item.top_row, item.bottom_row, item.left_column, item.name.casefold()))
-    new_shapes.sort(key=lambda item: (item.top_row, item.bottom_row, item.left_column, item.name.casefold()))
-    return old_shapes, new_shapes
+        snapshots.append(snapshot)
+    # Excel's lower z-order is the earlier pasted, lower image in an overlap stack.
+    snapshots.sort(key=lambda item: (item.z_order, item.name.casefold()))
+    return snapshots
 
 
 def _iter_shapes(shapes: Any) -> Iterator[Any]:
@@ -375,7 +368,7 @@ def _is_image_shape(shape: Any, image_config: ExcelImageFormatConfig) -> bool:
     return any(marker.casefold() in name for marker in image_config.shape_name_markers if marker)
 
 
-def _snapshot_shape(shape: Any, logger: Logger) -> _ShapeSnapshot | None:
+def _snapshot_shape(shape: Any, collection_index: int, logger: Logger) -> _ShapeSnapshot | None:
     try:
         name = str(_retry_com_call(lambda: shape.Name))
         top_cell = _retry_com_call(lambda: shape.TopLeftCell)
@@ -383,6 +376,14 @@ def _snapshot_shape(shape: Any, logger: Logger) -> _ShapeSnapshot | None:
         top_row = int(_retry_com_call(lambda: top_cell.Row))
         bottom_row = int(_retry_com_call(lambda: bottom_cell.Row))
         left_column = int(_retry_com_call(lambda: top_cell.Column))
+        try:
+            z_order = int(_retry_com_call(lambda: shape.ZOrderPosition))
+        except Exception:
+            z_order = collection_index
+        try:
+            placement = int(_retry_com_call(lambda: shape.Placement))
+        except Exception:
+            placement = None
     except Exception as exc:
         logger(f"Bỏ qua shape không đọc được vị trí: {exc}")
         return None
@@ -392,6 +393,8 @@ def _snapshot_shape(shape: Any, logger: Logger) -> _ShapeSnapshot | None:
         top_row=top_row,
         bottom_row=max(top_row, bottom_row),
         left_column=left_column,
+        z_order=z_order,
+        placement=placement,
     )
 
 
@@ -401,6 +404,20 @@ def _find_section_rows(sheet: Any, image_config: ExcelImageFormatConfig) -> _Sec
         steps_row=_find_marker_row(sheet, image_config.steps_marker, image_config.marker_column),
         output_row=_find_marker_row(sheet, image_config.output_marker, image_config.marker_column),
     )
+
+
+def _validate_section_rows(sections: _SectionRows, image_config: ExcelImageFormatConfig) -> None:
+    markers = (
+        (image_config.input_marker, sections.input_row),
+        (image_config.steps_marker, sections.steps_row),
+        (image_config.output_marker, sections.output_row),
+    )
+    missing = [name for name, row in markers if row is None]
+    if missing:
+        raise ValueError(f"Không tìm thấy marker phân vùng tại cột cấu hình: {', '.join(missing)}.")
+    rows = [row for _name, row in markers if row is not None]
+    if rows != sorted(rows) or len(set(rows)) != len(rows):
+        raise ValueError("Marker vùng phải xuất hiện theo thứ tự Input, Steps, Output từ trên xuống dưới.")
 
 
 def _find_marker_row(sheet: Any, marker: str, marker_column: int) -> int | None:
@@ -423,118 +440,207 @@ def _find_marker_row(sheet: Any, marker: str, marker_column: int) -> int | None:
     return int(_retry_com_call(lambda: found.Row))
 
 
-def _pair_image_shapes(
-    old_shapes: list[_ShapeSnapshot],
-    new_shapes: list[_ShapeSnapshot],
-    sections: _SectionRows,
-) -> list[_ImagePair]:
-    pairs: list[_ImagePair] = []
-    old_index = 0
-    new_index = 0
-    while old_index < len(old_shapes) or new_index < len(new_shapes):
-        old_shape = old_shapes[old_index] if old_index < len(old_shapes) else None
-        new_shape = new_shapes[new_index] if new_index < len(new_shapes) else None
-        if old_shape is not None and new_shape is not None:
-            if old_shape.bottom_row < new_shape.top_row:
-                pairs.append(_ImagePair(old_shape=old_shape, new_shape=None))
-                old_index += 1
-            elif new_shape.bottom_row < old_shape.top_row:
-                pairs.append(_ImagePair(old_shape=None, new_shape=new_shape))
-                new_index += 1
-            else:
-                _validate_pair_sections(old_shape, new_shape, sections)
-                pairs.append(_ImagePair(old_shape=old_shape, new_shape=new_shape))
-                old_index += 1
-                new_index += 1
-        elif old_shape is not None:
-            pairs.append(_ImagePair(old_shape=old_shape, new_shape=None))
-            old_index += 1
-        elif new_shape is not None:
-            pairs.append(_ImagePair(old_shape=None, new_shape=new_shape))
-            new_index += 1
-    return pairs
-
-
-def _validate_pair_sections(old_shape: _ShapeSnapshot, new_shape: _ShapeSnapshot, sections: _SectionRows) -> None:
-    old_region = _region_for_row(old_shape.top_row, sections)
-    new_region = _region_for_row(new_shape.top_row, sections)
-    if old_region == new_region:
-        return
-    if {old_region, new_region} == {0, 1}:
-        boundary = "Input/Steps"
-    elif {old_region, new_region} == {1, 2}:
-        boundary = "Steps/Output"
-    else:
-        boundary = "Input/Output"
-    raise ValueError(
-        f"Phát hiện ảnh trái/phải bị ghép qua ranh giới {boundary}. "
-        "Hãy kiểm tra lại marker vùng hoặc vị trí ảnh trong sheet."
-    )
-
-
-def _layout_image_pairs(
+def _layout_image_regions(
     sheet: Any,
-    pairs: list[_ImagePair],
+    snapshots: list[_ShapeSnapshot],
     sections: _SectionRows,
     image_config: ExcelImageFormatConfig,
 ) -> int:
-    left_width = _range_width(sheet, image_config.left_width_range)
-    right_width = _range_width(sheet, image_config.right_width_range)
-    current_row = max((sections.input_row or 0) + 1, 1)
+    """Lay out three row sections independently for the old and new systems."""
 
-    for pair in pairs:
-        snapshots = [snapshot for snapshot in (pair.old_shape, pair.new_shape) if snapshot is not None]
-        if not snapshots:
+    if image_config.left_group_start_column < 1:
+        raise ValueError("Cột bắt đầu của hệ thống cũ phải lớn hơn hoặc bằng 1.")
+    if image_config.left_group_end_column >= image_config.right_group_start_column:
+        raise ValueError("Vùng cột hệ thống cũ phải kết thúc trước vùng cột hệ thống mới.")
+
+    grouped: dict[tuple[int, int], list[_ShapeSnapshot]] = {
+        (row_region, column_region): []
+        for row_region in range(3)
+        for column_region in range(2)
+    }
+    for snapshot in snapshots:
+        row_region = _region_for_row(snapshot.top_row, sections)
+        if image_config.left_group_start_column <= snapshot.left_column <= image_config.left_group_end_column:
+            column_region = 0
+        elif snapshot.left_column >= image_config.right_group_start_column:
+            column_region = 1
+        else:
+            raise ValueError(
+                f"Ảnh {snapshot.name} có góc trên bên trái tại cột {snapshot.left_column}, "
+                "nằm ngoài hai vùng cột đã cấu hình."
+            )
+        grouped[(row_region, column_region)].append(snapshot)
+        try:
+            _retry_com_call(lambda snapshot=snapshot: setattr(snapshot.shape, "Placement", XL_FREE_FLOATING))
+        except Exception:
+            pass
+
+    widths = (
+        _range_width(sheet, image_config.left_width_range),
+        _range_width(sheet, image_config.right_width_range),
+    )
+    for column_region, width in enumerate(widths):
+        for row_region in range(3):
+            for snapshot in grouped[(row_region, column_region)]:
+                _resize_shape(snapshot.shape, width)
+
+    _resize_row_regions(sheet, grouped, image_config)
+    sections = _find_section_rows(sheet, image_config)
+    gap_points = max(image_config.image_spacing_pixels, 0) * 72 / 96
+    final_bottom_row = 1
+
+    for row_region in range(3):
+        header_row = _section_header_row(row_region, sections)
+        if header_row is None:
             continue
-        source_top_row = min(_shape_top_row(snapshot.shape, snapshot.top_row) for snapshot in snapshots)
-        region = _region_for_row(source_top_row, sections)
-        current_row = _cursor_for_region(current_row, region, sections)
+        target_row = max(header_row + max(image_config.image_row_padding, 0), 1)
+        for column_region, anchor_column in enumerate(
+            (image_config.left_anchor_column, image_config.right_anchor_column)
+        ):
+            target_cell = _retry_com_call(lambda: sheet.Cells.Item(target_row, anchor_column))
+            target_top = float(_retry_com_call(lambda: target_cell.Top))
+            target_left = float(_retry_com_call(lambda: target_cell.Left))
+            for snapshot in grouped[(row_region, column_region)]:
+                _retry_com_call(lambda snapshot=snapshot: setattr(snapshot.shape, "Left", target_left))
+                _retry_com_call(
+                    lambda snapshot=snapshot, target_top=target_top: setattr(snapshot.shape, "Top", target_top)
+                )
+                final_bottom_row = max(final_bottom_row, _shape_bottom_row(snapshot.shape))
+                target_top += _shape_height(snapshot.shape) + gap_points
 
-        if pair.old_shape is not None:
-            _resize_shape(pair.old_shape.shape, left_width)
-        if pair.new_shape is not None:
-            _resize_shape(pair.new_shape.shape, right_width)
+    for snapshot in snapshots:
+        if snapshot.placement is not None:
+            _retry_com_call(
+                lambda snapshot=snapshot: setattr(snapshot.shape, "Placement", snapshot.placement)
+            )
 
-        source_top_row = min(_shape_top_row(snapshot.shape, snapshot.top_row) for snapshot in snapshots)
-        last_value_row = _last_value_row(
-            sheet,
-            current_row,
-            source_top_row,
-            image_config.value_scan_column_count,
+    return final_bottom_row + max(image_config.image_row_padding, 0)
+
+
+def _resize_row_regions(
+    sheet: Any,
+    grouped: dict[tuple[int, int], list[_ShapeSnapshot]],
+    image_config: ExcelImageFormatConfig,
+) -> None:
+    padding_rows = max(image_config.image_row_padding, 0)
+    gap_points = max(image_config.image_spacing_pixels, 0) * 72 / 96
+    scan_columns = max(
+        image_config.value_scan_column_count,
+        image_config.bottom_border_last_column,
+        image_config.right_group_start_column,
+        1,
+    )
+
+    for row_region in range(3):
+        sections = _find_section_rows(sheet, image_config)
+        header_row = _section_header_row(row_region, sections)
+        if header_row is None:
+            continue
+        next_marker_row = _next_marker_row(row_region, sections)
+        section_end = next_marker_row - 1 if next_marker_row is not None else _used_range_bottom_row(sheet)
+        content_last_row = _last_value_row(sheet, header_row + 1, section_end, scan_columns)
+        first_image_row = max(header_row + padding_rows, 1)
+        first_image_top = _cell_top(sheet, first_image_row, 1)
+        tallest_stack = max(
+            _stack_height(grouped[(row_region, 0)], gap_points),
+            _stack_height(grouped[(row_region, 1)], gap_points),
         )
-        if last_value_row > 0:
-            current_row = last_value_row
+        image_last_row = header_row
+        if tallest_stack > 0:
+            image_last_row = _row_at_or_after_top(sheet, first_image_row, first_image_top + tallest_stack)
+        desired_end_row = max(header_row + padding_rows, content_last_row, image_last_row)
 
-        target_row = current_row + image_config.image_row_padding
-        estimated_bottom_row = target_row + max(_shape_row_span(snapshot.shape) for snapshot in snapshots) - 1
-        next_marker_row = _next_marker_row(region, sections)
-        if next_marker_row is not None and estimated_bottom_row >= next_marker_row:
-            sections = _insert_rows_before_marker(sheet, next_marker_row, estimated_bottom_row, image_config)
+        if next_marker_row is None:
+            _shrink_trailing_empty_rows(sheet, desired_end_row, section_end, scan_columns)
+            continue
 
-        bottom_rows: list[int] = []
-        if pair.old_shape is not None:
-            bottom_rows.append(_place_shape(sheet, pair.old_shape.shape, target_row, image_config.left_anchor_column))
-        if pair.new_shape is not None:
-            bottom_rows.append(_place_shape(sheet, pair.new_shape.shape, target_row, image_config.right_anchor_column))
-        current_row = max(bottom_rows, default=target_row) + image_config.image_row_padding
-    return current_row
+        desired_marker_row = desired_end_row + padding_rows
+        if desired_marker_row > next_marker_row:
+            count = desired_marker_row - next_marker_row
+            _retry_com_call(lambda: _rows(sheet, f"{next_marker_row}:{next_marker_row + count - 1}").Insert())
+        elif desired_marker_row < next_marker_row:
+            delete_start = desired_marker_row
+            delete_end = next_marker_row - 1
+            if _rows_are_empty(sheet, delete_start, delete_end, scan_columns):
+                _retry_com_call(lambda: _rows(sheet, f"{delete_start}:{delete_end}").Delete())
+
+
+def _section_header_row(region: int, sections: _SectionRows) -> int | None:
+    return (sections.input_row, sections.steps_row, sections.output_row)[region]
+
+
+def _stack_height(snapshots: list[_ShapeSnapshot], gap_points: float) -> float:
+    if not snapshots:
+        return 0.0
+    return sum(_shape_height(snapshot.shape) for snapshot in snapshots) + gap_points * (len(snapshots) - 1)
+
+
+def _shape_height(shape: Any) -> float:
+    try:
+        return max(float(_retry_com_call(lambda: shape.Height)), 0.0)
+    except Exception:
+        return _shape_row_span(shape) * 15.0
+
+
+def _cell_top(sheet: Any, row: int, column: int) -> float:
+    cell = _retry_com_call(lambda: sheet.Cells.Item(row, column))
+    return float(_retry_com_call(lambda: cell.Top))
+
+
+def _row_at_or_after_top(sheet: Any, start_row: int, target_top: float) -> int:
+    low = max(start_row, 1)
+    if _cell_top(sheet, low, 1) >= target_top:
+        return low
+
+    high = min(low + 1, 1_048_576)
+    step = 1
+    while high < 1_048_576 and _cell_top(sheet, high, 1) < target_top:
+        low = high
+        step *= 2
+        high = min(high + step, 1_048_576)
+
+    while low + 1 < high:
+        middle = (low + high) // 2
+        if _cell_top(sheet, middle, 1) < target_top:
+            low = middle
+        else:
+            high = middle
+    return high
+
+
+def _used_range_bottom_row(sheet: Any) -> int:
+    used_range = _retry_com_call(lambda: sheet.UsedRange)
+    first_row = int(_retry_com_call(lambda: used_range.Row))
+    row_count = int(_retry_com_call(lambda: used_range.Rows.Count))
+    return max(first_row + row_count - 1, 1)
+
+
+def _rows_are_empty(sheet: Any, start_row: int, end_row: int, column_count: int) -> bool:
+    if end_row < start_row:
+        return True
+    return _last_value_row(sheet, start_row, end_row, column_count) == 0
+
+
+def _shrink_trailing_empty_rows(
+    sheet: Any,
+    desired_end_row: int,
+    current_end_row: int,
+    column_count: int,
+) -> None:
+    if desired_end_row >= current_end_row:
+        return
+    delete_start = desired_end_row + 1
+    if _rows_are_empty(sheet, delete_start, current_end_row, column_count):
+        _retry_com_call(lambda: _rows(sheet, f"{delete_start}:{current_end_row}").Delete())
 
 
 def _region_for_row(row: int, sections: _SectionRows) -> int:
     region = 0
-    if sections.steps_row is not None and row > sections.steps_row:
+    if sections.steps_row is not None and row >= sections.steps_row:
         region = 1
-    if sections.output_row is not None and row > sections.output_row:
+    if sections.output_row is not None and row >= sections.output_row:
         region = 2
     return region
-
-
-def _cursor_for_region(current_row: int, region: int, sections: _SectionRows) -> int:
-    if region >= 1 and sections.steps_row is not None:
-        current_row = max(current_row, sections.steps_row)
-    if region >= 2 and sections.output_row is not None:
-        current_row = max(current_row, sections.output_row)
-    return current_row
 
 
 def _next_marker_row(region: int, sections: _SectionRows) -> int | None:
@@ -544,18 +650,6 @@ def _next_marker_row(region: int, sections: _SectionRows) -> int | None:
     if region < 2 and sections.output_row is not None:
         candidates.append(sections.output_row)
     return min(candidates) if candidates else None
-
-
-def _insert_rows_before_marker(
-    sheet: Any,
-    marker_row: int,
-    estimated_bottom_row: int,
-    image_config: ExcelImageFormatConfig,
-) -> _SectionRows:
-    insert_end = estimated_bottom_row + image_config.image_row_padding
-    if insert_end >= marker_row:
-        _retry_com_call(lambda: _rows(sheet, f"{marker_row}:{insert_end}").Insert())
-    return _find_section_rows(sheet, image_config)
 
 
 def _rows(sheet: Any, selector: int | str) -> Any:
@@ -580,13 +674,6 @@ def _resize_shape(shape: Any, width: float) -> None:
     except Exception:
         pass
     _retry_com_call(lambda: setattr(shape, "Width", width))
-
-
-def _place_shape(sheet: Any, shape: Any, target_row: int, target_column: int) -> int:
-    target_cell = _retry_com_call(lambda: sheet.Cells.Item(target_row, target_column))
-    _retry_com_call(lambda: setattr(shape, "Left", float(target_cell.Left)))
-    _retry_com_call(lambda: setattr(shape, "Top", float(target_cell.Top)))
-    return _shape_bottom_row(shape)
 
 
 def _shape_top_row(shape: Any, fallback: int = 1) -> int:

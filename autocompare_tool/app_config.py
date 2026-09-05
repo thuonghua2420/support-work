@@ -72,6 +72,8 @@ class ExcelImageFormatConfig:
     steps_marker: str
     output_marker: str
     marker_column: int
+    left_group_start_column: int
+    left_group_end_column: int
     right_group_start_column: int
     left_anchor_column: int
     right_anchor_column: int
@@ -80,6 +82,7 @@ class ExcelImageFormatConfig:
     first_row_height: float
     first_column_width: float
     image_row_padding: int
+    image_spacing_pixels: float
     value_scan_column_count: int
     draw_borders: bool
     draw_background: bool
@@ -218,6 +221,8 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
         steps_marker=_get(parser, "excel_image_format", "steps_marker", "Steps"),
         output_marker=_get(parser, "excel_image_format", "output_marker", "Output"),
         marker_column=_get_int(parser, "excel_image_format", "marker_column", 1),
+        left_group_start_column=_get_int(parser, "excel_image_format", "left_group_start_column", 1),
+        left_group_end_column=_get_int(parser, "excel_image_format", "left_group_end_column", 18),
         right_group_start_column=_get_int(parser, "excel_image_format", "right_group_start_column", 19),
         left_anchor_column=_get_int(parser, "excel_image_format", "left_anchor_column", 2),
         right_anchor_column=_get_int(parser, "excel_image_format", "right_anchor_column", 21),
@@ -226,6 +231,7 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
         first_row_height=_get_float(parser, "excel_image_format", "first_row_height", 25.5),
         first_column_width=_get_float(parser, "excel_image_format", "first_column_width", 8.29),
         image_row_padding=_get_int(parser, "excel_image_format", "image_row_padding", 2),
+        image_spacing_pixels=_get_float(parser, "excel_image_format", "image_spacing_pixels", 60),
         value_scan_column_count=_get_int(parser, "excel_image_format", "value_scan_column_count", 10),
         draw_borders=_get_bool(parser, "excel_image_format", "draw_borders", True),
         draw_background=_get_bool(parser, "excel_image_format", "draw_background", False),
@@ -233,8 +239,8 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
         header_fill_range=_get(parser, "excel_image_format", "header_fill_range", "A1:AJ1"),
         left_header_range=_get(parser, "excel_image_format", "left_header_range", "A1:R1"),
         right_header_range=_get(parser, "excel_image_format", "right_header_range", "S1:AJ1"),
-        left_header_text=_get(parser, "excel_image_format", "left_header_text", "新システム"),
-        right_header_text=_get(parser, "excel_image_format", "right_header_text", "現行システム"),
+        left_header_text=_get(parser, "excel_image_format", "left_header_text", "現行システム"),
+        right_header_text=_get(parser, "excel_image_format", "right_header_text", "新システム"),
         header_fill_color=_get_int(parser, "excel_image_format", "header_fill_color", 11389944),
         header_font_size=_get_float(parser, "excel_image_format", "header_font_size", 22),
         border_start_row=_get_int(parser, "excel_image_format", "border_start_row", 5),
