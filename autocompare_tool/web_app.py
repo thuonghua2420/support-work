@@ -62,6 +62,7 @@ APP_TITLE = "AutoCompare"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DB_CONNECTION_HISTORY_LIMIT = 50
+DB_CONNECTION_HISTORY_FILE = "database_connection_history.json"
 STATIC_DIR = Path(__file__).resolve().parent / "web"
 Logger = Callable[[str], None]
 
@@ -234,7 +235,7 @@ class AutoCompareWebApplication:
         self._fixme_entries: list[WorkbookFixmeEntry] = []
         self._compare_workbooks: list[CompareWorkbookReference] = []
         self._db_connection_cache: dict[str, DatabaseConnectionSettings] = {}
-        self._db_connection_history: dict[str, DatabaseConnectionSettings] = {}
+        self._db_connection_history: dict[str, DatabaseConnectionSettings] = _load_db_connection_history()
         self._db_table_cache: dict[str, list[str]] = {}
 
     def bootstrap(self, port: int) -> dict[str, Any]:
@@ -320,6 +321,7 @@ class AutoCompareWebApplication:
         while len(self._db_connection_history) > DB_CONNECTION_HISTORY_LIMIT:
             oldest_key = next(iter(self._db_connection_history))
             del self._db_connection_history[oldest_key]
+        _save_db_connection_history(list(self._db_connection_history.values()))
 
     def _remember_db_connection_history(self, settings: DatabaseConnectionSettings) -> None:
         validated = _db_settings(asdict(settings))
@@ -1096,6 +1098,59 @@ def _public_db_settings(settings: DatabaseConnectionSettings) -> dict[str, Any]:
         "trust_server_certificate": settings.trust_server_certificate,
         "encrypt": settings.encrypt,
     }
+
+
+def _db_connection_history_path() -> Path:
+    return Path.cwd() / DB_CONNECTION_HISTORY_FILE
+
+
+def _load_db_connection_history() -> dict[str, DatabaseConnectionSettings]:
+    path = _db_connection_history_path()
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    items = raw.get("connections") if isinstance(raw, dict) else raw
+    if not isinstance(items, list):
+        return {}
+
+    history: dict[str, DatabaseConnectionSettings] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            settings = _db_settings(item)
+        except ValueError:
+            continue
+        if not settings.host.strip() and not settings.database.strip():
+            continue
+        key = _db_connection_history_key(settings)
+        if key in history:
+            del history[key]
+        history[key] = settings
+        while len(history) > DB_CONNECTION_HISTORY_LIMIT:
+            oldest_key = next(iter(history))
+            del history[oldest_key]
+    return history
+
+
+def _save_db_connection_history(history: list[DatabaseConnectionSettings]) -> None:
+    path = _db_connection_history_path()
+    payload = {
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "connections": [asdict(settings) for settings in history[-DB_CONNECTION_HISTORY_LIMIT:]],
+    }
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+    try:
+        temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path.replace(path)
+    except OSError:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _db_settings_match_except_password(left: DatabaseConnectionSettings, right: DatabaseConnectionSettings) -> bool:

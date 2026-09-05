@@ -54,8 +54,8 @@ Owns:
 - Responsive HTML layout and page navigation.
 - Client-side form state, confirmation dialogs, FIXME/note rendering, per-column FIXME filters, bulk note assignment, database connection forms, and table selection.
 - Polling background job state and rendering logs/toasts.
-- Browser `localStorage` cache for the latest non-sensitive user inputs, selected sync tables, checkbox/radio choices, and non-sensitive database connection history. Passwords, generated outputs, and picker internals are intentionally excluded.
-- Restoring verified database connections after a browser refresh uses only in-memory server-side session cache. The server may keep recent connection passwords for the current process so users can switch previously connected databases, but passwords are never sent back to the browser and are lost when the server restarts.
+- Browser `localStorage` cache for the latest non-sensitive user inputs, selected sync tables, checkbox/radio choices, and non-sensitive database connection history. Generated outputs and picker internals are intentionally excluded.
+- Database connection history is also persisted server-side in the ignored root file `database_connection_history.json`, including passwords, so users can reconnect after restarting the local server. Passwords are never sent back to the browser in bootstrap/job payloads; when a saved connection is selected, the browser submits public fields and the server fills the matching password from persistent history before auto-testing the connection.
 
 The web client has no build step or external CDN dependency.
 

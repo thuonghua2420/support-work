@@ -534,11 +534,8 @@ function applyDatabaseHistorySelection(scope) {
   renderDatabaseNameList(scope);
   invalidateDbConnection(scope);
   saveUiCacheDebounced();
-  const passwordInput = $(`#db-${scope}-password`);
-  if (passwordInput && !passwordInput.disabled && !passwordInput.value) {
-    passwordInput.focus();
-  }
-  showToast("Đã áp dụng thông tin kết nối đã dùng.", "success", 4500);
+  showToast("Đang tự động kết nối CSDL đã chọn.", "success", 3500);
+  startAction("db_test", { settings: getDbSettings(scope), role: scope, load_tables: scope === "main" });
 }
 
 function databaseHistoryKey(settings) {
@@ -981,7 +978,7 @@ function renderConnectionForms() {
     const drivers = state.bootstrap.sqlserver_drivers.length ? state.bootstrap.sqlserver_drivers : ["SQL Server Native Client RDA 11.0", "ODBC Driver 18 for SQL Server"];
     const defaultDriver = preferredSqlServerDriver(drivers);
     $(".connection-fields", form).innerHTML = `
-      <label class="field connection-history-field"><span>Kết nối đã dùng</span><select id="db-${scope}-history" data-db-history-select="${scope}"></select><small>Chọn lại máy chủ/CSDL đã kết nối trước đó. Mật khẩu không được lưu trong trình duyệt; nếu app đã khởi động lại thì cần nhập lại mật khẩu.</small></label>
+      <label class="field connection-history-field"><span>K&#x1EBF;t n&#x1ED1;i &#x111;&#xE3; d&#xF9;ng</span><select id="db-${scope}-history" data-db-history-select="${scope}"></select><small>Ch&#x1ECD;n l&#x1EA1;i m&#xE1;y ch&#x1EE7;/CSDL &#x111;&#xE3; k&#x1EBF;t n&#x1ED1;i tr&#x1B0;&#x1EDB;c &#x111;&#xF3;. H&#x1EC7; th&#x1ED1;ng s&#x1EBD; t&#x1EF1; &#x111;&#x1ED9;ng k&#x1EBF;t n&#x1ED1;i l&#x1EA1;i b&#x1EB1;ng th&#xF4;ng tin &#x111;&#xE3; l&#x1B0;u tr&#xEA;n server local.</small></label>
       <label class="field"><span>Loại CSDL</span><select id="db-${scope}-type">${state.bootstrap.database_types.map((item) => `<option>${escapeHtml(item)}</option>`).join("")}</select></label>
       <label class="field"><span>Port</span><input id="db-${scope}-port" value="${escapeHtml(defaults.port)}"></label>
       <label class="field host-field"><span>Server / Host</span><input id="db-${scope}-host" value="${scope === "main" ? "localhost" : ""}" placeholder="localhost hoặc server\\instance"></label>

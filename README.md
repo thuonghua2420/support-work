@@ -195,6 +195,8 @@ Trang Database dùng một hub kết nối nhỏ ở phần tiêu đề; bấm *
 - **Database 1** dùng cho CSV import/export, SQL Workspace và làm nguồn đồng bộ.
 - **Database 2** chỉ dùng làm database đích khi đồng bộ.
 
+Lịch sử kết nối được lưu trong file local `database_connection_history.json` ở root project, bao gồm password để có thể tự động kết nối lại sau khi tắt/mở server. File này đã được ignore khỏi git; password không được trả về browser trong bootstrap, log hoặc kết quả job.
+
 Tab **SQL Workspace** kế thừa formatter/analyzer cũ, đồng thời có thể chạy SQL trực tiếp trên Database 1. `Format SQL`, `Phân tích toàn bộ` và `Load sheet & format` dùng chung một editor; SQL đã format sẽ ghi đè trực tiếp vào vùng **SQL đầu vào**. Các chức năng format/phân tích vẫn chạy khi chưa kết nối DB. `Chạy hiện tại` chạy vùng đang bôi đen hoặc statement tại caret; `Chạy toàn bộ` chạy toàn bộ statement theo thứ tự. Mặc định backend chỉ cho statement đọc. DDL/DML cần bật **Ghi DB**, token tạm thời gắn với fingerprint của Database 1 và tự hết hạn theo `[database_workspace].write_mode_timeout_minutes`; đổi connection sẽ hủy verified state, tắt chế độ ghi và đánh dấu kết quả SQL cũ là stale.
 
 Kết quả query được đọc bằng `fetchmany()` và spool tạm theo workspace để phân trang, không `fetchall()` toàn bộ result set. Source Data chỉ hiển thị record khi module lineage chứng minh được query rewrite exact; nếu gặp aggregate, CTE/derived phức tạp, correlated subquery hoặc cấu trúc chưa hỗ trợ thì card vẫn hiện nhưng không fallback sang toàn table.

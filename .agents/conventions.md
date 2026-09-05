@@ -116,8 +116,8 @@
 - Keep one background mutation job active at a time.
 - Require both a visible browser confirmation and backend `confirmed: true` validation for destructive file and DB actions.
 - Never return database passwords in bootstrap, job status, logs, or result payloads.
-- Never persist database passwords in the browser input cache; restoring connection fields must leave password boxes empty.
-- Browser-persisted database connection history may contain only non-sensitive fields such as type, host, port, database, schema, driver, username, and auth flags.
-- If a verified DB connection is restored after refresh, reuse only the server's in-memory session password cache and only when all non-secret connection fields still match.
+- Never persist database passwords in the browser input cache or browser history cache.
+- Persist database passwords only in the local server-side `database_connection_history.json` file, which must remain ignored by git.
+- When a saved DB connection is selected, auto-test the connection and let the server reuse the matching password from persistent history.
 - Long-running DB actions should accept a cooperative cancel checker, check it between batches/files/tables, and roll back active write transactions before surfacing cancellation.
 - Use the server-side filesystem picker for absolute local paths; browsers cannot provide those paths through standard upload controls.
