@@ -93,7 +93,10 @@ def _should_pair_by_record_order(
         return True
     if before.headers[0] != after.headers[0]:
         return True
-    return [key for key, _row in before_keyed] != [key for key, _row in after_keyed]
+    # Preserve existing key matches even when records are reordered or replaced.
+    before_keys = {key for key, _row in before_keyed if key[0] is not None and key[0].strip()}
+    after_keys = {key for key, _row in after_keyed if key[0] is not None and key[0].strip()}
+    return not before_keys.intersection(after_keys)
 
 
 def _union_headers(before_headers: list[str], after_headers: list[str]) -> list[str]:

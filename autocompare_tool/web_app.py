@@ -15,6 +15,7 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 from .app_config import AppConfig, load_app_config
+from .compare_keys import extract_compare_keys, remove_compare_keys
 from .compare_workbook_view import (
     CompareWorkbookReference,
     build_compare_view_index,
@@ -194,6 +195,8 @@ class JobManager:
 
 class AutoCompareWebApplication:
     ACTION_LABELS = {
+        "compare_keys_extract": "Đang trích xuất primary key...",
+        "compare_keys_remove": "Đang xóa key compare đã lưu...",
         "compare": "Đang chạy so sánh UT...",
         "folder_compare": "Đang so sánh hai folder CSV...",
         "copy_ut": "Đang sao chép file UT...",
@@ -219,6 +222,7 @@ class AutoCompareWebApplication:
         "check_fixmes": "Đang kiểm tra FIXME còn lại...",
     }
     CONFIRMED_ACTIONS = {
+        "compare_keys_remove",
         "delete_contains",
         "delete_empty_folders",
         "db_import",
@@ -256,6 +260,7 @@ class AutoCompareWebApplication:
                 for workflow in self.config.compare_workflows
             ],
             "folder_compare_file": self.config.workbooks.folder_compare_file,
+            "update_compare_keys": load_app_config().update_compare_keys,
             "database_types": database_type_options(),
             "database_defaults": {
                 database_type: {
@@ -491,6 +496,19 @@ class AutoCompareWebApplication:
         }
 
     def _operation(self, action: str, payload: dict[str, Any]) -> Callable[[Logger, CancelToken], dict[str, Any]]:
+        if action == "compare_keys_extract":
+            role = str(payload.get("role", "main"))
+            if role not in {"main", "target"}:
+                raise ValueError("Chọn Database 1 hoặc Database 2.")
+            with self._state_lock:
+                settings = self._db_connection_cache.get(role)
+            if settings is None:
+                raise ValueError("Hãy kết nối database tại trang Database trước khi trích xuất key.")
+            return lambda log, cancel: asdict(extract_compare_keys(
+                _text(payload, "root"), settings, log, cancel=cancel.throw_if_cancelled,
+            ))
+        if action == "compare_keys_remove":
+            return lambda log, cancel: asdict(remove_compare_keys(log))
         if action == "db_normalize":
             return lambda log, cancel: self._database_summary(
                 normalize_csv_folder(

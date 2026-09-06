@@ -228,3 +228,17 @@ body:has(.panel-expanded) { overflow: hidden; }
   .modal header { gap: 10px; flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+/* Compare key configuration shares the source/workflow form. */
+.compare-key-section { border-top: 1px solid #e3e8ed; margin-top: 20px; padding-top: 18px; }
+.compare-key-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; }
+.compare-key-toolbar .field { flex: 1 1 260px; min-width: 0; margin: 0; }
+.compare-key-toolbar select { width: 100%; min-width: 0; }
+.compare-key-toolbar .inline-actions { flex-wrap: wrap; }
+.compare-key-toolbar button { display: inline-flex; align-items: center; gap: 7px; }
+.compare-key-toolbar svg { width: 16px; height: 16px; flex-shrink: 0; }
+.compare-key-section details { margin-top: 14px; }
+.compare-key-section summary { cursor: pointer; font-size: 13px; color: #465664; }
+.compare-key-table-wrap { max-height: 220px; overflow: auto; margin-top: 10px; }
+.compare-key-table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+.compare-key-table th, .compare-key-table td { padding: 8px 10px; border-bottom: 1px solid #e3e8ed; text-align: left; overflow-wrap: anywhere; }
+.compare-key-table th { background: #f4f7fa; }

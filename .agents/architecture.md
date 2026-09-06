@@ -350,6 +350,8 @@ Root folder
   -> discover UT* cases
   -> copy Input CSV to before folders
   -> prune before CSVs without matching after CSV
+  -> for HTM/HTC before-after update workflows, safely filter copied before CSVs by configured stable keys when possible
+  -> skip that filter, but keep generating the workbook, when keys or mappings are missing/unsafe
   -> run selected compare workflows
   -> read left/right CSV
   -> build row pairs and column list

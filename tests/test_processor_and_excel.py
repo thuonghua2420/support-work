@@ -87,7 +87,7 @@ class ProcessorAndExcelTests(unittest.TestCase):
             self.assertEqual(worksheet["B2"].value, "後列名")
             self.assertEqual(worksheet["C2"].value, "前:1行目")
             self.assertEqual(worksheet["D2"].value, "後:1行目")
-            self.assertEqual(worksheet["B1"].value, 2)
+            self.assertEqual(worksheet["B1"].value, 1)
             self.assertEqual(worksheet["F4"].value, "after")
             self.assertEqual(worksheet["H4"].value, "FIXME")
 

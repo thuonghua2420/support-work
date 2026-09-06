@@ -73,6 +73,7 @@ def write_compare_workbook_with_fixmes(
     include_left_only_files: bool = False,
     recursive: bool = False,
     pair_by_record_order: bool = False,
+    aligned_before_files: set[Path] | None = None,
 ) -> CompareWorkbookWriteResult:
     pairs = _iter_compare_csv_files(before_dir, after_dir, include_left_only_files, recursive)
     return write_compare_workbook_for_pairs(
@@ -82,6 +83,7 @@ def write_compare_workbook_with_fixmes(
         excel_style=excel_style,
         case_folder_name=case_folder_name,
         pair_by_record_order=pair_by_record_order,
+        aligned_before_files=aligned_before_files,
     )
 
 
@@ -92,6 +94,7 @@ def write_compare_workbook_for_pairs(
     excel_style: ExcelCompareStyleConfig | None = None,
     case_folder_name: str = "",
     pair_by_record_order: bool = False,
+    aligned_before_files: set[Path] | None = None,
 ) -> CompareWorkbookWriteResult:
     app_config = None if excel_headers is not None and excel_style is not None else load_app_config()
     headers = excel_headers or app_config.excel_headers
@@ -109,7 +112,7 @@ def write_compare_workbook_for_pairs(
         after_table = read_csv_table(after_csv) if after_csv.exists() else CsvTable([], [])
         comparison = build_sheet_comparison(
             Path(csv_display_name).stem, before_table, after_table,
-            pair_by_record_order=pair_by_record_order,
+            pair_by_record_order=pair_by_record_order or before_csv in (aligned_before_files or set()),
         )
 
         sheet_name = sanitize_sheet_name(Path(csv_display_name).with_suffix("").as_posix(), used_sheet_names)

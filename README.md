@@ -32,8 +32,26 @@ giữ giá trị input, điều hướng bàn phím, xuất workbook và lọc F
 
 ## Update Compare Keys
 
-HTM/HTC before-after comparisons require stable per-table keys in
-`autocompare_config.ini`. Use the CSV filename without `.csv` and exact column names:
+In Compare > Cau hinh, select a connected Database 1 or Database 2 and use
+**Trich xuat key**. The tool reads primary-key metadata for CSV tables found in the
+selected UT root's HTM/HTC after folders and saves the complete key (including
+composite keys) in `[update_compare_keys]`. The existing database adapters support
+SQL Server, MySQL, PostgreSQL and Oracle. No database rows are written.
+Existing configured keys are retained; extraction does not overwrite a manually
+chosen stable business key. Tables without a primary key or with missing/ambiguous
+CSV key headers are skipped with a log entry. The saved table/key list appears in
+the Compare configuration tab and is used on the next compare without restarting.
+**Xoa key** clears all entries in this section, including manual entries, after
+confirmation; other config sections and CSV files are preserved.
+
+A database primary key still needs stable values between before and after. If an
+identity key changes, filtering is skipped unless a suitable stable key is configured.
+For example, with `customers = CustomerId` and after containing C001, C002, C004,
+the next compare removes C003 from copied before CSVs after validating all mappings.
+
+HTM/HTC before-after comparisons can use stable per-table keys in
+`autocompare_config.ini` to remove records outside the update scope. Use the CSV
+filename without `.csv` and exact column names:
 
 ```ini
 [update_compare_keys]
@@ -41,12 +59,18 @@ ORDERS = ORDER_NO, DETAIL_NO
 ```
 
 Keys must remain unchanged by the update. All after records must map uniquely to
-before records. Missing keys, duplicate/blank/NULL keys, missing before records,
-and missing/empty after data stop that workflow without filtering its before CSVs.
-Other selected workflows can continue. No key is guessed from column position.
+before records before any before CSV is filtered. Missing keys, duplicate/blank/NULL
+keys, missing before records, and missing/empty after data skip only this
+update-scope filter for that CSV; the compare workbook is still generated.
+Unfiltered CSVs match records by the first-column key, preserving shared keys even
+when rows move or counts differ. Unmatched records remain on their own side.
+Top-down fallback applies only when counts are equal and there are no shared
+nonblank keys (or the first-column headers differ). No deletion key is guessed
+from column position because that could remove the wrong record.
 
 Once validated, CSV files in the before folder are physically filtered and reordered
-to after order. Input and after files stay unchanged. Logs list original record
+to after order; only these validated files force top-down pairing. Input and after
+files stay unchanged. Logs list original record
 numbers kept and excluded; CSV NULL and quoted empty strings remain distinct.
 Every rerun refreshes before from Input. The after/after and ad-hoc folder compares
 do not use this filtering. After exports define the comparison scope, so detecting

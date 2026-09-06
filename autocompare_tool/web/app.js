@@ -55,6 +55,7 @@ const COMPARE_PREVIEW_COLORS = {
 const ACTIVITY_LOG_READY_TEXT = "AutoCompare đã sẵn sàng.";
 const ACTIVITY_LOG_SEPARATOR = "-----------------------------------------";
 const CANCELLABLE_ACTIONS = new Set([
+  "compare_keys_extract",
   "db_test",
   "db_list_databases",
   "db_list_tables",
@@ -116,6 +117,7 @@ async function init() {
     restoreUiCache();
     updateFolderCompareMode();
     restoreDatabaseSessionConnections();
+    renderCompareKeys();
     bindUiCache();
     if (state.bootstrap.job) {
       state.job = state.bootstrap.job;
@@ -166,6 +168,24 @@ function bindNavigation() {
     const pageKey = window.location.hash.slice(1);
     if ($(`.nav-item[data-page="${pageKey}"]`)) showPage(pageKey, false);
   });
+}
+
+function renderCompareKeys() {
+  const keys = state.bootstrap?.update_compare_keys || {};
+  const entries = Object.entries(keys).sort(([a], [b]) => a.localeCompare(b));
+  $("#compare-key-count").textContent = `Key đã lưu: ${entries.length} table`;
+  $("#compare-key-body").innerHTML = entries.length
+    ? entries.map(([table, columns]) => `<tr><td>${escapeHtml(table)}</td><td>${escapeHtml(columns.join(", "))}</td></tr>`).join("")
+    : '<tr><td colspan="2">Chưa có key đã lưu.</td></tr>';
+  const connections = state.bootstrap?.database_connections || {};
+  for (const option of $("#compare-key-role").options) {
+    const connection = connections[option.value];
+    const name = option.value === "main" ? "Database 1" : "Database 2";
+    option.textContent = connection ? `${name}: ${connection.database} / ${connection.schema || "default"}` : `${name}: chưa kết nối`;
+  }
+  const busy = state.job && ["queued", "running"].includes(state.job.state);
+  $("#extract-compare-keys").disabled = Boolean(busy);
+  $("#remove-compare-keys").disabled = Boolean(busy) || !entries.length;
 }
 
 function showPage(pageKey, updateHash) {
@@ -694,6 +714,16 @@ function bindForms() {
     event.preventDefault();
     const workflows = $$("input[name='compare-workflow']:checked").map((item) => item.value);
     startAction("compare", { root: valueOf("compare-root"), workflows });
+  });
+  $("#extract-compare-keys").addEventListener("click", () => {
+    if (!$("#compare-root").reportValidity()) return;
+    startAction("compare_keys_extract", { root: valueOf("compare-root"), role: valueOf("compare-key-role") });
+  });
+  $("#remove-compare-keys").addEventListener("click", async () => {
+    const count = Object.keys(state.bootstrap.update_compare_keys || {}).length;
+    if (await confirmAction("Xóa key compare?", `Xóa toàn bộ key đã lưu của ${count} table, bao gồm key nhập thủ công. Các lần compare tiếp theo sẽ bỏ qua bước lọc record ngoài đối tượng cho đến khi có key mới.`)) {
+      startAction("compare_keys_remove", { confirmed: true });
+    }
   });
   $("#toggle-workflows").addEventListener("click", () => {
     const boxes = $$("input[name='compare-workflow']");
@@ -1244,6 +1274,7 @@ function switchMainAndTargetDatabases() {
   api("/api/database/session/switch", { method: "POST", body: {} }).then((response) => {
     state.bootstrap.database_connections = response.database_connections || {};
     state.bootstrap.database_connection_history = response.database_connection_history || state.bootstrap.database_connection_history || [];
+    renderCompareKeys();
     state.databaseHistory = mergeDatabaseHistories(state.bootstrap.database_connection_history, state.databaseHistory);
     saveDatabaseHistoryCache();
     renderDatabaseHistorySelects();
@@ -2505,6 +2536,11 @@ function updateJobState(job) {
 
 function consumeJobResult(job) {
   const result = job.result || {};
+  if (result.update_compare_keys) {
+    state.bootstrap.update_compare_keys = result.update_compare_keys;
+    renderCompareKeys();
+    $("#compare-key-details").open = true;
+  }
   if (result.connection) rememberDatabaseHistory(result.connection);
   if (Array.isArray(result.fixmes)) {
     state.fixmes = result.fixmes;
@@ -2528,6 +2564,8 @@ function consumeJobResult(job) {
     renderFixmeScanResult();
   }
   if (job.action === "db_test" && result.verified) {
+    state.bootstrap.database_connections = { ...state.bootstrap.database_connections, [result.role]: result.connection };
+    renderCompareKeys();
     setVerified(result.role, true);
     if (result.role === "main" && Array.isArray(result.tables)) {
       state.sourceTables = result.tables;
@@ -3315,6 +3353,8 @@ async function updateSqlSource(relationId) {
 }
 
 function summaryMessage(job) {
+  if (job.action === "compare_keys_extract") return `Đã lưu key cho ${job.result.saved_count} table; giữ ${job.result.existing_count} key hiện có; bỏ qua ${job.result.skipped.length} table. Chi tiết trong log.`;
+  if (job.action === "compare_keys_remove") return `Đã xóa key của ${job.result.removed_count} table khỏi config.`;
   const result = job.result || {};
   if (job.action === "compare") return `Đã xử lý ${result.processed_count || 0} case, tạo ${result.workbook_count || 0} workbook và tìm thấy ${result.fixme_count || 0} FIXME.`;
   if (job.action === "folder_compare") return `Đã tạo ${result.workbook_count || 1} workbook / ${result.sheet_count || 0} sheet, tìm thấy ${result.fixme_count || 0} FIXME.`;
@@ -3371,6 +3411,7 @@ function setBusy(busy) {
   });
   updateFixmeToolbarState();
   updateCompareBulkToolbarState();
+  renderCompareKeys();
 }
 
 function appendLogs(lines) {

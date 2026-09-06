@@ -33,6 +33,7 @@
 - Preserve DBeaver-style NULL versus empty string in compare inputs: unquoted blank data cell is `NULL`, quoted empty string is `""`.
 - Compare workbooks display `NULL` values as literal `NULL`; empty strings remain visually blank.
 - Pair records by the first CSV column when key values line up. If before/after files have the same record count but the first-column key sequence or key header differs, compare rows by top-down record order because leading identity or timestamp columns may legitimately differ.
+- HTM/HTC before-after update filtering physically removes records from copied `before` CSVs only when configured `[update_compare_keys]` map every after record uniquely to a before record. Missing or unsafe keys skip filtering for that CSV and still generate the compare workbook by top-down record order; never guess a delete key from leading columns.
 
 ### DBeaver CSV
 

@@ -151,15 +151,17 @@ def _process_test_case(
         for workflow in config.compare_workflows:
             if workflow.key not in selected_workflow_keys:
                 continue
+            aligned_before_files: set[Path] = set()
             if workflow.key in {WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER}:
                 # A failed validation must not leave an old successful workbook visible.
                 (compare_dir / workflow.output_file_name).unlink(missing_ok=True)
                 try:
-                    filter_update_before_folder(
+                    aligned_before_files = filter_update_before_folder(
                         output_dir / workflow.left_dir_name,
                         output_dir / workflow.right_dir_name,
                         config.update_compare_keys,
                         log,
+                        strict=False,
                     )
                 except Exception as exc:
                     message = f"[{case_path.name}/{workflow.key}] ERROR: {exc}"
@@ -172,6 +174,7 @@ def _process_test_case(
                 compare_dir,
                 workflow,
                 config,
+                aligned_before_files,
             )
             result.workbooks.append(workbook_result)
             log(
@@ -208,6 +211,7 @@ def _write_workflow_workbook(
     compare_dir: Path,
     workflow: CompareWorkflowConfig,
     config: AppConfig,
+    aligned_before_files: set[Path],
 ) -> WorkbookResult:
     left_dir = output_dir / workflow.left_dir_name
     right_dir = output_dir / workflow.right_dir_name
@@ -220,7 +224,7 @@ def _write_workflow_workbook(
         excel_headers=config.excel_headers,
         case_folder_name=case_path.name,
         include_left_only_files=workflow.include_left_only_files,
-        pair_by_record_order=workflow.key in {WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER},
+        aligned_before_files=aligned_before_files,
     )
     return WorkbookResult(
         output_path=write_result.output_path,

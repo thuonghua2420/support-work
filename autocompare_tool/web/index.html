@@ -74,6 +74,16 @@
             <div class="divider"></div>
             <div class="card-heading compact"><div><span class="step-number">02</span><h3>Luồng so sánh</h3></div><button class="text-button" id="toggle-workflows" type="button">Chọn / bỏ tất cả</button></div>
             <div class="choice-grid" id="compare-workflows"></div>
+            <div class="compare-key-section">
+              <div class="compare-key-toolbar">
+                <label class="field"><span>Database lấy primary key</span><select id="compare-key-role" aria-label="Database lấy primary key"><option value="main">Database 1</option><option value="target">Database 2</option></select></label>
+                <div class="inline-actions">
+                  <button class="secondary-button" id="extract-compare-keys" type="button" title="Lấy primary key cho các table CSV trong thư mục gốc đã chọn"><i data-lucide="key-round" aria-hidden="true"></i>Trích xuất key</button>
+                  <button class="ghost-button" id="remove-compare-keys" type="button" title="Xóa toàn bộ key compare đã lưu trong config"><i data-lucide="trash-2" aria-hidden="true"></i>Xóa key</button>
+                </div>
+              </div>
+              <details id="compare-key-details"><summary id="compare-key-count">Key đã lưu: 0 table</summary><div class="compare-key-table-wrap"><table class="compare-key-table"><thead><tr><th>Table CSV</th><th>Key</th></tr></thead><tbody id="compare-key-body"></tbody></table></div></details>
+            </div>
             <div class="form-actions"><span class="hint">Excel sẽ được tạo trong <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>ExportCompare</span><b>→</b></button></div>
           </form>
 

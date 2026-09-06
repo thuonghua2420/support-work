@@ -32,37 +32,29 @@ def filter_update_before_folder(
     after_dir: Path,
     keys_by_table: dict[str, tuple[str, ...]],
     log: Callable[[str], None],
-) -> None:
-    """Validate the entire workflow before replacing any before CSV, in after order."""
+    *,
+    strict: bool = True,
+) -> set[Path]:
+    """Filter before CSVs in after order and return paths with validated alignment."""
     if not after_dir.is_dir():
-        raise ValueError(f"Missing after folder: {after_dir}")
+        if strict:
+            raise ValueError(f"Missing after folder: {after_dir}")
+        log(f"[{before_dir.name}] Skip update-scope filter: missing after folder {after_dir}.")
+        return set()
     after_files = sorted(after_dir.glob("*.csv"), key=lambda path: path.name.casefold())
     if not after_files:
-        raise ValueError(f"No after CSV files: {after_dir}")
+        if strict:
+            raise ValueError(f"No after CSV files: {after_dir}")
+        log(f"[{before_dir.name}] Skip update-scope filter: no after CSV files in {after_dir}.")
+        return set()
     plans = []
     for after_path in after_files:
-        before_path = before_dir / after_path.name
-        if not before_path.is_file():
-            raise ValueError(f"{after_path.name}: missing before CSV.")
-        columns = keys_by_table.get(after_path.stem.casefold())
-        if not columns:
-            raise ValueError(
-                f"{after_path.name}: configure stable columns in "
-                f"[update_compare_keys], e.g. {after_path.stem} = ORDER_NO, DETAIL_NO."
-            )
-        before = read_dbeaver_csv(before_path)
-        after = read_dbeaver_csv(after_path)
-        if not after.rows:
-            raise ValueError(f"{after_path.name}: after is empty; cannot determine update targets.")
-        before_index = _index_rows(before, columns, before_path)
-        after_index = _index_rows(after, columns, after_path)
-        missing = [number for key, number in after_index.items() if key not in before_index]
-        if missing:
-            raise ValueError(f"{after_path.name}: after records without before mapping: {missing}.")
-        kept = [before_index[key] for key in after_index]
-        selected = set(kept)
-        removed = [number for number in range(1, len(before.rows) + 1) if number not in selected]
-        plans.append((before_path, before, columns, kept, removed))
+        try:
+            plans.append(_build_filter_plan(before_dir, after_path, keys_by_table))
+        except ValueError as exc:
+            if strict:
+                raise
+            log(f"[{before_dir.name}/{after_path.name}] Skip update-scope filter: {exc}")
 
     # Stage all writes first; replace each CSV atomically to avoid truncated inputs.
     staged: list[tuple[Path, Path]] = []
@@ -83,3 +75,36 @@ def filter_update_before_folder(
     finally:
         for temporary_path, _path in staged:
             temporary_path.unlink(missing_ok=True)
+    return {path for path, _before, _columns, _kept, _removed in plans}
+
+
+def _build_filter_plan(
+    before_dir: Path,
+    after_path: Path,
+    keys_by_table: dict[str, tuple[str, ...]],
+) -> tuple[Path, DbeaverCsv, tuple[str, ...], list[int], list[int]]:
+    before_path = before_dir / after_path.name
+    if not before_path.is_file():
+        raise ValueError("missing before CSV; compare will use an empty before side for this file.")
+    columns = keys_by_table.get(after_path.stem.casefold())
+    if not columns:
+        raise ValueError(
+            "missing stable key config in [update_compare_keys]; "
+            "before CSV is kept unchanged to avoid removing the wrong record."
+        )
+    before = read_dbeaver_csv(before_path)
+    after = read_dbeaver_csv(after_path)
+    if not after.rows:
+        raise ValueError("after is empty; before CSV is kept unchanged.")
+    before_index = _index_rows(before, columns, before_path)
+    after_index = _index_rows(after, columns, after_path)
+    missing = [number for key, number in after_index.items() if key not in before_index]
+    if missing:
+        raise ValueError(
+            f"after records without before mapping: {missing}; "
+            "before CSV is kept unchanged to avoid removing the wrong record."
+        )
+    kept = [before_index[key] for key in after_index]
+    selected = set(kept)
+    removed = [number for number in range(1, len(before.rows) + 1) if number not in selected]
+    return before_path, before, columns, kept, removed
