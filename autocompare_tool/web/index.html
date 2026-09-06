@@ -4,18 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>Support</title>
+  <title>AutoCompare | Workspace</title>
   <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/adminator.css">
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
-        <span class="brand-mark" aria-hidden="true">HM</span>
-        <span><strong>Some Support</strong><small>Hope it helps you</small></span>
+        <span class="brand-mark" aria-hidden="true"><i data-lucide="panels-top-left"></i></span>
+        <span><strong>AutoCompare</strong><small>UT WORKSPACE</small></span>
       </div>
 
       <nav class="nav-list" aria-label="Menu chính">
+        <span class="nav-label">Main Menu</span>
         <button class="nav-item active" data-page="compare" type="button">
           <span class="nav-icon">⌁</span><span><strong>Compare Csv</strong><small>Xuất Compare &amp; review FIXME</small></span>
         </button>
@@ -47,7 +49,7 @@
 
     <div class="workspace">
       <header class="topbar">
-        <button class="icon-button mobile-only" id="menu-toggle" type="button" aria-label="Mở menu">☰</button>
+        <button class="icon-button" id="menu-toggle" type="button" aria-label="Thu gọn menu" aria-controls="sidebar" aria-expanded="true" title="Thu gọn menu"><i data-lucide="panel-left-close"></i></button>
         <div>
           <p class="eyebrow" id="page-eyebrow">WORKSPACE / SO SÁNH</p>
           <h1 id="page-title">Compare CSV</h1>
@@ -493,6 +495,8 @@
   </dialog>
 
   <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+  <script src="/vendor/lucide.min.js" defer></script>
+  <script src="/adminator.js" defer></script>
   <script src="/app.js" defer></script>
 </body>
 </html>

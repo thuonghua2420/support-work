@@ -1,5 +1,35 @@
 # AutoCompare Tool
 
+## Giao diện Adminator
+
+Giao diện dùng bố cục từ bản Adminator offline trong repository: sidebar trắng có
+thể thu gọn, thanh tiêu đề gọn và các vùng thao tác/kết quả riêng. Compare có ba
+tab Cấu hình, Workbook và Danh sách FIXME; sau khi xuất thành công sẽ mở workbook.
+Các bảng kết quả có nút phóng to; Escape trả về kích thước ban đầu. Menu trên màn
+hình nhỏ đóng bằng Escape hoặc nhấn vùng bên ngoài.
+
+Trang Excel chia riêng nguồn, định dạng và cách lưu. Database giữ các tab CSV,
+SQL Workspace, đồng bộ và dialog kết nối. Các xác nhận ghi/xóa dữ liệu vẫn được giữ.
+Font Inter và icon Lucide được phục vụ nội bộ, không cần CDN hoặc build frontend.
+
+`web/app.css` giữ các style bảng chuyên biệt; `web/adminator.css` là lớp thiết kế
+chung, `web/adminator.js` sắp xếp các control hiện có mà không thay đổi API nghiệp vụ.
+Không tải các script quảng cáo/analytics từ bản mẫu offline.
+
+Kiểm tra giao diện với server local đang chạy (chỉ xuất CSV fixture trong `.tmp`,
+không kết nối hoặc ghi database):
+
+```powershell
+npm.cmd install --prefix .tmp/ui-check --no-save playwright
+$env:NODE_PATH = "$PWD/.tmp/ui-check/node_modules"
+$env:AUTOCOMPARE_URL = "http://127.0.0.1:8770"
+node tests/web_layout_smoke.cjs
+```
+
+Test dùng Chrome đã cài, kiểm tra sáu trang ở bốn chiều rộng, các tab/dialog,
+giữ giá trị input, điều hướng bàn phím, xuất workbook và lọc FIXME. Ảnh kiểm tra
+được lưu trong `.tmp/ui-screenshots`.
+
 ## Update Compare Keys
 
 HTM/HTC before-after comparisons require stable per-table keys in
