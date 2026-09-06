@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from copy import copy
 import shutil
 import time
+import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +18,7 @@ from .excel_format_presets import (
 
 Logger = Callable[[str], None]
 SUPPORTED_EXTENSIONS = {".xls", ".xlsb", ".xlsm", ".xlsx"}
+BASIC_OOXML_EXTENSIONS = {".xlsx"}
 OUTPUT_FOLDER_NAME = "Formatted"
 # Kept only as a visual reminder of the old hard-coded marker set; runtime
 # sheet exclusion now comes from ``AppConfig.excel_image_format``.
@@ -30,8 +33,16 @@ COM_BUSY_HRESULTS = {
     -2147417846,  # RPC_E_SERVERCALL_RETRYLATER
     -2146777998,  # Excel 0x800AC472 (temporarily busy)
 }
-COM_RETRY_COUNT = 12
-COM_RETRY_DELAY_SECONDS = 0.25
+COM_RETRY_COUNT = 5
+COM_RETRY_DELAY_SECONDS = 0.1
+COM_RETRY_MAX_DELAY_SECONDS = 0.3
+OOXML_VISUAL_PART_PREFIXES = (
+    "xl/activeX/",
+    "xl/ctrlProps/",
+    "xl/drawings/",
+    "xl/media/",
+    "xl/vmlDrawings/",
+)
 MSO_TRUE = -1
 MSO_PICTURE_TYPE_VALUES = {11, 13}  # msoLinkedPicture, msoPicture
 XL_BY_ROWS = 1
@@ -146,7 +157,9 @@ def format_excel_images(
         f"{len(exclusion_rules)} quy tắc loại trừ cỡ chữ."
     )
 
-    with _excel_application() as excel:
+    excel_context = None
+    excel = None
+    if True:
         for index, source_path in enumerate(workbooks, start=1):
             if overwrite_original:
                 destination = source_path
@@ -160,29 +173,42 @@ def format_excel_images(
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source_path, destination)
 
-                workbook = _retry_com_call(
-                    lambda: excel.Workbooks.Open(
-                        Filename=str(destination),
-                        UpdateLinks=0,
-                        ReadOnly=False,
-                        IgnoreReadOnlyRecommended=True,
-                        AddToMru=False,
+                if _can_use_basic_ooxml_formatter(destination, run_image_format=run_image_format):
+                    counts = _format_basic_ooxml_workbook(
+                        destination,
+                        font_name=normalized_font_name,
+                        font_size=normalized_font_size,
+                        exclusion_rules=exclusion_rules,
                     )
-                )
-                counts = _format_workbook(
-                    excel,
-                    workbook,
-                    draw_format=draw_format,
-                    run_image_format=run_image_format,
-                    font_name=normalized_font_name,
-                    font_size=normalized_font_size,
-                    exclusion_rules=exclusion_rules,
-                    image_config=active_image_config,
-                    logger=logger,
-                )
-                _retry_com_call(workbook.Save)
-                _retry_com_call(lambda: workbook.Close(SaveChanges=False))
-                workbook = None
+                    logger(f"Su dung openpyxl cho workbook OOXML khong co anh/shape: {destination.name}")
+                else:
+                    if excel_context is None:
+                        pending_excel_context = _excel_application()
+                        excel = pending_excel_context.__enter__()
+                        excel_context = pending_excel_context
+                    workbook = _retry_com_call(
+                        lambda: excel.Workbooks.Open(
+                            Filename=str(destination),
+                            UpdateLinks=0,
+                            ReadOnly=False,
+                            IgnoreReadOnlyRecommended=True,
+                            AddToMru=False,
+                        )
+                    )
+                    counts = _format_workbook(
+                        excel,
+                        workbook,
+                        draw_format=draw_format,
+                        run_image_format=run_image_format,
+                        font_name=normalized_font_name,
+                        font_size=normalized_font_size,
+                        exclusion_rules=exclusion_rules,
+                        image_config=active_image_config,
+                        logger=logger,
+                    )
+                    _retry_com_call(workbook.Save)
+                    _retry_com_call(lambda: workbook.Close(SaveChanges=False))
+                    workbook = None
 
                 summary.processed_count += 1
                 summary.sheet_count += counts.image_sheet_count
@@ -201,7 +227,7 @@ def format_excel_images(
                         _retry_com_call(lambda: workbook.Close(SaveChanges=False))
                     except Exception:
                         pass
-                message = f"{source_path}: {exc}"
+                message = f"{source_path}: {_format_excel_error(exc)}"
                 summary.errors.append(message)
                 summary.error_count += 1
                 logger(f"LỖI: {message}")
@@ -210,6 +236,8 @@ def format_excel_images(
         f"Đã format {summary.processed_count}/{summary.file_count} workbook, "
         f"{summary.workbook_format_sheet_count} sheet; lỗi {summary.error_count}."
     )
+    if excel_context is not None:
+        excel_context.__exit__(None, None, None)
     return summary
 
 
@@ -230,6 +258,102 @@ def _discover_workbooks(
             continue
         result.append(candidate)
     return sorted(result, key=lambda item: str(item).casefold())
+
+
+def _can_use_basic_ooxml_formatter(path: Path, *, run_image_format: bool) -> bool:
+    return (
+        path.suffix.lower() in BASIC_OOXML_EXTENSIONS
+        and not _has_ooxml_visual_parts(path)
+    )
+
+
+def _has_ooxml_visual_parts(path: Path) -> bool:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            return any(
+                name.startswith(OOXML_VISUAL_PART_PREFIXES)
+                for name in archive.namelist()
+            )
+    except zipfile.BadZipFile:
+        return True
+
+
+def _format_basic_ooxml_workbook(
+    path: Path,
+    *,
+    font_name: str,
+    font_size: float,
+    exclusion_rules: list[FontSizeExclusionRule],
+) -> _WorkbookFormatCounts:
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:
+        raise RuntimeError("Basic XLSX format needs openpyxl.") from exc
+
+    workbook = load_workbook(path)
+    skipped_size_rows = 0
+    sheet_count = len(workbook.worksheets)
+    try:
+        for worksheet in workbook.worksheets:
+            excluded_rows = _openpyxl_excluded_rows(worksheet, exclusion_rules)
+            skipped_size_rows += len(excluded_rows)
+            _apply_openpyxl_sheet_format(
+                worksheet,
+                font_name=font_name,
+                font_size=font_size,
+                excluded_rows=excluded_rows,
+            )
+            _reset_openpyxl_sheet_view(worksheet)
+        if workbook.worksheets:
+            workbook.active = 0
+        workbook.save(path)
+    finally:
+        workbook.close()
+
+    return _WorkbookFormatCounts(
+        image_sheet_count=0,
+        shape_count=0,
+        skipped_image_sheet_count=0,
+        workbook_format_sheet_count=sheet_count,
+        font_size_skipped_row_count=skipped_size_rows,
+    )
+
+
+def _openpyxl_excluded_rows(worksheet: Any, rules: list[FontSizeExclusionRule]) -> set[int]:
+    rows: set[int] = set()
+    for rule in rules:
+        if rule.cell_address:
+            if _values_match(worksheet[rule.cell_address].value, rule.text):
+                rows.add(int(worksheet[rule.cell_address].row))
+            continue
+        for row in worksheet.iter_rows():
+            if any(_values_match(cell.value, rule.text) for cell in row):
+                rows.add(int(row[0].row))
+    return rows
+
+
+def _apply_openpyxl_sheet_format(
+    worksheet: Any,
+    *,
+    font_name: str,
+    font_size: float,
+    excluded_rows: set[int],
+) -> None:
+    for row in worksheet.iter_rows():
+        for cell in row:
+            font = copy(cell.font)
+            font.name = font_name
+            if int(cell.row) not in excluded_rows:
+                font.sz = font_size
+            cell.font = font
+
+
+def _reset_openpyxl_sheet_view(worksheet: Any) -> None:
+    worksheet.sheet_view.topLeftCell = "A1"
+    if worksheet.sheet_view.selection:
+        selection = worksheet.sheet_view.selection[0]
+        selection.activeCell = "A1"
+        selection.sqref = "A1"
 
 
 def _format_workbook(
@@ -923,18 +1047,49 @@ def _retry_com_call(operation: Callable[[], Any]) -> Any:
         except Exception as exc:
             if not _is_com_busy_error(exc) or attempt == COM_RETRY_COUNT - 1:
                 raise
-            time.sleep(COM_RETRY_DELAY_SECONDS)
+            _wait_before_com_retry(attempt)
     raise AssertionError("Unreachable COM retry state")
 
 
 def _is_com_busy_error(exc: Exception) -> bool:
-    hresult = getattr(exc, "hresult", None)
-    if hresult is None and exc.args:
-        hresult = exc.args[0]
+    candidates = [getattr(exc, "hresult", None), *getattr(exc, "args", ())]
+    return any(_coerce_hresult(candidate) in COM_BUSY_HRESULTS for candidate in candidates)
+
+
+def _format_excel_error(exc: Exception) -> str:
+    if _is_com_busy_error(exc):
+        return (
+            "Excel is rejecting COM calls (`Call was rejected by callee`). "
+            "Close Excel dialogs/popups, finish any active cell edit, or close stuck Excel windows, then run again."
+        )
+    return str(exc)
+
+
+def _coerce_hresult(value: Any) -> int | None:
+    if isinstance(value, (tuple, list)):
+        for item in value:
+            hresult = _coerce_hresult(item)
+            if hresult is not None:
+                return hresult
+        return None
     try:
-        return int(hresult) in COM_BUSY_HRESULTS
+        hresult = int(value)
     except (TypeError, ValueError):
-        return False
+        return None
+    if hresult > 0x7FFFFFFF:
+        hresult -= 0x100000000
+    return hresult
+
+
+def _wait_before_com_retry(attempt: int) -> None:
+    try:
+        import pythoncom  # type: ignore[import-not-found]
+
+        pythoncom.PumpWaitingMessages()
+    except Exception:
+        pass
+    delay = min(COM_RETRY_DELAY_SECONDS * (attempt + 1), COM_RETRY_MAX_DELAY_SECONDS)
+    time.sleep(delay)
 
 
 @contextmanager

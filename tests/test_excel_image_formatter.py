@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from autocompare_tool.excel_image_formatter import (
     _included_row_segments,
+    _is_com_busy_error,
     _retry_com_call,
     format_excel_images,
 )
@@ -534,6 +535,12 @@ class ExcelImageFormatterTests(unittest.TestCase):
 
         self.assertEqual(3, attempts)
         self.assertEqual(2, sleep_mock.call_count)
+        self.assertEqual([0.1, 0.2], [call.args[0] for call in sleep_mock.call_args_list])
+
+    def test_detects_excel_busy_hresult_from_unsigned_nested_com_error_args(self) -> None:
+        error = Exception(None, "Call was rejected by callee.", (2147549185, None, None), None)
+
+        self.assertTrue(_is_com_busy_error(error))
 
     def test_formats_workbooks_with_native_image_layout_and_skips_special_sheets(self) -> None:
         formatted_shapes = [
@@ -666,6 +673,47 @@ class ExcelImageFormatterTests(unittest.TestCase):
         self.assertEqual(0, summary.macro_skipped_file_count)
         self.assertEqual(1, summary.workbook_format_sheet_count)
         self.assertEqual([], excel.run_calls)
+
+    def test_formats_plain_xlsx_without_starting_excel_com(self) -> None:
+        try:
+            from openpyxl import Workbook, load_workbook
+        except ImportError:
+            self.skipTest("openpyxl is not installed")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "plain.xlsx"
+            workbook = Workbook()
+            worksheet = workbook.active
+            worksheet["A1"] = "Header"
+            worksheet["A2"] = "Body"
+            workbook.save(source)
+            workbook.close()
+
+            with patch("autocompare_tool.excel_image_formatter._excel_application") as excel_context:
+                summary = format_excel_images(
+                    temp_dir,
+                    recursive=False,
+                    font_name="Calibri",
+                    font_size="12",
+                    font_size_exclusions="Header",
+                )
+
+            excel_context.assert_not_called()
+            destination = Path(temp_dir) / "Formatted" / "plain.xlsx"
+            formatted = load_workbook(destination)
+            try:
+                formatted_sheet = formatted.active
+                self.assertEqual("Calibri", formatted_sheet["A1"].font.name)
+                self.assertNotEqual(12, formatted_sheet["A1"].font.sz)
+                self.assertEqual("Calibri", formatted_sheet["A2"].font.name)
+                self.assertEqual(12, formatted_sheet["A2"].font.sz)
+                self.assertEqual("A1", formatted_sheet.sheet_view.selection[0].activeCell)
+            finally:
+                formatted.close()
+
+        self.assertEqual(1, summary.processed_count)
+        self.assertEqual(1, summary.workbook_format_sheet_count)
+        self.assertEqual(1, summary.font_size_skipped_row_count)
 
     def test_reports_missing_section_markers_when_sheet_contains_images(self) -> None:
         excel = _FakeExcel(lambda: [_FakeSheet("UT", 1)])

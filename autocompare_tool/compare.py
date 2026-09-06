@@ -27,6 +27,24 @@ def build_sheet_comparison(name: str, before: CsvTable, after: CsvTable) -> Shee
     before_keyed = _key_rows(before)
     after_keyed = _key_rows(after)
 
+    if _should_pair_by_record_order(before, after, before_keyed, after_keyed):
+        pairs = _pair_by_record_order(before.rows, after.rows)
+    else:
+        pairs = _pair_by_key(before_keyed, after_keyed)
+
+    return SheetComparison(
+        name=name,
+        before_headers=before.headers,
+        after_headers=after.headers,
+        columns=columns,
+        pairs=pairs,
+    )
+
+
+def _pair_by_key(
+    before_keyed: list[tuple[tuple[str | None, int], dict[str, str | None]]],
+    after_keyed: list[tuple[tuple[str | None, int], dict[str, str | None]]],
+) -> list[RecordPair]:
     before_by_key = {key: row for key, row in before_keyed}
     pairs: list[RecordPair] = []
     used_before_keys: set[tuple[str | None, int]] = set()
@@ -41,13 +59,39 @@ def build_sheet_comparison(name: str, before: CsvTable, after: CsvTable) -> Shee
         if key not in used_before_keys:
             pairs.append(RecordPair(before=before_row, after=None))
 
-    return SheetComparison(
-        name=name,
-        before_headers=before.headers,
-        after_headers=after.headers,
-        columns=columns,
-        pairs=pairs,
-    )
+    return pairs
+
+
+def _pair_by_record_order(
+    before_rows: list[dict[str, str | None]],
+    after_rows: list[dict[str, str | None]],
+) -> list[RecordPair]:
+    pairs: list[RecordPair] = []
+    max_rows = max(len(before_rows), len(after_rows))
+
+    for index in range(max_rows):
+        before_row = before_rows[index] if index < len(before_rows) else None
+        after_row = after_rows[index] if index < len(after_rows) else None
+        pairs.append(RecordPair(before=before_row, after=after_row))
+
+    return pairs
+
+
+def _should_pair_by_record_order(
+    before: CsvTable,
+    after: CsvTable,
+    before_keyed: list[tuple[tuple[str | None, int], dict[str, str | None]]],
+    after_keyed: list[tuple[tuple[str | None, int], dict[str, str | None]]],
+) -> bool:
+    if len(before.rows) != len(after.rows):
+        return False
+    if not before.rows or not after.rows:
+        return False
+    if not before.headers or not after.headers:
+        return True
+    if before.headers[0] != after.headers[0]:
+        return True
+    return [key for key, _row in before_keyed] != [key for key, _row in after_keyed]
 
 
 def _union_headers(before_headers: list[str], after_headers: list[str]) -> list[str]:

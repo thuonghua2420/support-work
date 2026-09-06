@@ -68,6 +68,38 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(cell_value(comparison.pairs[1].before, "value"), "before-2")
         self.assertEqual(cell_value(comparison.pairs[1].after, "value"), "after-2")
 
+    def test_same_length_mismatched_first_column_keys_compare_by_record_order(self) -> None:
+        before = CsvTable(
+            ["id", "created_at", "name"],
+            [
+                {"id": "100", "created_at": "2026-01-01 08:00:00", "name": "Alice old"},
+                {"id": "101", "created_at": "2026-01-01 08:01:00", "name": "Bob old"},
+            ],
+        )
+        after = CsvTable(
+            ["id", "created_at", "name"],
+            [
+                {"id": "200", "created_at": "2026-01-02 09:00:00", "name": "Alice new"},
+                {"id": "201", "created_at": "2026-01-02 09:01:00", "name": "Bob new"},
+            ],
+        )
+
+        comparison = build_sheet_comparison("sample.csv", before, after)
+
+        self.assertEqual([cell_value(pair.before, "id") for pair in comparison.pairs], ["100", "101"])
+        self.assertEqual([cell_value(pair.after, "id") for pair in comparison.pairs], ["200", "201"])
+        self.assertEqual([cell_value(pair.before, "name") for pair in comparison.pairs], ["Alice old", "Bob old"])
+        self.assertEqual([cell_value(pair.after, "name") for pair in comparison.pairs], ["Alice new", "Bob new"])
+
+    def test_same_length_different_first_header_compares_by_record_order(self) -> None:
+        before = CsvTable(["old_id", "name"], [{"old_id": "10", "name": "before"}])
+        after = CsvTable(["new_id", "name"], [{"new_id": "20", "name": "after"}])
+
+        comparison = build_sheet_comparison("sample.csv", before, after)
+
+        self.assertEqual(cell_value(comparison.pairs[0].before, "name"), "before")
+        self.assertEqual(cell_value(comparison.pairs[0].after, "name"), "after")
+
     def test_column_union_prioritizes_after_headers(self) -> None:
         before = CsvTable(["id", "legacy"], [{"id": "1", "legacy": "x"}])
         after = CsvTable(["id", "current"], [{"id": "1", "current": "y"}])

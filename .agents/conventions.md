@@ -32,6 +32,7 @@
 - Supported encodings: `utf-8-sig`, `utf-8`, `cp932`.
 - Preserve DBeaver-style NULL versus empty string in compare inputs: unquoted blank data cell is `NULL`, quoted empty string is `""`.
 - Compare workbooks display `NULL` values as literal `NULL`; empty strings remain visually blank.
+- Pair records by the first CSV column when key values line up. If before/after files have the same record count but the first-column key sequence or key header differs, compare rows by top-down record order because leading identity or timestamp columns may legitimately differ.
 
 ### DBeaver CSV
 
