@@ -1,0 +1,135 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from dataclasses import replace
+from pathlib import Path
+
+from autocompare_tool.app_config import load_app_config
+from autocompare_tool.dbeaver_csv import read_dbeaver_csv, write_dbeaver_csv
+from autocompare_tool.update_compare import filter_update_before_folder
+
+
+class UpdateCompareTests(unittest.TestCase):
+    def test_composite_key_filters_disk_in_after_order_preserving_nulls(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            before, after = root / "before", root / "after"
+            headers = ["id", "order", "line", "value"]
+            write_dbeaver_csv(before / "orders.csv", headers, [
+                ["1", "A", "1", None], ["2", "A", "2", ""], ["3", "B", "1", "extra"],
+            ])
+            write_dbeaver_csv(after / "orders.csv", headers, [
+                ["20", "A", "2", "updated"], ["10", "A", "1", "updated"],
+            ])
+            original_after = (after / "orders.csv").read_bytes()
+            logs = []
+            filter_update_before_folder(before, after, {"orders": ("order", "line")}, logs.append)
+            self.assertEqual(read_dbeaver_csv(before / "orders.csv").rows,
+                             [["2", "A", "2", ""], ["1", "A", "1", None]])
+            self.assertEqual((after / "orders.csv").read_bytes(), original_after)
+            self.assertIn("excluded original records=[3]", logs[0])
+
+    def test_invalid_mapping_preserves_every_before_file(self):
+        scenarios = [
+            (["id"], [["1"]], [["9"]], {"bad": ("id",)}),
+            (["id"], [["1"], ["1"]], [["1"]], {"bad": ("id",)}),
+            (["id"], [["1"]], [["1"], ["1"]], {"bad": ("id",)}),
+            (["id"], [[None]], [["1"]], {"bad": ("id",)}),
+            (["id"], [["1"]], [[""]], {"bad": ("id",)}),
+            (["id"], [["1"]], [], {"bad": ("id",)}),
+            (["id"], [["1"]], [["1"]], {}),
+            (["id"], [["1"]], [["1"]], {"bad": ("missing",)}),
+            (["id", "id"], [["1", "2"]], [["1", "2"]], {"bad": ("id",)}),
+        ]
+        for headers, before_rows, after_rows, keys in scenarios:
+            with self.subTest(before=before_rows, after=after_rows, keys=keys):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    before, after = root / "before", root / "after"
+                    write_dbeaver_csv(before / "aaa.csv", ["id"], [["1"], ["2"]])
+                    write_dbeaver_csv(after / "aaa.csv", ["id"], [["2"]])
+                    write_dbeaver_csv(before / "bad.csv", headers, before_rows)
+                    write_dbeaver_csv(after / "bad.csv", headers, after_rows)
+                    originals = {path: path.read_bytes() for path in before.glob("*.csv")}
+                    with self.assertRaises(ValueError):
+                        filter_update_before_folder(before, after, {"aaa": ("id",), **keys}, lambda _: None)
+                    self.assertEqual({path: path.read_bytes() for path in originals}, originals)
+                    self.assertFalse(list(before.glob("*.tmp")))
+
+    def test_missing_after_folder_or_csv_and_missing_before_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            before, after = root / "before", root / "after"
+            write_dbeaver_csv(before / "orders.csv", ["id"], [["1"], ["2"]])
+            original = (before / "orders.csv").read_bytes()
+            with self.assertRaisesRegex(ValueError, "Missing after folder"):
+                filter_update_before_folder(before, after, {"orders": ("id",)}, lambda _: None)
+            after.mkdir()
+            with self.assertRaisesRegex(ValueError, "No after CSV"):
+                filter_update_before_folder(before, after, {"orders": ("id",)}, lambda _: None)
+            write_dbeaver_csv(after / "missing.csv", ["id"], [["1"]])
+            with self.assertRaisesRegex(ValueError, "missing before CSV"):
+                filter_update_before_folder(before, after, {"missing": ("id",)}, lambda _: None)
+            self.assertEqual((before / "orders.csv").read_bytes(), original)
+
+    def test_config_loads_exact_composite_columns(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.ini"
+            path.write_text("[update_compare_keys]\nORDERS = OrderNo, LineNo\n", encoding="utf-8")
+            self.assertEqual(load_app_config(path).update_compare_keys, {"orders": ("OrderNo", "LineNo")})
+
+    def test_process_filters_systems_independently_and_keeps_sources(self):
+        try:
+            from autocompare_tool.processor import process_root
+        except ImportError:
+            self.skipTest("openpyxl is not installed")
+        with tempfile.TemporaryDirectory() as temporary:
+            config = replace(load_app_config(), update_compare_keys={"orders": ("code",)})
+            case = Path(temporary) / "UT01"
+            folders = config.folders
+            source = case / folders.input_dir / "orders.csv"
+            output = case / folders.output_dir
+            after_htm = output / folders.after_htm_dir / "orders.csv"
+            after_htc = output / folders.after_htc_dir / "orders.csv"
+            write_dbeaver_csv(source, ["id", "code", "value"], [
+                ["1", "A", "old-A"], ["2", "B", "old-B"], ["3", "C", "old-C"],
+            ])
+            write_dbeaver_csv(after_htm, ["id", "code", "value"], [["1", "B", "new-B"]])
+            write_dbeaver_csv(after_htc, ["id", "code", "value"], [["4", "C", "new-C"]])
+            originals = {path: path.read_bytes() for path in (source, after_htm, after_htc)}
+            for _ in range(2):
+                summary = process_root(case, config=config)
+                self.assertFalse(summary.errors)
+                self.assertEqual(read_dbeaver_csv(output / folders.before_htm_dir / "orders.csv").rows,
+                                 [["2", "B", "old-B"]])
+                self.assertEqual(read_dbeaver_csv(output / folders.before_htc_dir / "orders.csv").rows,
+                                 [["3", "C", "old-C"]])
+                self.assertEqual({path: path.read_bytes() for path in originals}, originals)
+
+    def test_failed_workflow_removes_stale_workbook_and_other_workflow_continues(self):
+        try:
+            from autocompare_tool.processor import process_root
+        except ImportError:
+            self.skipTest("openpyxl is not installed")
+        with tempfile.TemporaryDirectory() as temporary:
+            config = replace(load_app_config(), update_compare_keys={"orders": ("id",)})
+            case = Path(temporary) / "UT01"
+            folders = config.folders
+            output = case / folders.output_dir
+            write_dbeaver_csv(case / folders.input_dir / "orders.csv", ["id"], [["1"], ["2"]])
+            write_dbeaver_csv(output / folders.after_htm_dir / "orders.csv", ["id"], [["9"]])
+            write_dbeaver_csv(output / folders.after_htc_dir / "orders.csv", ["id"], [["2"]])
+            stale = output / folders.compare_dir / config.workbooks.htm_before_after_file
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"old workbook")
+            summary = process_root(case, config=config)
+            self.assertEqual(len(summary.errors), 1)
+            self.assertFalse(stale.exists())
+            self.assertEqual(len(summary.test_cases[0].workbooks), 2)
+            self.assertEqual(read_dbeaver_csv(output / folders.before_htm_dir / "orders.csv").rows,
+                             [["1"], ["2"]])
+
+
+if __name__ == "__main__":
+    unittest.main()

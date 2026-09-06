@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import configparser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 CONFIG_FILE_NAME = "autocompare_config.ini"
@@ -120,6 +120,7 @@ class AppConfig:
     compare_workflows: tuple[CompareWorkflowConfig, ...]
     excel_image_format: ExcelImageFormatConfig
     database_workspace: DatabaseWorkspaceConfig
+    update_compare_keys: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 def load_app_config(config_path: str | Path | None = None) -> AppConfig:
@@ -294,7 +295,21 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
         compare_workflows=workflows,
         excel_image_format=excel_image_format,
         database_workspace=database_workspace,
+        update_compare_keys=_read_update_compare_keys(parser),
     )
+
+
+def _read_update_compare_keys(parser: configparser.ConfigParser) -> dict[str, tuple[str, ...]]:
+    section = "update_compare_keys"
+    if not parser.has_section(section):
+        return {}
+    result: dict[str, tuple[str, ...]] = {}
+    for table, raw in parser.items(section):
+        columns = tuple(part.strip() for part in raw.split(","))
+        if not all(columns) or len(set(columns)) != len(columns):
+            raise ValueError(f"[{section}] {table}: key columns must be nonempty and unique.")
+        result[table.casefold()] = columns
+    return result
 
 
 def default_config_path() -> Path:

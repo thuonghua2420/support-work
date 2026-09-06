@@ -1,5 +1,27 @@
 # AutoCompare Tool
 
+## Update Compare Keys
+
+HTM/HTC before-after comparisons require stable per-table keys in
+`autocompare_config.ini`. Use the CSV filename without `.csv` and exact column names:
+
+```ini
+[update_compare_keys]
+ORDERS = ORDER_NO, DETAIL_NO
+```
+
+Keys must remain unchanged by the update. All after records must map uniquely to
+before records. Missing keys, duplicate/blank/NULL keys, missing before records,
+and missing/empty after data stop that workflow without filtering its before CSVs.
+Other selected workflows can continue. No key is guessed from column position.
+
+Once validated, CSV files in the before folder are physically filtered and reordered
+to after order. Input and after files stay unchanged. Logs list original record
+numbers kept and excluded; CSV NULL and quoted empty strings remain distinct.
+Every rerun refreshes before from Input. The after/after and ad-hoc folder compares
+do not use this filtering. After exports define the comparison scope, so detecting
+expected targets omitted from after requires an independent target list.
+
 AutoCompare là công cụ web chạy local dành cho kiểm thử CSV/UT trên Windows. Ứng dụng tái sử dụng các workflow Python hiện có để sao chép dữ liệu, tạo workbook so sánh, review FIXME, xử lý file và trao đổi dữ liệu với cơ sở dữ liệu.
 
 ## Khởi động

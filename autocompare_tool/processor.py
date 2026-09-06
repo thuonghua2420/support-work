@@ -10,8 +10,11 @@ from .app_config import (
     CompareWorkflowConfig,
     default_selected_workflow_keys,
     load_app_config,
+    WORKFLOW_HTM_BEFORE_AFTER,
+    WORKFLOW_HTC_BEFORE_AFTER,
 )
 from .excel_writer import WorkbookFixmeEntry, write_compare_workbook_with_fixmes
+from .update_compare import filter_update_before_folder
 
 Logger = Callable[[str], None]
 
@@ -148,6 +151,21 @@ def _process_test_case(
         for workflow in config.compare_workflows:
             if workflow.key not in selected_workflow_keys:
                 continue
+            if workflow.key in {WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER}:
+                # A failed validation must not leave an old successful workbook visible.
+                (compare_dir / workflow.output_file_name).unlink(missing_ok=True)
+                try:
+                    filter_update_before_folder(
+                        output_dir / workflow.left_dir_name,
+                        output_dir / workflow.right_dir_name,
+                        config.update_compare_keys,
+                        log,
+                    )
+                except Exception as exc:
+                    message = f"[{case_path.name}/{workflow.key}] ERROR: {exc}"
+                    result.errors.append(message)
+                    log(message)
+                    continue
             workbook_result = _write_workflow_workbook(
                 case_path,
                 output_dir,
@@ -202,6 +220,7 @@ def _write_workflow_workbook(
         excel_headers=config.excel_headers,
         case_folder_name=case_path.name,
         include_left_only_files=workflow.include_left_only_files,
+        pair_by_record_order=workflow.key in {WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER},
     )
     return WorkbookResult(
         output_path=write_result.output_path,

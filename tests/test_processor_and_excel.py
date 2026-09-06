@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 try:
     from openpyxl import Workbook, load_workbook
-    from autocompare_tool.app_config import ExcelCompareStyleConfig
+    from autocompare_tool.app_config import ExcelCompareStyleConfig, load_app_config
     from autocompare_tool.excel_writer import WorkbookFixmeEntry, write_compare_workbook_with_fixmes
     from autocompare_tool.fixme_replacements import apply_fixme_replacements
     from autocompare_tool.folder_compare import compare_csv_folder_pairs, compare_csv_folders, preview_folder_compare_pairs
@@ -53,14 +54,15 @@ class ProcessorAndExcelTests(unittest.TestCase):
             for folder in (input_dir, before_new, before_current, after_new, after_current):
                 folder.mkdir(parents=True)
 
-            _write_text(input_dir / "table.csv", "id,name\n5,before\n")
+            _write_text(input_dir / "table.csv", "id,name\n5,before\n2,before-2\n9,outside\n")
             _write_text(input_dir / "before_only.csv", "id,name\n999,extra\n")
             _write_text(before_new / "stale.csv", "id,name\n999,stale\n")
             _write_text(after_new / "table.csv", "id,name\n2,insert\n5,after\n")
             _write_text(after_current / "table.csv", "id,name\n5,before\n")
 
             self.assertIsNotNone(process_root)
-            summary = process_root(root)
+            config = replace(load_app_config(), update_compare_keys={"table": ("id",)})
+            summary = process_root(root, config=config)
 
             self.assertFalse(summary.errors)
             self.assertFalse((before_new / "stale.csv").exists())
@@ -111,7 +113,8 @@ class ProcessorAndExcelTests(unittest.TestCase):
             _write_text(stale_compare_dir / COMPARE_CURRENT_FILE, "stale")
             _write_text(stale_compare_dir / COMPARE_AFTER_AFTER_FILE, "stale")
 
-            summary = process_root(root, selected_workflow_keys={"htm_before_after"})
+            config = replace(load_app_config(), update_compare_keys={"table": ("id",)})
+            summary = process_root(root, selected_workflow_keys={"htm_before_after"}, config=config)
 
             compare_new = output_dir / COMPARE_DIR / COMPARE_NEW_FILE
             compare_current = output_dir / COMPARE_DIR / COMPARE_CURRENT_FILE

@@ -22,12 +22,14 @@ class SheetComparison:
     pairs: list[RecordPair]
 
 
-def build_sheet_comparison(name: str, before: CsvTable, after: CsvTable) -> SheetComparison:
+def build_sheet_comparison(
+    name: str, before: CsvTable, after: CsvTable, *, pair_by_record_order: bool = False,
+) -> SheetComparison:
     columns = _union_headers(before.headers, after.headers)
     before_keyed = _key_rows(before)
     after_keyed = _key_rows(after)
 
-    if _should_pair_by_record_order(before, after, before_keyed, after_keyed):
+    if pair_by_record_order or _should_pair_by_record_order(before, after, before_keyed, after_keyed):
         pairs = _pair_by_record_order(before.rows, after.rows)
     else:
         pairs = _pair_by_key(before_keyed, after_keyed)
