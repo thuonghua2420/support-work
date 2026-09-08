@@ -986,6 +986,18 @@ function applySelectedFixmeNotes() {
     startAction("apply_fixmes", { selections });
 }
 
+function selectedFixmeScope() {
+  const selectedIndexes = new Set(Object.entries(state.fixmeSelections)
+    .filter(([, value]) => value)
+    .map(([index]) => String(index)));
+  const selectedEntries = state.fixmes.filter((entry) => selectedIndexes.has(String(entry.index)));
+  return {
+    noteCount: selectedIndexes.size,
+    workbookCount: new Set(selectedEntries.map((entry) => `${entry.case_folder_name}\u001f${entry.workbook_name}`)).size,
+    sheetCount: new Set(selectedEntries.map((entry) => `${entry.case_folder_name}\u001f${entry.workbook_name}\u001f${entry.sheet_name || entry.csv_sheet_name}`)).size,
+  };
+}
+
 function toggleFixmeExpand() {
   const card = $("#fixme-expand-card");
   if (!card) return;
@@ -1340,7 +1352,11 @@ function syncImportButtonLabel() {
     delete_matching_keys: "Xóa trùng key & Import",
     truncate_table: "Truncate & Import",
   };
-  $("#db-import").textContent = labels[selectedImportMode()] || labels.append;
+  const button = $("#db-import");
+  const label = labels[selectedImportMode()] || labels.append;
+  (button.querySelector("span") || button).textContent = label;
+  button.setAttribute("aria-label", label);
+  button.title = label;
 }
 
 function selectedSyncMode() {
@@ -1665,6 +1681,15 @@ function updateFixmeToolbarState(filteredEntries = filteredFixmes()) {
   $("#fixme-bulk-clear").disabled = busy || scopedTargets === 0;
   $("#apply-fixmes").disabled = busy || noteCount === 0;
   $("#apply-fixmes-preview").disabled = busy || noteCount === 0;
+  const scope = selectedFixmeScope();
+  const applyLabel = scope.noteCount ? `Áp dụng tất cả (${scope.noteCount})` : "Áp dụng tất cả Note";
+  const applyTitle = scope.noteCount
+    ? `Áp dụng ${scope.noteCount} note cho ${scope.sheetCount} sheet trong ${scope.workbookCount} workbook`
+    : "Áp dụng toàn bộ note đã gán ở mọi case, workbook và sheet";
+  for (const button of [$("#apply-fixmes"), $("#apply-fixmes-preview")]) {
+    button.textContent = applyLabel;
+    button.title = applyTitle;
+  }
   $("#refresh-compare-preview").disabled = busy || !state.compareView.cases?.length;
   $("#check-fixmes").disabled = busy || !state.compareView.cases?.length;
 }
@@ -3382,7 +3407,7 @@ function summaryMessage(job) {
   }
   if (typeof result.changed_count === "number") return `${result.action_name || "Tác vụ"}: đã thay đổi ${result.changed_count}, bỏ qua ${result.skipped_count || 0}.`;
   if (typeof result.csv_count === "number") return `${result.action_name || "Tác vụ CSDL"}: ${result.csv_count} CSV / ${result.row_count || 0} dòng.`;
-  if (job.action === "apply_fixmes") return `Đã cập nhật ${result.cell_count || 0} ô trong ${result.workbook_count || 0} workbook.`;
+  if (job.action === "apply_fixmes") return `Đã áp dụng ${result.selected_entry_count || 0} note cho ${result.cell_count || 0} ô, ${result.sheet_count || 0} sheet trong ${result.workbook_count || 0} workbook.`;
   return "Tác vụ đã hoàn tất.";
 }
 

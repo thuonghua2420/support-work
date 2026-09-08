@@ -67,9 +67,8 @@ class ProcessorAndExcelTests(unittest.TestCase):
             self.assertFalse(summary.errors)
             self.assertFalse((before_new / "stale.csv").exists())
             self.assertTrue((before_new / "table.csv").exists())
-            self.assertTrue((before_current / "table.csv").exists())
+            self.assertFalse(before_current.exists())
             self.assertFalse((before_new / "before_only.csv").exists())
-            self.assertFalse((before_current / "before_only.csv").exists())
 
             compare_new = output_dir / COMPARE_DIR / COMPARE_NEW_FILE
             compare_current = output_dir / COMPARE_DIR / COMPARE_CURRENT_FILE
@@ -150,6 +149,37 @@ class ProcessorAndExcelTests(unittest.TestCase):
             workbook = load_workbook(workbook_path)
             self.assertEqual(workbook["table"]["H3"].value, "KNOWN_DIFF")
             self.assertEqual(workbook["table"]["H4"].value, "SPEC_CHANGE")
+
+    def test_apply_fixme_replacements_updates_all_selected_workbooks_and_sheets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first_path = root / "first.xlsx"
+            second_path = root / "second.xlsx"
+            first = Workbook()
+            first.active.title = "customers"
+            first.create_sheet("orders")
+            first.save(first_path)
+            second = Workbook()
+            second.active.title = "details"
+            second.save(second_path)
+            entries = [
+                WorkbookFixmeEntry("UT01", first_path, first_path.name, "customers.csv", "customers", "name", "a", "b", 1, 3, 8),
+                WorkbookFixmeEntry("UT01", first_path, first_path.name, "orders.csv", "orders", "amount", "1", "2", 1, 4, 10),
+                WorkbookFixmeEntry("UT02", second_path, second_path.name, "details.csv", "details", "status", "0", "1", 1, 5, 6),
+            ]
+
+            result = apply_fixme_replacements(entries, {0: "NOTE_A", 1: "NOTE_B", 2: "NOTE_C"})
+
+            self.assertEqual((result.workbook_count, result.sheet_count, result.cell_count, result.selected_entry_count), (2, 3, 3, 3))
+            first = load_workbook(first_path)
+            second = load_workbook(second_path)
+            try:
+                self.assertEqual(first["customers"]["H3"].value, "NOTE_A")
+                self.assertEqual(first["orders"]["J4"].value, "NOTE_B")
+                self.assertEqual(second["details"]["F5"].value, "NOTE_C")
+            finally:
+                first.close()
+                second.close()
 
     def test_compare_csv_folders_uses_all_csv_files_from_both_folders(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

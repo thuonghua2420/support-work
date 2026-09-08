@@ -1,10 +1,24 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Callable
 
 from .dbeaver_csv import DbeaverCsv, read_dbeaver_csv, write_dbeaver_csv
+
+
+@dataclass(frozen=True)
+class UpdateFilterPlan:
+    before_path: Path
+    after_path: Path
+    before: DbeaverCsv
+    after: DbeaverCsv
+    columns: tuple[str, ...]
+    kept_before: list[int]
+    kept_after: list[int]
+    removed_before: list[int]
+    removed_after: list[int]
 
 
 def _index_rows(table: DbeaverCsv, columns: tuple[str, ...], path: Path) -> dict[tuple[str, ...], int]:
@@ -35,7 +49,7 @@ def filter_update_before_folder(
     *,
     strict: bool = True,
 ) -> set[Path]:
-    """Filter before CSVs in after order and return paths with validated alignment."""
+    """Keep only stable keys shared by before/after and return aligned before paths."""
     if not after_dir.is_dir():
         if strict:
             raise ValueError(f"Missing after folder: {after_dir}")
@@ -59,30 +73,45 @@ def filter_update_before_folder(
     # Stage all writes first; replace each CSV atomically to avoid truncated inputs.
     staged: list[tuple[Path, Path]] = []
     try:
-        for path, before, columns, kept, removed in plans:
+        for plan in plans:
             with NamedTemporaryFile(dir=before_dir, suffix=".tmp", delete=False) as temporary:
-                temporary_path = Path(temporary.name)
-            staged.append((temporary_path, path))
-            write_dbeaver_csv(temporary_path, before.headers, [before.rows[number - 1] for number in kept])
+                before_temporary = Path(temporary.name)
+            staged.append((before_temporary, plan.before_path))
+            write_dbeaver_csv(
+                before_temporary,
+                plan.before.headers,
+                [plan.before.rows[number - 1] for number in plan.kept_before],
+            )
+            if plan.removed_after:
+                with NamedTemporaryFile(dir=after_dir, suffix=".tmp", delete=False) as temporary:
+                    after_temporary = Path(temporary.name)
+                staged.append((after_temporary, plan.after_path))
+                write_dbeaver_csv(
+                    after_temporary,
+                    plan.after.headers,
+                    [plan.after.rows[number - 1] for number in plan.kept_after],
+                )
         for temporary_path, path in staged:
             temporary_path.replace(path)
-        for path, before, columns, kept, removed in plans:
+        for plan in plans:
             log(
-                f"[{before_dir.name}/{path.name}] Update keys: {', '.join(columns)}; "
-                f"before={len(before.rows)}, kept={len(kept)}, removed={len(removed)}; "
-                f"original records in after order={kept}; excluded original records={removed}"
+                f"[{before_dir.name}/{plan.before_path.name}] Update keys: {', '.join(plan.columns)}; "
+                f"shared={len(plan.kept_before)}; "
+                f"before={len(plan.before.rows)}, removed delete records={plan.removed_before}; "
+                f"after={len(plan.after.rows)}, removed insert records={plan.removed_after}; "
+                f"before records in after order={plan.kept_before}"
             )
     finally:
         for temporary_path, _path in staged:
             temporary_path.unlink(missing_ok=True)
-    return {path for path, _before, _columns, _kept, _removed in plans}
+    return {plan.before_path for plan in plans}
 
 
 def _build_filter_plan(
     before_dir: Path,
     after_path: Path,
     keys_by_table: dict[str, tuple[str, ...]],
-) -> tuple[Path, DbeaverCsv, tuple[str, ...], list[int], list[int]]:
+) -> UpdateFilterPlan:
     before_path = before_dir / after_path.name
     if not before_path.is_file():
         raise ValueError("missing before CSV; compare will use an empty before side for this file.")
@@ -94,17 +123,23 @@ def _build_filter_plan(
         )
     before = read_dbeaver_csv(before_path)
     after = read_dbeaver_csv(after_path)
-    if not after.rows:
-        raise ValueError("after is empty; before CSV is kept unchanged.")
     before_index = _index_rows(before, columns, before_path)
     after_index = _index_rows(after, columns, after_path)
-    missing = [number for key, number in after_index.items() if key not in before_index]
-    if missing:
-        raise ValueError(
-            f"after records without before mapping: {missing}; "
-            "before CSV is kept unchanged to avoid removing the wrong record."
-        )
-    kept = [before_index[key] for key in after_index]
-    selected = set(kept)
-    removed = [number for number in range(1, len(before.rows) + 1) if number not in selected]
-    return before_path, before, columns, kept, removed
+    shared_keys = [key for key in after_index if key in before_index]
+    kept_before = [before_index[key] for key in shared_keys]
+    kept_after = [after_index[key] for key in shared_keys]
+    selected_before = set(kept_before)
+    selected_after = set(kept_after)
+    removed_before = [number for number in range(1, len(before.rows) + 1) if number not in selected_before]
+    removed_after = [number for number in range(1, len(after.rows) + 1) if number not in selected_after]
+    return UpdateFilterPlan(
+        before_path=before_path,
+        after_path=after_path,
+        before=before,
+        after=after,
+        columns=columns,
+        kept_before=kept_before,
+        kept_after=kept_after,
+        removed_before=removed_before,
+        removed_after=removed_after,
+    )

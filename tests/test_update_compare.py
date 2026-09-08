@@ -42,20 +42,28 @@ class UpdateCompareTests(unittest.TestCase):
                 for result in summary.test_cases[0].workbooks:
                     workbook = load_workbook(result.output_path)
                     try:
-                        sheet = workbook["customers"]
-                        self.assertEqual((sheet["G3"].value, sheet["H3"].value), ("C004", "C004"))
                         if result.workflow_key in {"htm_before_after", "htc_before_after"}:
                             orders = workbook["orders"]
                             self.assertEqual((orders["C4"].value, orders["D4"].value), ("B", "B"))
                             self.assertEqual((orders["E4"].value, orders["F4"].value), ("A", "A"))
-                            if customer_keys != {"customers": ("id",)}:
+                            if customer_keys == {"customers": ("id",)}:
+                                self.assertNotIn("customers", workbook.sheetnames)
+                            else:
+                                sheet = workbook["customers"]
+                                self.assertEqual((sheet["G3"].value, sheet["H3"].value), ("C004", "C004"))
                                 self.assertEqual((sheet["I3"].value, sheet["J3"].value), ("C003", None))
+                        else:
+                            sheet = workbook["customers"]
+                            self.assertEqual((sheet["G3"].value, sheet["H3"].value), ("C004", "C004"))
                     finally:
                         workbook.close()
                 for before_name in (folders.before_htm_dir, folders.before_htc_dir):
-                    rows = read_dbeaver_csv(output / before_name / "customers.csv").rows
-                    expected = ["C001", "C002", "C004"] if customer_keys == {"customers": ("id",)} else ["C001", "C002", "C003", "C004"]
-                    self.assertEqual([row[0] for row in rows], expected)
+                    customer_csv = output / before_name / "customers.csv"
+                    if customer_keys == {"customers": ("id",)}:
+                        self.assertFalse(customer_csv.exists())
+                    else:
+                        rows = read_dbeaver_csv(customer_csv).rows
+                        self.assertEqual([row[0] for row in rows], ["C001", "C002", "C003", "C004"])
                 self.assertEqual({path: path.read_bytes() for path in originals}, originals)
 
     def test_composite_key_filters_disk_in_after_order_preserving_nulls(self):
@@ -75,16 +83,39 @@ class UpdateCompareTests(unittest.TestCase):
             self.assertEqual(read_dbeaver_csv(before / "orders.csv").rows,
                              [["2", "A", "2", ""], ["1", "A", "1", None]])
             self.assertEqual((after / "orders.csv").read_bytes(), original_after)
-            self.assertIn("excluded original records=[3]", logs[0])
+            self.assertIn("removed delete records=[3]", logs[0])
+
+    def test_filter_removes_insert_and_delete_records_from_opposite_sides(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            before, after = root / "before", root / "after"
+            headers = ["id", "value", "nullable"]
+            write_dbeaver_csv(before / "mixed.csv", headers, [
+                ["A", "old-A", None], ["B", "same-B", ""], ["D", "deleted", "x"],
+            ])
+            write_dbeaver_csv(after / "mixed.csv", headers, [
+                ["B", "same-B", ""], ["A", "new-A", None], ["C", "inserted", "y"],
+            ])
+            logs = []
+
+            aligned = filter_update_before_folder(before, after, {"mixed": ("id",)}, logs.append)
+
+            self.assertEqual(aligned, {before / "mixed.csv"})
+            self.assertEqual(read_dbeaver_csv(before / "mixed.csv").rows, [
+                ["B", "same-B", ""], ["A", "old-A", None],
+            ])
+            self.assertEqual(read_dbeaver_csv(after / "mixed.csv").rows, [
+                ["B", "same-B", ""], ["A", "new-A", None],
+            ])
+            self.assertIn("removed delete records=[3]", logs[0])
+            self.assertIn("removed insert records=[3]", logs[0])
 
     def test_invalid_mapping_preserves_every_before_file(self):
         scenarios = [
-            (["id"], [["1"]], [["9"]], {"bad": ("id",)}),
             (["id"], [["1"], ["1"]], [["1"]], {"bad": ("id",)}),
             (["id"], [["1"]], [["1"], ["1"]], {"bad": ("id",)}),
             (["id"], [[None]], [["1"]], {"bad": ("id",)}),
             (["id"], [["1"]], [[""]], {"bad": ("id",)}),
-            (["id"], [["1"]], [], {"bad": ("id",)}),
             (["id"], [["1"]], [["1"]], {}),
             (["id"], [["1"]], [["1"]], {"bad": ("missing",)}),
             (["id", "id"], [["1", "2"]], [["1", "2"]], {"bad": ("id",)}),
@@ -168,7 +199,7 @@ class UpdateCompareTests(unittest.TestCase):
                                  [["3", "C", "old-C"]])
                 self.assertEqual({path: path.read_bytes() for path in originals}, originals)
 
-    def test_process_skips_unsafe_filter_and_still_creates_workbooks(self):
+    def test_process_filters_disjoint_insert_delete_sets_and_still_creates_workbooks(self):
         try:
             from autocompare_tool.processor import process_root
         except ImportError:
@@ -188,8 +219,10 @@ class UpdateCompareTests(unittest.TestCase):
             self.assertFalse(summary.errors)
             self.assertEqual(len(summary.test_cases[0].workbooks), 3)
             self.assertTrue(stale.exists())
-            self.assertEqual(read_dbeaver_csv(output / folders.before_htm_dir / "orders.csv").rows,
-                             [["1"], ["2"]])
+            self.assertFalse((output / folders.before_htm_dir).exists())
+            self.assertFalse((output / folders.before_htc_dir).exists())
+            self.assertEqual(read_dbeaver_csv(output / folders.after_htm_dir / "orders.csv").rows, [])
+            self.assertEqual(read_dbeaver_csv(output / folders.after_htc_dir / "orders.csv").rows, [["2"]])
 
     def test_process_creates_all_selected_workbooks_when_update_keys_are_missing(self):
         try:
@@ -214,6 +247,81 @@ class UpdateCompareTests(unittest.TestCase):
             self.assertTrue((output / folders.compare_dir / config.workbooks.after_htc_vs_htm_file).exists())
             self.assertEqual(read_dbeaver_csv(output / folders.before_htm_dir / "orders.csv").rows,
                              [["1", "old"], ["2", "outside"]])
+
+    def test_process_prunes_insert_delete_rows_and_removes_equal_sheets_and_before_csvs(self):
+        from openpyxl import load_workbook
+        from autocompare_tool.processor import process_root
+
+        with tempfile.TemporaryDirectory() as temporary:
+            config = replace(load_app_config(), update_compare_keys={
+                "inserted": ("id",), "deleted": ("id",), "equal": ("id",),
+            })
+            case = Path(temporary) / "UT01"
+            folders = config.folders
+            source = case / folders.input_dir
+            output = case / folders.output_dir
+            write_dbeaver_csv(source / "inserted.csv", ["id", "value"], [["A", "old"]])
+            write_dbeaver_csv(source / "deleted.csv", ["id", "value"], [["D", "old"], ["X", "deleted"]])
+            write_dbeaver_csv(source / "equal.csv", ["id", "value"], [["E", "same"]])
+            original_source = {path: path.read_bytes() for path in source.glob("*.csv")}
+            for after_name in (folders.after_htm_dir, folders.after_htc_dir):
+                write_dbeaver_csv(output / after_name / "inserted.csv", ["id", "value"], [
+                    ["A", "new"], ["N", "inserted"],
+                ])
+                write_dbeaver_csv(output / after_name / "deleted.csv", ["id", "value"], [["D", "new"]])
+                write_dbeaver_csv(output / after_name / "equal.csv", ["id", "value"], [["E", "same"]])
+
+            summary = process_root(case, config=config)
+
+            self.assertFalse(summary.errors)
+            by_workflow = {item.workflow_key: item for item in summary.test_cases[0].workbooks}
+            for workflow_key in ("htm_before_after", "htc_before_after"):
+                result = by_workflow[workflow_key]
+                self.assertEqual(result.sheet_count, 2)
+                self.assertEqual({path.name for path in result.removed_equal_before_files}, {"equal.csv"})
+                workbook = load_workbook(result.output_path)
+                try:
+                    self.assertEqual(set(workbook.sheetnames), {"inserted", "deleted"})
+                finally:
+                    workbook.close()
+            for before_name in (folders.before_htm_dir, folders.before_htc_dir):
+                before_dir = output / before_name
+                self.assertEqual({path.name for path in before_dir.glob("*.csv")}, {"inserted.csv", "deleted.csv"})
+                self.assertEqual(read_dbeaver_csv(before_dir / "inserted.csv").rows, [["A", "old"]])
+                self.assertEqual(read_dbeaver_csv(before_dir / "deleted.csv").rows, [["D", "old"]])
+            for after_name in (folders.after_htm_dir, folders.after_htc_dir):
+                self.assertEqual(read_dbeaver_csv(output / after_name / "inserted.csv").rows, [["A", "new"]])
+                self.assertEqual(read_dbeaver_csv(output / after_name / "deleted.csv").rows, [["D", "new"]])
+                self.assertEqual(read_dbeaver_csv(output / after_name / "equal.csv").rows, [["E", "same"]])
+            self.assertEqual(original_source, {path: path.read_bytes() for path in original_source})
+
+    def test_process_removes_empty_before_folders_when_all_sheets_are_equal(self):
+        from openpyxl import load_workbook
+        from autocompare_tool.processor import process_root
+
+        with tempfile.TemporaryDirectory() as temporary:
+            config = replace(load_app_config(), update_compare_keys={"equal": ("id",)})
+            case = Path(temporary) / "UT01"
+            folders = config.folders
+            output = case / folders.output_dir
+            write_dbeaver_csv(case / folders.input_dir / "equal.csv", ["id", "value"], [["E", "same"]])
+            for after_name in (folders.after_htm_dir, folders.after_htc_dir):
+                write_dbeaver_csv(output / after_name / "equal.csv", ["id", "value"], [["E", "same"]])
+
+            summary = process_root(case, config=config)
+
+            self.assertFalse(summary.errors)
+            by_workflow = {item.workflow_key: item for item in summary.test_cases[0].workbooks}
+            for workflow_key in ("htm_before_after", "htc_before_after"):
+                result = by_workflow[workflow_key]
+                self.assertEqual(result.sheet_count, 0)
+                workbook = load_workbook(result.output_path)
+                try:
+                    self.assertEqual(workbook.sheetnames, ["Summary"])
+                finally:
+                    workbook.close()
+            self.assertFalse((output / folders.before_htm_dir).exists())
+            self.assertFalse((output / folders.before_htc_dir).exists())
 
 
 if __name__ == "__main__":

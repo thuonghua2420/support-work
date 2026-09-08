@@ -114,9 +114,13 @@ class CompareKeyTests(unittest.TestCase):
             app.start_action("compare_keys_remove", {})
 
     def test_extracted_key_is_used_by_next_compare_to_remove_c003(self):
-        self.csv("customers", ["CustomerId"], [["C001"], ["C002"], ["C004"]])
+        self.csv("customers", ["CustomerId", "value"], [
+            ["C001", "same"], ["C002", "same"], ["C004", "new"],
+        ])
         source = self.case / "input/customers.csv"
-        write_dbeaver_csv(source, ["CustomerId"], [["C001"], ["C002"], ["C003"], ["C004"]])
+        write_dbeaver_csv(source, ["CustomerId", "value"], [
+            ["C001", "same"], ["C002", "same"], ["C003", "outside"], ["C004", "old"],
+        ])
         self.table("customers", ["CustomerId"])
         originals = {p: p.read_bytes() for p in self.case.rglob("*.csv")}
         with patch("autocompare_tool.app_config.default_config_path", return_value=self.path), \
@@ -131,7 +135,7 @@ class CompareKeyTests(unittest.TestCase):
             config = load_app_config(self.path)
             for name in (config.folders.before_htm_dir, config.folders.before_htc_dir):
                 before = self.case / "output" / name / "customers.csv"
-                self.assertEqual(read_dbeaver_csv(before).rows, [["C001"], ["C002"], ["C004"]])
+                self.assertEqual([row[0] for row in read_dbeaver_csv(before).rows], ["C001", "C002", "C004"])
             self.assertEqual(originals, {p: p.read_bytes() for p in originals})
             app._operation("compare_keys_remove", {"confirmed": True})(lambda _: None, CancelToken())
             self.assertEqual(app.bootstrap(8765)["update_compare_keys"], {})

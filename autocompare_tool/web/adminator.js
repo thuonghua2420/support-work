@@ -31,6 +31,7 @@ function prepareAdminatorLayout() {
   document.body.append(backdrop);
   prepareCompareWorkbench();
   prepareExcelWorkbench();
+  prepareCompactWorkspaces();
   for (const id of ["compare-preview-card", "fixme-expand-card"]) {
     const panel = document.getElementById(id);
     const actions = panel.querySelector(".card-heading .inline-actions");
@@ -55,6 +56,56 @@ function prepareAdminatorLayout() {
     if (event.key === "Escape") document.querySelector(".panel-expanded .expand-panel")?.click();
   });
   window.lucide?.createIcons();
+}
+
+function prepareCompactWorkspaces() {
+  const csvForm = document.getElementById("db-csv-form");
+  const source = csvForm.querySelector(":scope > .field");
+  const sourceRow = document.createElement("div");
+  sourceRow.className = "csv-source-row";
+  source.before(sourceRow);
+  sourceRow.append(source, document.getElementById("db-normalize"));
+  const columns = document.createElement("div");
+  columns.className = "csv-operation-columns";
+  const importSection = document.createElement("section");
+  const exportSection = document.createElement("section");
+  importSection.innerHTML = "<h3>Import CSV</h3>";
+  exportSection.innerHTML = "<h3>Export CSV</h3>";
+  importSection.append(csvForm.querySelector(".import-mode-fieldset"), csvForm.querySelector(".switch-row"), document.getElementById("db-import"));
+  exportSection.append(document.getElementById("db-export-tables").closest(".field"), document.getElementById("db-export"));
+  columns.append(importSection, exportSection);
+  sourceRow.after(columns);
+  csvForm.querySelector(".action-grid").remove();
+
+  document.querySelectorAll("#page-database .import-mode-card, #page-database .switch-row").forEach((label) => {
+    const description = label.querySelector("small");
+    if (description) label.title = description.textContent;
+  });
+  const loader = document.querySelector(".sql-excel-loader");
+  const details = document.createElement("details");
+  details.className = "sql-excel-details";
+  details.innerHTML = '<summary><i data-lucide="file-spreadsheet" aria-hidden="true"></i>SQL từ Excel</summary>';
+  loader.before(details);
+  details.append(loader);
+
+  const icons = {
+    "copy-current-sql": ["copy", "Sao chép SQL", true],
+    "sql-format": ["align-left", "Format SQL", false],
+    "sql-analyze": ["scan-search", "Phân tích", false],
+    "sql-run-current": ["play", "Chạy hiện tại", false],
+    "sql-run-all": ["list-start", "Chạy toàn bộ", false],
+    "db-normalize": ["list-checks", "Chuẩn hóa CSV", false],
+    "db-import": ["upload", "Import CSV", false],
+    "db-export": ["download", "Export CSV", false],
+  };
+  for (const [id, [icon, label, iconOnly]] of Object.entries(icons)) {
+    const button = document.getElementById(id);
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.classList.add("compact-tool-button");
+    if (iconOnly) button.classList.add("icon-button");
+    button.innerHTML = `<i data-lucide="${icon}" aria-hidden="true"></i>${iconOnly ? "" : `<span>${label}</span>`}`;
+  }
 }
 
 function prepareExcelWorkbench() {

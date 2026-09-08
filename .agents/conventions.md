@@ -33,7 +33,8 @@
 - Preserve DBeaver-style NULL versus empty string in compare inputs: unquoted blank data cell is `NULL`, quoted empty string is `""`.
 - Compare workbooks display `NULL` values as literal `NULL`; empty strings remain visually blank.
 - Pair records by the first CSV column when key values line up. If before/after files have the same record count but the first-column key sequence or key header differs, compare rows by top-down record order because leading identity or timestamp columns may legitimately differ.
-- HTM/HTC before-after update filtering physically removes records from copied `before` CSVs only when configured `[update_compare_keys]` map every after record uniquely to a before record. Missing or unsafe keys skip filtering for that CSV and still generate the compare workbook by top-down record order; never guess a delete key from leading columns.
+- HTM/HTC before-after update filtering uses validated `[update_compare_keys]` values to retain the key intersection: remove before-only delete records from copied `before`, remove after-only insert records from `after`, and align shared rows in after order. Missing or unsafe keys skip filtering for that CSV and still generate the compare workbook; never guess a key from leading columns.
+- Omit an equal HTM/HTC before-after sheet and delete only its corresponding `before` CSV. Remove the `before` folder when it has no CSV left; never delete the matching `after` CSV or modify Input during cleanup.
 
 ### DBeaver CSV
 
@@ -93,6 +94,7 @@
 - Metadata columns skipped by compare are listed in `compare.py`.
 - `excel_writer.py` should return mismatch metadata whenever processor/GUI needs review data.
 - If multiple mismatch rows point to one final-column `FIXME` cell, applying notes joins unique selected notes with line breaks but keeps wrap text disabled.
+- Applying FIXME notes uses every assigned entry in the current compare result across all cases, workbooks, and sheets; the active preview sheet only controls visibility.
 
 ## Testing Rules
 
@@ -124,3 +126,4 @@
 - When a saved DB connection is selected, auto-test the connection and let the server reuse the matching password from persistent history.
 - Long-running DB actions should accept a cooperative cancel checker, check it between batches/files/tables, and roll back active write transactions before surfacing cancellation.
 - Use the server-side filesystem picker for absolute local paths; browsers cannot provide those paths through standard upload controls.
+- Keep Case, File compare, and Sheet selectors together above the workbook grid. Normal workbook preview expands to the full sheet height; maximize uses the full viewport and confines scrolling to the grid.

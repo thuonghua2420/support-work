@@ -26,6 +26,7 @@ class WorkbookResult:
     workflow_key: str
     workflow_label: str
     fixme_entries: list[WorkbookFixmeEntry] = field(default_factory=list)
+    removed_equal_before_files: list[Path] = field(default_factory=list)
 
 
 @dataclass
@@ -181,6 +182,11 @@ def _process_test_case(
                 f"[{case_path.name}] Đã tạo {workbook_result.output_path.name} "
                 f"({workbook_result.sheet_count} sheet, {len(workbook_result.fixme_entries)} mục FIXME)."
             )
+            if workbook_result.removed_equal_before_files:
+                log(
+                    f"[{case_path.name}] Đã bỏ {len(workbook_result.removed_equal_before_files)} sheet không có sai khác "
+                    f"và xóa CSV tương ứng khỏi {output_dir / workflow.left_dir_name}."
+                )
     except Exception as exc:
         message = f"[{case_path.name}] LỖI: {exc}"
         result.errors.append(message)
@@ -225,13 +231,26 @@ def _write_workflow_workbook(
         case_folder_name=case_path.name,
         include_left_only_files=workflow.include_left_only_files,
         aligned_before_files=aligned_before_files,
+        omit_equal_sheets=workflow.key in {WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER},
     )
+    removed_equal_before_files: list[Path] = []
+    if workflow.key in {WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER}:
+        for before_path in write_result.equal_before_files:
+            if before_path.is_file():
+                before_path.unlink()
+                removed_equal_before_files.append(before_path)
+        if left_dir.is_dir() and not any(left_dir.glob("*.csv")):
+            try:
+                left_dir.rmdir()
+            except OSError:
+                pass
     return WorkbookResult(
         output_path=write_result.output_path,
         sheet_count=write_result.sheet_count,
         workflow_key=workflow.key,
         workflow_label=workflow.label,
         fixme_entries=write_result.fixme_entries,
+        removed_equal_before_files=removed_equal_before_files,
     )
 
 

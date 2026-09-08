@@ -1,5 +1,16 @@
 # AutoCompare Tool
 
+Compare CSV and Database use compact inline checkbox/radio groups. CSV import and
+export have separate sections sharing one CSV folder; SQL Workspace keeps its six
+commands together and exposes Excel loading in the expandable "SQL tu Excel" row.
+Import modes, database-write confirmations and saved input behavior are unchanged.
+
+The workbook preview lists Sheet directly below File compare. In normal view the
+whole sheet expands vertically with the page. Maximize uses the full browser viewport
+and keeps the workbook selectors visible while the grid scrolls. Applying notes sends
+every assigned note from all cases, workbooks and sheets in the current compare run;
+the active sheet only controls what is visible.
+
 ## Giao diện Adminator
 
 Giao diện dùng bố cục từ bản Adminator offline trong repository: sidebar trắng có
@@ -45,9 +56,10 @@ the Compare configuration tab and is used on the next compare without restarting
 confirmation; other config sections and CSV files are preserved.
 
 A database primary key still needs stable values between before and after. If an
-identity key changes, filtering is skipped unless a suitable stable key is configured.
-For example, with `customers = CustomerId` and after containing C001, C002, C004,
-the next compare removes C003 from copied before CSVs after validating all mappings.
+identity key changes, use a suitable stable business key instead. For example, with
+`customers = CustomerId`, before containing C001-C004 and after containing C001,
+C002, C004 and C005, the next compare removes deleted C003 from `before` and inserted
+C005 from `after` before comparing the shared records.
 
 HTM/HTC before-after comparisons can use stable per-table keys in
 `autocompare_config.ini` to remove records outside the update scope. Use the CSV
@@ -58,23 +70,27 @@ filename without `.csv` and exact column names:
 ORDERS = ORDER_NO, DETAIL_NO
 ```
 
-Keys must remain unchanged by the update. All after records must map uniquely to
-before records before any before CSV is filtered. Missing keys, duplicate/blank/NULL
-keys, missing before records, and missing/empty after data skip only this
-update-scope filter for that CSV; the compare workbook is still generated.
+Keys must remain unchanged by the update. The filter validates unique, nonblank keys
+on both sides, then retains their intersection: before-only keys are delete records
+and are removed from `before`; after-only keys are insert records and are removed
+from `after`. This also handles insert and delete in the same table when row counts
+happen to be equal. Missing key configuration/columns or duplicate/blank/NULL keys
+skip only this update-scope filter for that CSV; the compare workbook is still generated.
 Unfiltered CSVs match records by the first-column key, preserving shared keys even
 when rows move or counts differ. Unmatched records remain on their own side.
 Top-down fallback applies only when counts are equal and there are no shared
 nonblank keys (or the first-column headers differ). No deletion key is guessed
 from column position because that could remove the wrong record.
 
-Once validated, CSV files in the before folder are physically filtered and reordered
-to after order; only these validated files force top-down pairing. Input and after
-files stay unchanged. Logs list original record
-numbers kept and excluded; CSV NULL and quoted empty strings remain distinct.
-Every rerun refreshes before from Input. The after/after and ad-hoc folder compares
-do not use this filtering. After exports define the comparison scope, so detecting
-expected targets omitted from after requires an independent target list.
+Once validated, shared records in `before` are physically filtered and reordered to
+the `after` order, while insert records are physically removed from `after`. Only
+these validated files force top-down pairing. Files under Input stay unchanged.
+Logs list shared, insert and delete record numbers; CSV NULL and quoted empty strings
+remain distinct. After comparison, an HTM/HTC sheet with no differences is omitted
+from its workbook and its corresponding `before` CSV is deleted. If that leaves no
+CSV in the `before` folder, the empty folder is removed. The matching `after` CSV is
+kept. Every rerun refreshes `before` from Input. Ad-hoc folder compares do not use
+this filtering or cleanup.
 
 AutoCompare là công cụ web chạy local dành cho kiểm thử CSV/UT trên Windows. Ứng dụng tái sử dụng các workflow Python hiện có để sao chép dữ liệu, tạo workbook so sánh, review FIXME, xử lý file và trao đổi dữ liệu với cơ sở dữ liệu.
 

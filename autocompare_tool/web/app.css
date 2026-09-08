@@ -233,7 +233,7 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .fixme-scan-table { min-width: 820px; width: 100%; }
 .fixme-scan-table th, .fixme-scan-table td { padding: 7px 9px; font-size: 10px; white-space: nowrap; }
 .compare-preview-shell { overflow: hidden; border: 1px solid #d9e4ee; border-radius: 12px; background: #f8fbfe; }
-.compare-preview-tabs, .compare-sheet-footer { display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px 12px; }
+.compare-preview-tabs, .compare-sheet-footer { display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; gap: 8px 10px; padding: 10px 12px; }
 .compare-preview-tabs { border-bottom: 1px solid #dce7f1; background: linear-gradient(180deg, #fbfdff, #f2f7fc); }
 .compare-sheet-footer { border-top: 1px solid #dce7f1; background: #f6f9fc; }
 .compare-tab-line { display: contents; }
@@ -243,7 +243,7 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .compare-tab:hover { border-color: #8db8e8; color: var(--blue); background: var(--blue-soft); }
 .compare-tab.active { border-color: #5594e5; color: white; background: #176bd7; box-shadow: 0 6px 16px rgba(23,107,215,.18); }
 .compare-tab.error { border-color: #efc4c8; color: var(--red); background: var(--red-soft); }
-.compare-grid-wrap { position: relative; min-height: 360px; max-height: 68vh; overflow: auto; background: white; }
+.compare-grid-wrap { position: relative; min-height: 0; max-height: none; overflow: auto; background: white; }
 .compare-preview-status { display: grid; place-items: center; min-height: 240px; padding: 28px; color: #738399; font-size: 12px; text-align: center; }
 .compare-grid { width: max-content; min-width: 100%; border-collapse: collapse; border-spacing: 0; table-layout: fixed; }
 .compare-grid col.compare-row-number-col { width: 46px; }
@@ -684,7 +684,7 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
   .compare-bulk-toolbar button, .compare-bulk-toolbar select { width: 100%; }
   .compare-tab-line { display: grid; gap: 6px; }
   .compare-tab-line + .compare-tab-line { margin-top: 8px; }
-  .compare-grid-wrap { max-height: 62vh; }
+  .compare-grid-wrap { max-height: none; }
   .action-grid { grid-template-columns: 1fr; }
   .import-mode-grid, .excel-output-grid, .format-logic-grid { grid-template-columns: 1fr; }
   .sync-options .import-mode-grid { grid-template-columns: 1fr; }

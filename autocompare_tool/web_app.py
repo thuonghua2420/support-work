@@ -895,7 +895,12 @@ class AutoCompareWebApplication:
             f"Đã áp dụng ghi chú cho {result.cell_count} ô FIXME "
             f"trong {result.workbook_count} file Excel."
         )
-        return {"cell_count": result.cell_count, "workbook_count": result.workbook_count}
+        return {
+            "cell_count": result.cell_count,
+            "workbook_count": result.workbook_count,
+            "sheet_count": result.sheet_count,
+            "selected_entry_count": result.selected_entry_count,
+        }
 
     def _check_fixmes(self, log: Logger) -> dict[str, Any]:
         with self._state_lock:

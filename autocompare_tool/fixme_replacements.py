@@ -14,6 +14,7 @@ from .excel_writer import WorkbookFixmeEntry
 @dataclass(frozen=True)
 class FixmeReplacementResult:
     workbook_count: int
+    sheet_count: int
     cell_count: int
     selected_entry_count: int
 
@@ -33,7 +34,7 @@ def apply_fixme_replacements(
         replacements[key].append(note)
 
     if not replacements:
-        return FixmeReplacementResult(workbook_count=0, cell_count=0, selected_entry_count=0)
+        return FixmeReplacementResult(workbook_count=0, sheet_count=0, cell_count=0, selected_entry_count=0)
 
     by_workbook: dict[Path, list[tuple[str, int, int, list[str]]]] = defaultdict(list)
     for (workbook_path, sheet_name, row, column), notes in replacements.items():
@@ -53,6 +54,7 @@ def apply_fixme_replacements(
 
     return FixmeReplacementResult(
         workbook_count=len(by_workbook),
+        sheet_count=len({(workbook_path, sheet_name) for workbook_path, updates in by_workbook.items() for sheet_name, _row, _column, _notes in updates}),
         cell_count=len(replacements),
         selected_entry_count=sum(1 for note in notes_by_entry_index.values() if note.strip()),
     )

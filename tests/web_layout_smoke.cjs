@@ -36,6 +36,24 @@ const path = require('node:path');
       for (const tab of await page.locator('.database-tabs .tab').all()) {
         await tab.click();
         const key = await tab.getAttribute('data-tab');
+        if (key === 'csv') {
+          for (const mode of ['delete_matching_keys', 'truncate_table', 'append']) {
+            await page.locator(`input[name="db-import-mode"][value="${mode}"]`).check();
+            assert.ok(await page.locator(`input[name="db-import-mode"][value="${mode}"]`).isChecked());
+            assert.equal(await page.locator('#db-import svg').count(), 1);
+          }
+          const optionHeights = await page.locator('#db-csv-form .import-mode-card').evaluateAll(els => els.map(el => el.getBoundingClientRect().height));
+          assert.ok(optionHeights.every(height => height <= 36), `Import options too tall at ${width}`);
+        }
+        if (key === 'sql-workspace') {
+          const tools = page.locator('.sql-toolbar-actions button');
+          assert.equal(await tools.count(), 6);
+          const rows = await tools.evaluateAll(els => new Set(els.map(el => Math.round(el.getBoundingClientRect().top))).size);
+          assert.ok(rows <= (width < 600 ? 3 : 2), `SQL tools spread across ${rows} rows at ${width}`);
+          await page.locator('.sql-excel-details summary').click();
+          assert.ok(await page.locator('#sql-load-excel').isVisible());
+          await page.locator('.sql-excel-details summary').click();
+        }
         await page.screenshot({ path: path.join(output, `${width}-database-${key}.png`), fullPage: true });
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `DB ${key} overflow at ${width}`);
       }
@@ -65,8 +83,9 @@ const path = require('node:path');
     const fixtureRoot = path.resolve('.tmp/ui-fixtures');
     await fs.mkdir(path.join(fixtureRoot, 'before'), { recursive: true });
     await fs.mkdir(path.join(fixtureRoot, 'after'), { recursive: true });
-    await fs.writeFile(path.join(fixtureRoot, 'before', 'orders.csv'), 'id,name,status\n1,Order A,old\n2,Order B,old\n');
-    await fs.writeFile(path.join(fixtureRoot, 'after', 'orders.csv'), 'id,name,status\n1,Order A,new\n2,Order B,new\n');
+    const fixtureRows = Array.from({ length: 30 }, (_, index) => `${index + 1},Order ${index + 1}`);
+    await fs.writeFile(path.join(fixtureRoot, 'before', 'orders.csv'), `id,name,status\n${fixtureRows.map(row => `${row},old`).join('\n')}\n`);
+    await fs.writeFile(path.join(fixtureRoot, 'after', 'orders.csv'), `id,name,status\n${fixtureRows.map(row => `${row},new`).join('\n')}\n`);
     await page.locator('.nav-item[data-page="folder-compare"]').click();
     await page.locator('#folder-left').fill(path.join(fixtureRoot, 'before'));
     await page.locator('#folder-right').fill(path.join(fixtureRoot, 'after'));
@@ -74,6 +93,24 @@ const path = require('node:path');
     await page.locator('#folder-compare-form button[type="submit"]').click();
     await page.locator('#compare-preview-table:not(.hidden)').waitFor({ timeout: 30000 });
     assert.equal(await page.locator('#tab-compare-preview-card').getAttribute('aria-selected'), 'true');
+    assert.ok(await page.locator('#compare-workbook-tabs').evaluate((workbooks, sheets) =>
+      workbooks.getBoundingClientRect().top < sheets.getBoundingClientRect().top,
+      await page.locator('#compare-sheet-tabs').elementHandle()));
+    assert.ok(await page.locator('#compare-sheet-tabs').evaluate((sheets, grid) =>
+      sheets.getBoundingClientRect().top < grid.getBoundingClientRect().top,
+      await page.locator('.compare-grid-wrap').elementHandle()));
+    const naturalGridHeight = await page.locator('.compare-grid-wrap').evaluate(el => el.getBoundingClientRect().height);
+    const tableHeight = await page.locator('#compare-preview-table').evaluate(el => el.getBoundingClientRect().height);
+    assert.ok(naturalGridHeight >= tableHeight, 'Normal workbook view should expand to the full sheet height');
+    await page.locator('#compare-preview-card .expand-panel').click();
+    const fullscreen = await page.locator('#compare-preview-card').evaluate(el => {
+      const rect = el.getBoundingClientRect();
+      return { top: rect.top, left: rect.left, width: rect.width, height: rect.height, viewportWidth: innerWidth, viewportHeight: innerHeight };
+    });
+    assert.ok(fullscreen.top <= 1 && fullscreen.left <= 1);
+    assert.ok(fullscreen.width >= fullscreen.viewportWidth - 2 && fullscreen.height >= fullscreen.viewportHeight - 2);
+    await page.screenshot({ path: path.join(output, '1440-workbook-fullscreen.png') });
+    await page.keyboard.press('Escape');
     if (await page.locator('#activity-panel:not(.collapsed)').count()) await page.locator('#activity-toggle').click();
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 1000 });
@@ -82,7 +119,7 @@ const path = require('node:path');
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
       await page.locator('#tab-fixme-expand-card').click();
       await page.locator('[data-fixme-filter="column_name"]').fill('status');
-      assert.equal(await page.locator('#fixme-body tr').count(), 2);
+      assert.equal(await page.locator('#fixme-body tr').count(), 30);
       await page.screenshot({ path: path.join(output, `${width}-fixme-data.png`), fullPage: true });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     }
