@@ -44,17 +44,15 @@ giữ giá trị input, điều hướng bàn phím, xuất workbook và lọc F
 
 ## Update Compare Keys
 
-In Compare > Cau hinh, select a connected Database 1 or Database 2 and use
-**Trich xuat key**. The tool reads primary-key metadata for CSV tables found in the
-selected UT root's HTM/HTC after folders and saves the complete key (including
-composite keys) in `[update_compare_keys]`. The existing database adapters support
-SQL Server, MySQL, PostgreSQL and Oracle. No database rows are written.
-Existing configured keys are retained; extraction does not overwrite a manually
-chosen stable business key. Tables without a primary key or with missing/ambiguous
-CSV key headers are skipped with a log entry. The saved table/key list appears in
-the Compare configuration tab and is used on the next compare without restarting.
-**Xoa key** clears all entries in this section, including manual entries, after
-confirmation; other config sections and CSV files are preserved.
+In Database > Trích xuất key, select a connected Database 1 or Database 2 and use
+**Trich xuat key**. The tool reads primary-key metadata for all tables in the
+selected database/schema and rewrites `[update_compare_keys]` with the complete
+keys it can extract, including composite keys. The existing database adapters
+support SQL Server, MySQL, PostgreSQL and Oracle. No database rows are written.
+Tables without a primary key are skipped with a log entry. The saved table/key
+list is used on the next compare without restarting. **Xoa key** clears all
+entries in this section, including manual entries, after confirmation; other
+config sections and CSV files are preserved.
 
 A database primary key still needs stable values between before and after. If an
 identity key changes, use a suitable stable business key instead. For example, with

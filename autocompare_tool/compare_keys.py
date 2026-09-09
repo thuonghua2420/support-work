@@ -149,6 +149,47 @@ def extract_compare_keys(
     return CompareKeyResult(keys, saved_count=len(additions), existing_count=existing_count, skipped=tuple(skipped))
 
 
+def extract_all_compare_keys(
+    settings: DatabaseConnectionSettings,
+    log: Callable[[str], None],
+    *,
+    config_path: Path | None = None,
+    cancel: Callable[[], None] = lambda: None,
+) -> CompareKeyResult:
+    path = config_path if config_path is not None else default_config_path()
+    settings = validate_connection_settings(settings)
+    adapter = get_adapter(settings.normalized_type)
+    cancel()
+    connection = adapter.connect(settings)
+    found: dict[str, tuple[str, ...]] = {}
+    skipped: list[str] = []
+    try:
+        table_names = adapter.list_tables(connection, settings)
+        if not table_names:
+            raise ValueError("Database không có table nào để trích xuất key.")
+        for table_name in table_names:
+            cancel()
+            try:
+                metadata = adapter.get_table(connection, settings, table_name)
+                primary_key = tuple(column.name for column in metadata.columns if column.is_primary_key)
+                if not primary_key:
+                    raise ValueError("table không có primary key")
+                found[metadata.name.casefold()] = primary_key
+                log(f"[{metadata.name.casefold()}] Primary key: {', '.join(primary_key)}")
+            except (TableNotFoundError, ValueError) as exc:
+                message = f"[{table_name}] Skip key extraction: {exc}"
+                skipped.append(message)
+                log(message)
+    finally:
+        connection.close()
+    cancel()
+    old_keys = dict(load_app_config(path).update_compare_keys)
+    unchanged_count = sum(1 for table, columns in found.items() if old_keys.get(table) == columns)
+    _write_keys(path, found)
+    log(f"Saved keys for {len(found)} tables; unchanged {unchanged_count}; skipped {len(skipped)}.")
+    return CompareKeyResult(found, saved_count=len(found), existing_count=unchanged_count, skipped=tuple(skipped))
+
+
 def remove_compare_keys(log: Callable[[str], None], *, config_path: Path | None = None) -> CompareKeyResult:
     path = config_path if config_path is not None else default_config_path()
     keys = load_app_config(path).update_compare_keys

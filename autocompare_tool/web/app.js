@@ -187,7 +187,8 @@ function renderCompareKeys() {
     option.textContent = connection ? `${name}: ${connection.database} / ${connection.schema || "default"}` : `${name}: chưa kết nối`;
   }
   const busy = state.job && ["queued", "running"].includes(state.job.state);
-  $("#extract-compare-keys").disabled = Boolean(busy);
+  const selectedRole = valueOf("compare-key-role") || "main";
+  $("#extract-compare-keys").disabled = Boolean(busy) || !state.dbVerified[selectedRole];
   $("#remove-compare-keys").disabled = Boolean(busy) || !entries.length;
 }
 
@@ -719,9 +720,11 @@ function bindForms() {
     startAction("compare", { root: valueOf("compare-root"), workflows });
   });
   $("#extract-compare-keys").addEventListener("click", () => {
-    if (!$("#compare-root").reportValidity()) return;
-    startAction("compare_keys_extract", { root: valueOf("compare-root"), role: valueOf("compare-key-role") });
+    const role = valueOf("compare-key-role");
+    if (!requireVerified(role)) return;
+    startAction("compare_keys_extract", { role });
   });
+  $("#compare-key-role").addEventListener("change", renderCompareKeys);
   $("#remove-compare-keys").addEventListener("click", async () => {
     const count = Object.keys(state.bootstrap.update_compare_keys || {}).length;
     if (await confirmAction("Xóa key compare?", `Xóa toàn bộ key đã lưu của ${count} table, bao gồm key nhập thủ công. Các lần compare tiếp theo sẽ bỏ qua bước lọc record ngoài đối tượng cho đến khi có key mới.`)) {
@@ -1503,13 +1506,13 @@ function renderFixmes() {
       <td><span class="diff-value">${escapeHtml(entry.left_value)}</span></td>
       <td><span class="diff-value">${escapeHtml(entry.right_value)}</span></td>
       <td>${escapeHtml(entry.record_number)}</td>
-      <td><select data-fixme-index="${entry.index}">${fixmeNoteOptionsHtml("Chọn ý nghĩa", state.fixmeSelections[entry.index])}</select></td>
+      <td><input class="fixme-note-input" data-fixme-index="${entry.index}" list="fixme-note-values" value="${escapeHtml(state.fixmeSelections[entry.index] || "")}" placeholder="Nhập hoặc chọn note"></td>
     </tr>`).join("") : `<tr class="fixme-empty-row"><td colspan="9">Không có dòng phù hợp với filter hiện tại.</td></tr>`;
 
-  $$('select[data-fixme-index]').forEach((select) => {
-    select.addEventListener("change", () => {
-      if (select.value) state.fixmeSelections[select.dataset.fixmeIndex] = select.value;
-      else delete state.fixmeSelections[select.dataset.fixmeIndex];
+  $$('[data-fixme-index]').forEach((input) => {
+    input.addEventListener("input", () => {
+      if (input.value.trim()) state.fixmeSelections[input.dataset.fixmeIndex] = input.value.trim();
+      else delete state.fixmeSelections[input.dataset.fixmeIndex];
       if ((state.fixmeSorts || []).some((sort) => sort.field === "note") || state.fixmeFilters.note) renderFixmes();
       else {
         updateFixmeToolbarState(filteredEntries);
@@ -1541,16 +1544,15 @@ function refreshFixmeNoteOptions() {
   bulkSelect.innerHTML = fixmeNoteOptionsHtml("Chọn ý nghĩa");
   noteFilter.innerHTML = fixmeNoteOptionsHtml("Tất cả");
   if (compareBulkSelect) compareBulkSelect.innerHTML = fixmeNoteOptionsHtml("Chọn ý nghĩa");
+  const datalist = $("#fixme-note-values");
+  if (datalist) {
+    datalist.innerHTML = state.notes.map((note) =>
+      `<option value="${escapeHtml(note.value)}" label="${escapeHtml(noteOptionLabel(note))}"></option>`
+    ).join("");
+  }
   if (state.notes.some((note) => note.value === previousBulkNote)) bulkSelect.value = previousBulkNote;
   if (state.notes.some((note) => note.value === previousNoteFilter)) noteFilter.value = previousNoteFilter;
   if (compareBulkSelect && state.notes.some((note) => note.value === previousCompareBulkNote)) compareBulkSelect.value = previousCompareBulkNote;
-
-  $$('select[data-fixme-index]').forEach((select) => {
-    const currentValue = select.value;
-    select.replaceChildren(new Option("Chọn ý nghĩa", ""));
-    state.notes.forEach((note) => select.add(new Option(noteOptionLabel(note), note.value)));
-    if (state.notes.some((note) => note.value === currentValue)) select.value = currentValue;
-  });
   syncComparePreviewNoteControls();
   updateCompareBulkToolbarState();
   updateFixmeToolbarState();
@@ -1738,7 +1740,7 @@ function clearBulkFixmeNotes() {
 function fixmeBulkTargets() {
   const filteredEntries = filteredFixmes();
   if (valueOf("fixme-bulk-scope") === "checked") {
-    return filteredEntries.filter((entry) => state.fixmeCheckedRows.has(String(entry.index)));
+    return state.fixmes.filter((entry) => state.fixmeCheckedRows.has(String(entry.index)));
   }
   return filteredEntries;
 }
@@ -1755,7 +1757,7 @@ function updateFixmeToolbarState(filteredEntries = filteredFixmes()) {
   checkVisible.indeterminate = checkedVisibleCount > 0 && checkedVisibleCount < visibleCount;
 
   const busy = document.body.classList.contains("is-busy");
-  const scopedTargets = valueOf("fixme-bulk-scope") === "checked" ? checkedVisibleCount : visibleCount;
+  const scopedTargets = valueOf("fixme-bulk-scope") === "checked" ? state.fixmeCheckedRows.size : visibleCount;
   $("#fixme-select-filtered").disabled = busy || visibleCount === 0;
   $("#fixme-clear-selection").disabled = busy || state.fixmeCheckedRows.size === 0;
   $("#fixme-bulk-assign").disabled = busy || scopedTargets === 0 || !valueOf("fixme-bulk-note");
@@ -2102,7 +2104,7 @@ function compareCellContent(cell, fixmeIndices) {
     const existingNote = workbookValue && workbookValue !== "FIXME" && !fixmeIndices.some((index) => state.fixmeSelections[index])
       ? `<div class="compare-existing-note">${escapeHtml(workbookValue)}</div>`
       : "";
-    return `<select data-compare-fixme-indices="${escapeHtml(fixmeIndices.join(","))}" data-compare-fixme-value="${escapeHtml(workbookValue)}" ${state.notes.length ? "" : "disabled"}>${compareFixmeOptionsHtml(fixmeIndices, workbookValue)}</select>${existingNote}`;
+    return `<input class="compare-fixme-note-input" data-compare-fixme-indices="${escapeHtml(fixmeIndices.join(","))}" data-compare-fixme-value="${escapeHtml(workbookValue)}" list="fixme-note-values" value="${escapeHtml(compareFixmeInputValue(fixmeIndices, workbookValue))}" placeholder="Nhập hoặc chọn note">${existingNote}`;
   }
   return `<textarea class="compare-cell-value" readonly title="Click để chọn/copy value">${escapeHtml(cell.value)}</textarea>`;
 }
@@ -2114,20 +2116,13 @@ function bindCompareCellCopyControls(root) {
   });
 }
 
-function compareFixmeOptionsHtml(indices, workbookValue = "") {
+function compareFixmeInputValue(indices, workbookValue = "") {
   let selectedValues = uniqueStrings(indices.map((index) => state.fixmeSelections[index]).filter(Boolean));
   if (!selectedValues.length && workbookValue && workbookValue !== "FIXME") {
     const noteValues = new Set(state.notes.map((note) => note.value));
     selectedValues = uniqueStrings(workbookValue.split(/\r?\n/).map((value) => value.trim()).filter((value) => noteValues.has(value)));
   }
-  const mixed = selectedValues.length > 1;
-  return [
-    mixed ? `<option value="__mixed" selected>Nhiều note</option>` : "",
-    `<option value="">Chọn ý nghĩa</option>`,
-    ...state.notes.map((note) =>
-      `<option value="${escapeHtml(note.value)}" ${selectedValues.length === 1 && note.value === selectedValues[0] ? "selected" : ""} title="Ghi chú: ${escapeHtml(note.value)}">${escapeHtml(noteOptionLabel(note))}</option>`
-    ),
-  ].join("");
+  return selectedValues.length === 1 ? selectedValues[0] : "";
 }
 
 function bindCompareFixmeControls() {
@@ -2143,12 +2138,12 @@ function bindCompareFixmeControls() {
       updateCompareBulkToolbarState();
     });
   });
-  $$("[data-compare-fixme-indices]").forEach((select) => {
-    select.addEventListener("change", () => {
-      if (select.value === "__mixed") return;
-      const indices = compareFixmeIndicesFromSelect(select);
+  $$("[data-compare-fixme-indices]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const indices = compareFixmeIndicesFromSelect(input);
+      const value = input.value.trim();
       indices.forEach((index) => {
-        if (select.value) state.fixmeSelections[index] = select.value;
+        if (value) state.fixmeSelections[index] = value;
         else delete state.fixmeSelections[index];
       });
       renderFixmes();
@@ -2179,7 +2174,7 @@ function toggleVisibleCompareFixmeRows(event) {
 
 function assignCompareBulkNote() {
   const note = valueOf("compare-bulk-note");
-  const targets = visibleCompareFixmeIndices().filter((index) => state.fixmeCheckedRows.has(index));
+  const targets = checkedFixmeIndices();
   if (!note) {
     showToast("Vui lòng chọn note cần gán.", "error");
     $("#compare-bulk-note")?.focus();
@@ -2197,11 +2192,16 @@ function assignCompareBulkNote() {
 }
 
 function clearCompareRowSelection() {
-  visibleCompareFixmeIndices().forEach((index) => state.fixmeCheckedRows.delete(index));
+  state.fixmeCheckedRows.clear();
   syncFixmeRowChecks();
   syncComparePreviewNoteControls();
   updateFixmeToolbarState();
   updateCompareBulkToolbarState();
+}
+
+function checkedFixmeIndices() {
+  const valid = new Set(state.fixmes.map((entry) => String(entry.index)));
+  return [...state.fixmeCheckedRows].filter((index) => valid.has(String(index)));
 }
 
 function updateCompareBulkToolbarState() {
@@ -2209,16 +2209,17 @@ function updateCompareBulkToolbarState() {
   if (!toolbar) return;
   const visible = visibleCompareFixmeIndices();
   const checkedCount = visible.filter((index) => state.fixmeCheckedRows.has(index)).length;
+  const totalCheckedCount = checkedFixmeIndices().length;
   toolbar.classList.toggle("hidden", visible.length === 0);
-  $("#compare-checked-count").textContent = `${checkedCount} / ${visible.length} dòng đã tick`;
+  $("#compare-checked-count").textContent = `${totalCheckedCount} dòng đã tick`;
   const checkAll = $("#compare-check-visible");
   if (checkAll) {
     checkAll.checked = visible.length > 0 && checkedCount === visible.length;
     checkAll.indeterminate = checkedCount > 0 && checkedCount < visible.length;
   }
   const busy = document.body.classList.contains("is-busy");
-  $("#compare-bulk-assign").disabled = busy || checkedCount === 0 || !valueOf("compare-bulk-note");
-  $("#compare-bulk-clear").disabled = busy || checkedCount === 0;
+  $("#compare-bulk-assign").disabled = busy || totalCheckedCount === 0 || !valueOf("compare-bulk-note");
+  $("#compare-bulk-clear").disabled = busy || totalCheckedCount === 0;
 }
 
 function syncFixmeRowChecks() {
@@ -2241,11 +2242,12 @@ function syncComparePreviewNoteControls() {
     checkbox.checked = indices.length > 0 && checkedCount === indices.length;
     checkbox.indeterminate = checkedCount > 0 && checkedCount < indices.length;
   });
-  $$("[data-compare-fixme-indices]").forEach((select) => {
-    const indices = compareFixmeIndicesFromSelect(select);
-    select.innerHTML = compareFixmeOptionsHtml(indices, select.dataset.compareFixmeValue || "");
-    select.disabled = state.notes.length === 0;
-    const existingNote = select.nextElementSibling;
+  $$("[data-compare-fixme-indices]").forEach((input) => {
+    const indices = compareFixmeIndicesFromSelect(input);
+    if (document.activeElement !== input) {
+      input.value = compareFixmeInputValue(indices, input.dataset.compareFixmeValue || "");
+    }
+    const existingNote = input.nextElementSibling;
     if (existingNote?.classList.contains("compare-existing-note")) {
       existingNote.classList.toggle("hidden", indices.some((index) => state.fixmeSelections[index]));
     }
@@ -3480,7 +3482,7 @@ async function updateSqlSource(relationId) {
 }
 
 function summaryMessage(job) {
-  if (job.action === "compare_keys_extract") return `Đã lưu key cho ${job.result.saved_count} table; giữ ${job.result.existing_count} key hiện có; bỏ qua ${job.result.skipped.length} table. Chi tiết trong log.`;
+  if (job.action === "compare_keys_extract") return `Đã lưu key cho ${job.result.saved_count} table; ${job.result.existing_count} key không đổi; bỏ qua ${job.result.skipped.length} table. Chi tiết trong log.`;
   if (job.action === "compare_keys_remove") return `Đã xóa key của ${job.result.removed_count} table khỏi config.`;
   const result = job.result || {};
   if (job.action === "compare") return `Đã xử lý ${result.processed_count || 0} case, tạo ${result.workbook_count || 0} workbook và tìm thấy ${result.fixme_count || 0} FIXME.`;

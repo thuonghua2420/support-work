@@ -220,6 +220,8 @@ tbody tr:hover { background: #f8fbff; }
 .cell-stack small { margin-top: 2px; color: #8a98a9; }
 .diff-value { display: block; max-height: 68px; overflow: auto; padding: 6px 7px; border-radius: 6px; background: #f7f9fb; white-space: pre-wrap; }
 td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10px; }
+.fixme-note-input,
+.compare-fixme-note-input { width: 100%; min-width: 145px; min-height: 33px; padding: 6px 8px; border: 1px solid #cbd7e6; border-radius: 7px; color: #31465f; background: white; font-size: 10px; }
 
 .compare-preview-card { margin-top: 20px; padding: clamp(20px, 3vw, 28px); }
 .compare-bulk-toolbar { display: grid; grid-template-columns: auto minmax(170px, 1fr) auto auto; align-items: center; gap: 8px; margin: -8px 0 14px; padding: 10px 12px; border: 1px solid #dbe6f1; border-radius: 10px; background: #f8fbfe; }

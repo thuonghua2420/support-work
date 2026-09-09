@@ -74,16 +74,6 @@
             <div class="divider"></div>
             <div class="card-heading compact"><div><span class="step-number">02</span><h3>Luồng so sánh</h3></div><button class="text-button" id="toggle-workflows" type="button">Chọn / bỏ tất cả</button></div>
             <div class="choice-grid" id="compare-workflows"></div>
-            <div class="compare-key-section">
-              <div class="compare-key-toolbar">
-                <label class="field"><span>Database lấy primary key</span><select id="compare-key-role" aria-label="Database lấy primary key"><option value="main">Database 1</option><option value="target">Database 2</option></select></label>
-                <div class="inline-actions">
-                  <button class="secondary-button" id="extract-compare-keys" type="button" title="Lấy primary key cho các table CSV trong thư mục gốc đã chọn"><i data-lucide="key-round" aria-hidden="true"></i>Trích xuất key</button>
-                  <button class="ghost-button" id="remove-compare-keys" type="button" title="Xóa toàn bộ key compare đã lưu trong config"><i data-lucide="trash-2" aria-hidden="true"></i>Xóa key</button>
-                </div>
-              </div>
-              <details id="compare-key-details"><summary id="compare-key-count">Key đã lưu: 0 table</summary><div class="compare-key-table-wrap"><table class="compare-key-table"><thead><tr><th>Table CSV</th><th>Key</th></tr></thead><tbody id="compare-key-body"></tbody></table></div></details>
-            </div>
             <div class="form-actions"><span class="hint">Excel sẽ được tạo trong <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>ExportCompare</span><b>→</b></button></div>
           </form>
 
@@ -371,6 +361,7 @@
           <div class="tabs database-tabs" role="tablist" aria-label="Chức năng cơ sở dữ liệu">
             <button class="tab active" data-tab-group="database" data-tab="csv" type="button">CSV ↔ Database</button>
             <button class="tab" data-tab-group="database" data-tab="sync" type="button">Đồng bộ 2 CSDL</button>
+            <button class="tab" data-tab-group="database" data-tab="primary-key" type="button">Trích xuất key</button>
           </div>
 
           <div class="tab-panel active" data-tab-panel="database:csv">
@@ -424,6 +415,20 @@
                 </div>
               </form>
             </div>
+          </div>
+
+          <div class="tab-panel" data-tab-panel="database:primary-key">
+            <section class="card form-card compare-key-section">
+              <div class="card-heading"><div><span class="step-number">03</span><h3>Trích xuất key</h3></div><span class="soft-badge">Config</span></div>
+              <div class="compare-key-toolbar">
+                <label class="field"><span>Database lấy primary key</span><select id="compare-key-role" aria-label="Database lấy primary key"><option value="main">Database 1</option><option value="target">Database 2</option></select></label>
+                <div class="inline-actions">
+                  <button class="secondary-button" id="extract-compare-keys" type="button" title="Lấy primary key cho toàn bộ table trong database đã chọn"><i data-lucide="key-round" aria-hidden="true"></i>Trích xuất key</button>
+                  <button class="ghost-button" id="remove-compare-keys" type="button" title="Xóa toàn bộ key compare đã lưu trong config"><i data-lucide="trash-2" aria-hidden="true"></i>Xóa key</button>
+                </div>
+              </div>
+              <details id="compare-key-details" open><summary id="compare-key-count">Key đã lưu: 0 table</summary><div class="compare-key-table-wrap"><table class="compare-key-table"><thead><tr><th>Table CSV</th><th>Key</th></tr></thead><tbody id="compare-key-body"></tbody></table></div></details>
+            </section>
           </div>
 
           <div class="tab-panel" data-tab-panel="database:sync">
@@ -515,6 +520,8 @@
       <div class="notes-layout"><div class="note-list" id="note-list"></div><form id="note-form"><input type="hidden" id="note-old-value"><label class="field"><span>Ghi chú</span><input id="note-value" required placeholder="Ví dụ: OK - expected"></label><label class="field"><span>Ý nghĩa</span><textarea id="note-meaning" rows="5" placeholder="Mô tả để người review dễ hiểu"></textarea></label><div class="form-actions"><button class="danger-button subtle" id="delete-note" type="button">Xóa</button><button class="primary-button small" type="submit">Lưu ghi chú</button></div></form></div>
     </div>
   </dialog>
+
+  <datalist id="fixme-note-values"></datalist>
 
   <dialog id="confirm-dialog" class="modal confirm-modal">
     <form method="dialog" class="modal-shell"><div class="confirm-symbol" id="confirm-symbol">!</div><h3 id="confirm-title">Xác nhận thao tác</h3><p id="confirm-message"></p><footer><button class="ghost-button" value="cancel">Hủy</button><button class="danger-button" id="confirm-accept" value="confirm">Xác nhận</button></footer></form>

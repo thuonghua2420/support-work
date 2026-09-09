@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from autocompare_tool.app_config import load_app_config
-from autocompare_tool.compare_keys import extract_compare_keys, remove_compare_keys
+from autocompare_tool.compare_keys import extract_all_compare_keys, extract_compare_keys, remove_compare_keys
 from autocompare_tool.database_io import (
     DatabaseColumn, DatabaseConnectionSettings, OperationCancelledError, TableMetadata, TableNotFoundError,
     validate_connection_settings,
@@ -29,6 +29,7 @@ class CompareKeyTests(unittest.TestCase):
         self.adapter = Mock()
         self.metadata = {}
         self.adapter.get_table.side_effect = self.get_table
+        self.adapter.list_tables.side_effect = lambda _connection, _settings: sorted(self.metadata)
         self.patcher = patch("autocompare_tool.compare_keys.get_adapter", return_value=self.adapter)
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
@@ -104,12 +105,29 @@ class CompareKeyTests(unittest.TestCase):
         self.assertEqual(remove_compare_keys(lambda _: None, config_path=self.path).removed_count, 0)
         self.assertEqual(self.path.read_bytes(), original)
 
+    def test_extract_all_keys_from_connected_database_replaces_key_section(self):
+        self.table("orders", ["OrderNo", "LineNo"])
+        self.table("customers", ["CustomerId"])
+        self.metadata["audit"] = TableMetadata("dbo", "audit", [
+            DatabaseColumn("created_at", 1, "datetime", is_primary_key=False),
+        ])
+
+        result = extract_all_compare_keys(self.settings, lambda _: None, config_path=self.path)
+
+        self.assertEqual(result.update_compare_keys, {
+            "customers": ("CustomerId",),
+            "orders": ("OrderNo", "LineNo"),
+        })
+        self.assertEqual((result.saved_count, result.existing_count, len(result.skipped)), (2, 0, 1))
+        self.assertEqual(load_app_config(self.path).update_compare_keys, result.update_compare_keys)
+        self.adapter.list_tables.assert_called_once()
+
     def test_api_requires_connected_role_and_clear_confirmation(self):
         app = AutoCompareWebApplication()
         with self.assertRaisesRegex(ValueError, "Database"):
-            app.start_action("compare_keys_extract", {"role": "unknown", "root": str(self.root)})
+            app.start_action("compare_keys_extract", {"role": "unknown"})
         with self.assertRaisesRegex(ValueError, "database"):
-            app.start_action("compare_keys_extract", {"role": "main", "root": str(self.root)})
+            app.start_action("compare_keys_extract", {"role": "main"})
         with self.assertRaises(PermissionError):
             app.start_action("compare_keys_remove", {})
 
@@ -127,7 +145,7 @@ class CompareKeyTests(unittest.TestCase):
              patch("autocompare_tool.compare_keys.default_config_path", return_value=self.path):
             app = AutoCompareWebApplication()
             app._db_connection_cache["target"] = self.settings
-            result = app._operation("compare_keys_extract", {"root": str(self.root), "role": "target"})(lambda _: None, CancelToken())
+            result = app._operation("compare_keys_extract", {"role": "target"})(lambda _: None, CancelToken())
             self.assertEqual(result["saved_count"], 1)
             self.adapter.connect.assert_called_with(validate_connection_settings(self.settings))
             summary = app._compare({"root": str(self.root), "workflows": ["htm_before_after", "htc_before_after", "after_htc_vs_htm"]}, lambda _: None)

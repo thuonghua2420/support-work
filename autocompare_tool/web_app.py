@@ -15,7 +15,7 @@ from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 from .app_config import AppConfig, load_app_config
-from .compare_keys import extract_compare_keys, remove_compare_keys
+from .compare_keys import extract_all_compare_keys, remove_compare_keys
 from .compare_workbook_view import (
     CompareWorkbookReference,
     build_compare_view_index,
@@ -506,8 +506,8 @@ class AutoCompareWebApplication:
                 settings = self._db_connection_cache.get(role)
             if settings is None:
                 raise ValueError("Hãy kết nối database tại trang Database trước khi trích xuất key.")
-            return lambda log, cancel: asdict(extract_compare_keys(
-                _text(payload, "root"), settings, log, cancel=cancel.throw_if_cancelled,
+            return lambda log, cancel: asdict(extract_all_compare_keys(
+                settings, log, cancel=cancel.throw_if_cancelled,
             ))
         if action == "compare_keys_remove":
             return lambda log, cancel: asdict(remove_compare_keys(log))

@@ -1,5 +1,0 @@
-order_id,customer_id,order_date,amount,status
-O1001,C001,2026-06-10,125000,Completed
-O1002,C002,2026-06-11,98000,Completed
-O1003,C003,2026-06-12,45000,Cancelled
-O1004,C004,2026-06-13,210000,Processing

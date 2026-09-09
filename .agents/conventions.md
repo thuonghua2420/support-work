@@ -35,6 +35,7 @@
 - Pair records by the first CSV column when key values line up. If before/after files have the same record count but the first-column key sequence or key header differs, compare rows by top-down record order because leading identity or timestamp columns may legitimately differ.
 - HTM/HTC before-after update filtering uses validated `[update_compare_keys]` values to retain the key intersection: remove before-only delete records from copied `before`, remove after-only insert records from `after`, and align shared rows in after order. Missing or unsafe keys skip filtering for that CSV and still generate the compare workbook; never guess a key from leading columns.
 - Omit an equal HTM/HTC before-after sheet and delete only its corresponding `before` CSV. Remove the `before` folder when it has no CSV left; never delete the matching `after` CSV or modify Input during cleanup.
+- Compare key extraction is managed from Database > Trích xuất key and reads primary-key metadata for all tables in the selected connected DB/schema. Extraction rewrites `[update_compare_keys]` with the DB keys it can read; use remove key to clear the section.
 
 ### DBeaver CSV
 
