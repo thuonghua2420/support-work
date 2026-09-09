@@ -60,22 +60,6 @@ function prepareAdminatorLayout() {
 
 function prepareCompactWorkspaces() {
   const csvForm = document.getElementById("db-csv-form");
-  const source = csvForm.querySelector(":scope > .field");
-  const sourceRow = document.createElement("div");
-  sourceRow.className = "csv-source-row";
-  source.before(sourceRow);
-  sourceRow.append(source, document.getElementById("db-normalize"));
-  const columns = document.createElement("div");
-  columns.className = "csv-operation-columns";
-  const importSection = document.createElement("section");
-  const exportSection = document.createElement("section");
-  importSection.innerHTML = "<h3>Import CSV</h3>";
-  exportSection.innerHTML = "<h3>Export CSV</h3>";
-  importSection.append(csvForm.querySelector(".import-mode-fieldset"), csvForm.querySelector(".switch-row"), document.getElementById("db-import"));
-  exportSection.append(document.getElementById("db-export-tables").closest(".field"), document.getElementById("db-export"));
-  columns.append(importSection, exportSection);
-  sourceRow.after(columns);
-  csvForm.querySelector(".action-grid").remove();
 
   document.querySelectorAll("#page-database .import-mode-card, #page-database .switch-row").forEach((label) => {
     const description = label.querySelector("small");
@@ -94,12 +78,14 @@ function prepareCompactWorkspaces() {
     "sql-analyze": ["scan-search", "Phân tích", false],
     "sql-run-current": ["play", "Chạy hiện tại", false],
     "sql-run-all": ["list-start", "Chạy toàn bộ", false],
-    "db-normalize": ["list-checks", "Chuẩn hóa CSV", false],
+    "db-scan-csv": ["list-checks", "Quét file CSV", false],
     "db-import": ["upload", "Import CSV", false],
+    "db-import-selected": ["upload-cloud", "Import table đã chọn", false],
     "db-export": ["download", "Export CSV", false],
   };
   for (const [id, [icon, label, iconOnly]] of Object.entries(icons)) {
     const button = document.getElementById(id);
+    if (!button) continue;
     button.title = label;
     button.setAttribute("aria-label", label);
     button.classList.add("compact-tool-button");

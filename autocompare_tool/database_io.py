@@ -241,6 +241,14 @@ class CsvDbResult:
 
 
 @dataclass(frozen=True)
+class CsvTableCandidate:
+    csv_path: Path
+    table_name: str
+    row_count: int
+    has_header: bool
+
+
+@dataclass(frozen=True)
 class DatabaseSyncResult:
     table_name: str
     row_count: int
@@ -1267,6 +1275,22 @@ def normalize_csv_folder(
     return summary
 
 
+def scan_import_csv_tables(root_path: str | Path) -> list[CsvTableCandidate]:
+    root = _validate_folder(root_path, must_exist=True)
+    candidates: list[CsvTableCandidate] = []
+    for csv_path in _iter_direct_csv_files(root):
+        table = read_dbeaver_csv(csv_path)
+        candidates.append(
+            CsvTableCandidate(
+                csv_path=csv_path,
+                table_name=csv_path.stem,
+                row_count=len(table.rows),
+                has_header=bool(table.headers),
+            )
+        )
+    return candidates
+
+
 def import_csv_folder(
     root_path: str | Path,
     settings: DatabaseConnectionSettings,
@@ -1274,17 +1298,22 @@ def import_csv_folder(
     log: Logger | None = None,
     existing_row_mode: str = IMPORT_MODE_APPEND,
     cancel: CancelChecker | None = None,
+    table_names: Iterable[str] | str | None = None,
 ) -> DatabaseCsvSummary:
     root = _validate_folder(root_path, must_exist=True)
     settings = validate_connection_settings(settings)
     adapter = get_adapter(settings.normalized_type)
     logger = log or (lambda message: None)
     existing_row_mode = _validate_import_mode(existing_row_mode)
+    requested_tables = _parse_table_names(table_names)
+    requested_table_keys = {name.casefold() for name in requested_tables}
     summary = DatabaseCsvSummary(action_name="Nhập CSV vào CSDL", root_path=root)
 
     connection = adapter.connect(settings)
     try:
         for csv_path in _iter_direct_csv_files(root):
+            if requested_table_keys and csv_path.stem.casefold() not in requested_table_keys:
+                continue
             _check_cancel(cancel)
             _import_one_csv(
                 connection,
@@ -1298,6 +1327,10 @@ def import_csv_folder(
                 existing_row_mode,
                 cancel,
             )
+        if requested_tables and summary.csv_count == 0:
+            message = "Không tìm thấy CSV phù hợp với table đã chọn: " + ", ".join(requested_tables)
+            summary.skipped.append(message)
+            logger(message)
     finally:
         connection.close()
 

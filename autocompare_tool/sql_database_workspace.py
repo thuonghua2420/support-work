@@ -35,6 +35,7 @@ from .database_io import (
 )
 from .dbeaver_csv import write_typed_dbeaver_csv_rows
 from .sql_tools import analyze_sql, parse_sql_expressions, render_sql_expression
+from .sql_source_lineage import projection_key_trace
 
 
 Logger = Callable[[str], None]
@@ -52,6 +53,7 @@ JOIN_COLORS = (
     "#9333ea",
     "#ea580c",
 )
+AVAILABLE_SOURCE_STATUSES = {"exact", "snapshot"}
 
 
 def _check_cancel(cancel: CancelChecker | None) -> None:
@@ -337,7 +339,7 @@ class SqlDatabaseWorkspaceManager:
                 if not relation:
                     skipped.append({"relation_id": relation_id, "reason": "Không tìm thấy source trong workspace."})
                     continue
-                if source.get("lineage_status") != "exact":
+                if source.get("lineage_status") not in AVAILABLE_SOURCE_STATUSES:
                     skipped.append(
                         {
                             "relation_id": relation_id,
@@ -597,7 +599,7 @@ class SqlDatabaseWorkspaceManager:
             workspace.relations[relation["relation_id"]] = relation
             source = _source_summary_from_relation(relation)
             workspace.sources.append(source)
-            if relation.get("lineage_status") != "exact":
+            if relation.get("lineage_status") not in AVAILABLE_SOURCE_STATUSES:
                 continue
             try:
                 cursor = connection.cursor()
@@ -752,15 +754,8 @@ class SqlDatabaseWorkspaceManager:
         item_id = str(source["item_id"])
         file_path = _unique_export_path(output_path, source, relation)
         _check_cancel(cancel)
-        negative_row, negative_reason = _find_negative_row(
-            workspace,
-            item_id,
-            relation,
-            connection,
-            adapter,
-            self.config.export_batch_size,
-            cancel,
-        )
+        negative_row = None
+        negative_reason = "Source export preserves the captured dataset without adding negative records."
 
         def row_iter() -> Iterable[Sequence[str | None]]:
             for row in _iter_spooled_value_rows(workspace.sqlite_path, item_id):
@@ -1212,7 +1207,46 @@ def _build_relations(
             "metadata": _metadata_to_dict(metadata),
         }
         relations.append(relation)
+    _use_reproduction_snapshots(relations, expressions, adapter)
     return relations
+
+
+def _use_reproduction_snapshots(relations, expressions, adapter):
+    """Keep complete dependencies when an exact subset cannot be established."""
+    for index, statement in enumerate(expressions, 1):
+        if not is_read_statement(statement):
+            continue
+        physical = [relation for relation in relations
+                    if relation["statement_index"] == index and relation["source_type"] == "TABLE"]
+        incomplete = any(
+            relation["lineage_status"] != "exact"
+            or not any(column.is_primary_key for column in _metadata_from_relation(relation).columns)
+            for relation in physical
+        )
+        cardinality = any(isinstance(node, (exp.AggFunc, exp.Window, exp.SetOperation))
+                          for node in statement.walk())
+        if not incomplete and not cardinality:
+            continue
+        # Use the same scope for every dependency. Mixing a whole table with
+        # reduced joined/anti-joined tables can change the replayed result.
+        for relation in physical:
+            metadata = _metadata_from_relation(relation)
+            if metadata.relation_type != "table" or not metadata.columns:
+                continue
+            columns = ", ".join(adapter.quote_identifier(column.name) for column in metadata.columns)
+            relation.update(
+                source_sql=f"SELECT {columns} FROM {adapter.qualified_table(metadata)}",
+                trace_sql="",
+                lineage_status="snapshot",
+                lineage_strategy="full dependency snapshot",
+                lineage_reason="Toàn bộ record của table để tái hiện SQL; có thể gồm record ngoài kết quả.",
+                unsupported_reason="",
+                updateable=False,
+                read_only_reason="Source toàn bảng dùng để tái hiện SQL.",
+            )
+            for column in relation["columns"]:
+                column["editable"] = False
+                column["locked_reason"] = relation["read_only_reason"]
 
 
 def _legacy_projection_source_sql(statement: exp.Expression, table_ref, dialect: str) -> tuple[str, str]:
@@ -1235,7 +1269,7 @@ def _legacy_projection_source_sql(statement: exp.Expression, table_ref, dialect:
 
 
 def _unsupported_select_lineage_reason(statement: exp.Expression) -> str:
-    if statement.args.get("with"):
+    if statement.args.get("with_"):
         return "CTE cần lineage projection riêng nên chưa trả source data exact."
     if statement.args.get("group"):
         return "GROUP BY/aggregate làm thay đổi cardinality nguồn."
@@ -1274,7 +1308,16 @@ def _diagnostic_source_sql(
     if not is_read_statement(statement) or getattr(statement, "key", "").lower() != "select":
         return "", "Chỉ hỗ trợ truy vết exact cho SELECT.", "", ""
     if table_ref.depth != 0:
-        return "", "Source nằm trong CTE/subquery cần đẩy predicate qua projection lineage.", "", ""
+        primary_keys = [column for column in metadata.columns if column.is_primary_key]
+        if table_ref.source_type != "TABLE" or metadata.relation_type != "table" or not primary_keys:
+            return "", "Truy vết source lồng nhau cần metadata và primary key của base table.", "", ""
+        try:
+            trace, key_aliases = projection_key_trace(statement, table_ref, [column.name for column in primary_keys])
+            trace_sql = render_sql_expression(trace, dialect)
+            source_sql = _source_sql_from_primary_key_trace(adapter, metadata, trace_sql, primary_keys, key_aliases, dialect)
+            return source_sql, "", trace_sql, "exact projection-lineage primary-key trace"
+        except ValueError as exc:
+            return "", str(exc), "", ""
     unsupported = _unsupported_select_trace_reason(statement)
     if unsupported:
         return "", unsupported, "", ""
@@ -1287,10 +1330,9 @@ def _diagnostic_source_sql(
             table_ref.source_type == "TABLE"
             and metadata.relation_type == "table"
             and primary_keys
-            and not statement.args.get("with")
         ):
             trace_sql, key_aliases = _matched_primary_key_trace_sql(statement, alias, primary_keys, dialect)
-            source_sql = _source_sql_from_primary_key_trace(adapter, metadata, trace_sql, primary_keys, key_aliases)
+            source_sql = _source_sql_from_primary_key_trace(adapter, metadata, trace_sql, primary_keys, key_aliases, dialect)
             return source_sql, "", trace_sql, "exact matched primary-key trace"
         if table_ref.source_type == "TABLE" and not metadata.columns:
             return "", "Source chưa có metadata/projection để trả grid chính xác.", "", ""
@@ -1359,7 +1401,15 @@ def _source_sql_from_primary_key_trace(
     trace_sql: str,
     primary_keys: list[DatabaseColumn],
     key_aliases: list[str],
+    dialect: str = "tsql",
 ) -> str:
+    trace = parse_sql_expressions(trace_sql, dialect)[0]
+    with_clause = trace.args.get("with_")
+    prefix = ""
+    if with_clause is not None:
+        trace.set("with_", None)
+        prefix = render_sql_expression(with_clause, dialect) + " "
+        trace_sql = render_sql_expression(trace, dialect)
     source_alias = adapter.quote_identifier("__ac_source")
     keys_alias = adapter.quote_identifier("__ac_keys")
     column_sql = ", ".join(
@@ -1375,7 +1425,7 @@ def _source_sql_from_primary_key_trace(
         for column in primary_keys
     )
     return (
-        f"SELECT {column_sql} "
+        f"{prefix}SELECT {column_sql} "
         f"FROM {adapter.qualified_table(metadata)} {source_alias} "
         f"INNER JOIN ({trace_sql}) {keys_alias} ON {join_sql} "
         f"ORDER BY {order_sql}"
@@ -1404,7 +1454,7 @@ def _relation_kind(source_type: str) -> str:
 def _source_summary_from_relation(relation: dict[str, Any]) -> dict[str, Any]:
     return {
         "relation_id": relation["relation_id"],
-        "item_id": _source_item_id(relation["relation_id"]) if relation.get("lineage_status") == "exact" else "",
+        "item_id": _source_item_id(relation["relation_id"]) if relation.get("lineage_status") in AVAILABLE_SOURCE_STATUSES else "",
         "statement_index": relation["statement_index"],
         "label": _relation_label(relation),
         "relation_kind": relation["relation_kind"],
@@ -1412,7 +1462,10 @@ def _source_summary_from_relation(relation: dict[str, Any]) -> dict[str, Any]:
         "alias": relation["alias"],
         "scope_id": relation["scope_id"],
         "lineage_status": relation["lineage_status"],
+        "lineage_reason": relation.get("lineage_reason", ""),
         "unsupported_reason": relation["unsupported_reason"],
+        "source_sql": relation.get("source_sql", ""),
+        "trace_sql": relation.get("trace_sql", ""),
         "row_count": relation.get("row_count", 0),
         "columns": relation.get("columns", []),
         "updateable": relation.get("updateable", False),

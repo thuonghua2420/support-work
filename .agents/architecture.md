@@ -238,8 +238,9 @@ Rules:
 - Format/analyze remain parser-only; execution always goes through this module.
 - Do not expose passwords in workspace responses, logs, bootstrap payloads, or job results.
 - DDL/DML require a valid Write mode token tied to the current Database 1 fingerprint.
-- Source Data must stay strict: unsupported lineage shows a diagnostic card and must not fall back to whole-table data.
-- Base-table lineage through CTE/derived projection, grouped queries, HAVING, QUALIFY, LIMIT/OFFSET, and set operations must remain diagnostic-only until exact rewrite rules are implemented.
+- `sql_source_lineage.py` carries primary keys through CTE/derived projections, retaining outer filters and joins. Reused CTE paths are combined with UNION and inlined for SQL Server compatibility.
+- If any physical dependency lacks exact lineage, or the query uses aggregate/window/set operations, all readable physical tables in that statement use explicitly labeled `snapshot` Source Data. Missing metadata and unreadable sources remain diagnostics.
+- Snapshots are read-only and use bounded spool/paging/export. Exports do not append negative records. Replay assumes unchanged data during capture and the same schema/environment; volatile functions and hidden view/UDF dependencies are not proven by this mechanism.
 - Inline update is limited to base tables with primary keys and uses parameterized SQL plus full-row conflict checks.
 
 ### `autocompare_tool/csv_table.py`
@@ -366,6 +367,7 @@ Root folder
 Selected folder + connected database
   -> adapter validates DB settings and connects
   -> normalize scans CSV recursively; import scans only CSV files directly inside the selected folder
+  -> optional web scan lists direct CSV stems so users can import only selected tables
   -> read DBeaver CSV
   -> lookup table metadata by file stem
   -> skip if table missing

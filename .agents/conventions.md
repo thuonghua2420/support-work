@@ -56,6 +56,7 @@
 - Real DB writes must be triggered only from an explicit user action and confirmation.
 - Normalize scans all CSV files recursively under the selected folder.
 - Import scans only CSV files directly inside the selected folder; nested folders are ignored.
+- The web CSV import page can scan direct CSV files and pass selected table names to `import_csv_folder`; import-all must keep the same behavior as an empty selection.
 - Map table name from CSV file stem.
 - Skip missing tables; do not mark them as errors.
 - CSV headers must map to DB columns; unknown CSV columns are errors.

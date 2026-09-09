@@ -382,27 +382,46 @@
               </form>
               <form class="card form-card" id="db-csv-form">
                 <div class="card-heading"><div><span class="step-number">02</span><h3>Nhập / Xuất CSV</h3></div></div>
-                <label class="field"><span>Folder CSV</span><span class="path-control"><input id="db-csv-path" required><button class="browse-button" type="button" data-browse-target="db-csv-path" data-browse-kind="directory">Chọn</button></span></label>
-                <label class="switch-row"><span><strong>Giữ giá trị identity khi import</strong><small>Chỉ áp dụng khi database hỗ trợ.</small></span><input class="switch" type="checkbox" id="db-keep-identity"></label>
-                <fieldset class="import-mode-fieldset">
-                  <legend>Xử lý dữ liệu hiện có trước khi import</legend>
-                  <div class="import-mode-grid">
-                    <label class="import-mode-card">
-                      <input type="radio" name="db-import-mode" value="append" checked>
-                      <span><b>Insert thêm</b><small>Giữ nguyên dữ liệu hiện có trong table.</small></span>
-                    </label>
-                    <label class="import-mode-card">
-                      <input type="radio" name="db-import-mode" value="delete_matching_keys">
-                      <span><b>Xóa record trùng key</b><small>Xóa record trùng toàn bộ primary key của CSV rồi insert.</small></span>
-                    </label>
-                    <label class="import-mode-card danger-mode">
-                      <input type="radio" name="db-import-mode" value="truncate_table">
-                      <span><b>Truncate toàn table</b><small>Xóa sạch từng table tương ứng trước khi insert.</small></span>
-                    </label>
-                  </div>
-                </fieldset>
-                <label class="field"><span>Table cần export <em>— không bắt buộc</em></span><textarea id="db-export-tables" rows="3" placeholder="orders, customers hoặc mỗi table một dòng"></textarea><small>Bỏ trống để xuất toàn bộ table trong schema.</small></label>
-                <div class="action-grid"><button class="secondary-button" id="db-normalize" type="button">Chuẩn hóa CSV</button><button class="primary-button" id="db-import" type="button">Import CSV</button><button class="secondary-button" id="db-export" type="button">Export CSV</button></div>
+                <section class="csv-common-panel">
+                  <label class="field"><span>Folder CSV</span><span class="path-control"><input id="db-csv-path" required><button class="browse-button" type="button" data-browse-target="db-csv-path" data-browse-kind="directory">Chọn</button></span></label>
+                  <fieldset class="import-mode-fieldset">
+                    <legend>Xử lý dữ liệu hiện có trước khi import</legend>
+                    <div class="import-mode-grid">
+                      <label class="import-mode-card">
+                        <input type="radio" name="db-import-mode" value="append" checked>
+                        <span><b>Insert thêm</b><small>Giữ nguyên dữ liệu hiện có trong table.</small></span>
+                      </label>
+                      <label class="import-mode-card">
+                        <input type="radio" name="db-import-mode" value="delete_matching_keys">
+                        <span><b>Xóa record trùng key</b><small>Xóa record trùng toàn bộ primary key của CSV rồi insert.</small></span>
+                      </label>
+                      <label class="import-mode-card danger-mode">
+                        <input type="radio" name="db-import-mode" value="truncate_table">
+                        <span><b>Truncate toàn table</b><small>Xóa sạch từng table tương ứng trước khi insert.</small></span>
+                      </label>
+                    </div>
+                  </fieldset>
+                  <label class="switch-row"><span><strong>Giữ giá trị identity khi import</strong><small>Chỉ áp dụng khi database hỗ trợ.</small></span><input class="switch" type="checkbox" id="db-keep-identity"></label>
+                </section>
+                <div class="csv-operation-split">
+                  <section class="csv-import-panel">
+                    <div class="csv-zone-heading"><h3>Import CSV</h3><small>Import toàn bộ hoặc chỉ table đã chọn.</small></div>
+                    <div class="csv-import-row">
+                      <span>Tất cả CSV hợp lệ trong folder.</span>
+                      <button class="primary-button" id="db-import" type="button">Import CSV</button>
+                    </div>
+                    <div class="csv-selected-import">
+                      <div class="csv-scan-toolbar"><button class="secondary-button" id="db-scan-csv" type="button">Quét file CSV</button><span class="soft-badge" id="db-scan-count">0 table</span></div>
+                      <label class="field"><span>Table trong folder CSV</span><select id="db-import-tables" multiple size="6"></select><small id="db-import-table-hint">Chưa quét file CSV.</small></label>
+                      <button class="secondary-button" id="db-import-selected" type="button" disabled>Import table đã chọn</button>
+                    </div>
+                  </section>
+                  <section class="csv-export-panel">
+                    <div class="csv-zone-heading"><h3>Export CSV</h3><small>Bỏ trống để xuất toàn bộ schema.</small></div>
+                    <label class="field"><span>Table cần export <em>— không bắt buộc</em></span><textarea id="db-export-tables" rows="8" placeholder="orders, customers hoặc mỗi table một dòng"></textarea><small>Bỏ trống để xuất toàn bộ table trong schema.</small></label>
+                    <button class="secondary-button" id="db-export" type="button">Export CSV</button>
+                  </section>
+                </div>
               </form>
             </div>
           </div>

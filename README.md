@@ -1,7 +1,8 @@
 # AutoCompare Tool
 
-Compare CSV and Database use compact inline checkbox/radio groups. CSV import and
-export have separate sections sharing one CSV folder; SQL Workspace keeps its six
+Compare CSV and Database use compact inline checkbox/radio groups. CSV import can
+scan the folder and import either all CSV tables or selected CSV tables; export
+has a separate section sharing one CSV folder. SQL Workspace keeps its six
 commands together and exposes Excel loading in the expandable "SQL tu Excel" row.
 Import modes, database-write confirmations and saved input behavior are unchanged.
 
@@ -138,7 +139,7 @@ Giao diện Tkinter cũ vẫn có thể mở tạm thời bằng:
 - **Sao chép file UT**: chạy logic tương thích từ `copy_ut_files.py` và tạo log chi tiết trong `copy_logs`.
 - **Format ảnh Excel**: resize và sắp xếp ảnh theo 6 vùng Evidence (hệ thống cũ/mới × Input/Steps/Output), đồng thời giữ nguyên ảnh, VBA và button.
 - **SQL Studio**: format SQL và phân tích table/alias, điều kiện, CTE, subquery, SELECT expression theo cây cú pháp.
-- **CSV ↔ Database**: test kết nối, chuẩn hóa CSV, import CSV và export table cho SQL Server, MySQL, PostgreSQL và Oracle.
+- **CSV ↔ Database**: test kết nối, quét CSV, import toàn bộ hoặc chỉ các table đã chọn, và export table cho SQL Server, MySQL, PostgreSQL và Oracle.
 - **Đồng bộ 2 CSDL**: đồng bộ chênh lệch theo primary key, insert thêm hoặc truncate rồi đồng bộ lại.
 
 Các thao tác xóa, import, export và đồng bộ luôn yêu cầu xác nhận rõ ràng trên giao diện web. DB import không tự truncate table.
@@ -236,9 +237,10 @@ Quy trình cơ bản:
 
 1. Chọn loại CSDL và nhập thông tin kết nối.
 2. Bấm **Test Database Connection**.
-3. Chọn **Chuẩn hóa CSV**, **Import CSV** hoặc **Export CSV**.
+3. Chọn **Import CSV** để import toàn bộ CSV cấp trực tiếp, hoặc chọn **Quét file CSV**, chọn nhiều table trong danh sách rồi chọn **Import table đã chọn**.
+4. Dùng vùng **Export CSV** nếu cần xuất table từ database ra folder CSV.
 
-Mỗi CSV được map với table theo tên file không gồm `.csv`. CSV không có table tương ứng được bỏ qua. CSV header không tồn tại trong table là lỗi. Import bỏ qua computed/generated/rowversion; identity chỉ được giữ khi người dùng bật tùy chọn và adapter hỗ trợ.
+Mỗi CSV được map với table theo tên file không gồm `.csv`. Danh sách table import selected được tạo bằng cách quét các file `.csv` cấp trực tiếp trong folder import; nested folder không nằm trong phạm vi import. CSV không có table tương ứng được bỏ qua. CSV header không tồn tại trong table là lỗi. Import bỏ qua computed/generated/rowversion; identity chỉ được giữ khi người dùng bật tùy chọn và adapter hỗ trợ.
 
 Trước khi bấm **Import**, chọn một trong ba chế độ xử lý dữ liệu hiện có:
 
@@ -293,11 +295,13 @@ Lịch sử kết nối được lưu trong file local `database_connection_hist
 
 Tab **SQL Workspace** kế thừa formatter/analyzer cũ, đồng thời có thể chạy SQL trực tiếp trên Database 1. `Format SQL`, `Phân tích toàn bộ` và `Load sheet & format` dùng chung một editor; SQL đã format sẽ ghi đè trực tiếp vào vùng **SQL đầu vào**. Các chức năng format/phân tích vẫn chạy khi chưa kết nối DB. `Chạy hiện tại` chạy vùng đang bôi đen hoặc statement tại caret; `Chạy toàn bộ` chạy toàn bộ statement theo thứ tự. Mặc định backend chỉ cho statement đọc. DDL/DML cần bật **Ghi DB**, token tạm thời gắn với fingerprint của Database 1 và tự hết hạn theo `[database_workspace].write_mode_timeout_minutes`; đổi connection sẽ hủy verified state, tắt chế độ ghi và đánh dấu kết quả SQL cũ là stale.
 
-Kết quả query được đọc bằng `fetchmany()` và spool tạm theo workspace để phân trang, không `fetchall()` toàn bộ result set. Source Data chỉ hiển thị record khi module lineage chứng minh được query rewrite exact; nếu gặp aggregate, CTE/derived phức tạp, correlated subquery hoặc cấu trúc chưa hỗ trợ thì card vẫn hiện nhưng không fallback sang toàn table.
+Kết quả query được đọc bằng `fetchmany()` và spool tạm theo workspace để phân trang. Source Data tự truy vết primary key qua CTE/subquery trong FROM, kể cả projection đổi tên/tính toán và CTE dùng lại nhiều lần; điều kiện lọc và JOIN ngoài cùng vẫn quyết định record được lấy. User không cần tự đẩy predicate.
+
+Khi chưa xác định được tập record chính xác (aggregate, window, subquery tương quan, recursive CTE hoặc cấu trúc khác), hệ thống lấy toàn bộ các table đọc được của statement và hiển thị nhãn **Toàn bảng để tái hiện**. Dữ liệu có thể dư; source này chỉ đọc. Thiếu metadata/quyền đọc hoặc vượt giới hạn spool vẫn báo lỗi. Việc tái hiện đòi hỏi dữ liệu không thay đổi trong lúc đọc và cùng schema/môi trường SQL; hàm thời gian/ngẫu nhiên, phụ thuộc ẩn trong view/UDF chưa được bảo đảm.
 
 Source grid hiển thị header hai tầng gồm index column, icon key cho primary key, datatype và màu usage: JOIN ưu tiên cao nhất, WHERE màu xanh lá, SELECT màu vàng. Join group được hợp nhất bắc cầu, ví dụ `A.x = B.y` và `A.x = C.z` sẽ tô cùng màu cho cả ba column. Hover vào column JOIN hiển thị các column cùng group.
 
-Export source CSV ghi theo chuẩn DBeaver: `NULL` là ô trống không quote, empty string là `""`, string được quote, numeric không quote và CRLF. Khi xác định được complement exact, CSV có thêm đúng một negative record ở dòng cuối nhưng record này không hiển thị trên web. Inline Update chỉ bật cho base table có đầy đủ primary key; view/CTE/subquery/table không PK là read-only. Update dùng parameter, kiểm tra hash toàn row trước khi ghi và rollback toàn bộ nhóm nếu có conflict.
+Export source CSV ghi theo chuẩn DBeaver: `NULL` là ô trống không quote, empty string là `""`, string được quote, numeric không quote và CRLF. CSV xuất đúng Source Data, không thêm negative record có thể làm thay đổi kết quả khi nạp lại. Inline Update chỉ bật cho source exact của base table có đầy đủ primary key; source toàn bảng/view/CTE/subquery/table không PK là read-only. Update dùng parameter, kiểm tra hash toàn row trước khi ghi và rollback toàn bộ nhóm nếu có conflict.
 
 `autocompare_config.ini` có `[database_workspace]` để chỉnh page size, timeout, batch export và giới hạn spool tạm.
 

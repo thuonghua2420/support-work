@@ -24,6 +24,7 @@ const state = {
   databaseHistory: [],
   sourceTables: [],
   selectedTables: [],
+  importCsvTables: [],
   syncProgress: null,
   sqlAnalysisTables: [],
   sqlWorkspace: {
@@ -34,6 +35,7 @@ const state = {
     exportable: false,
     dirty: {},
     rowTokens: {},
+    sources: [],
   },
   picker: null,
 };
@@ -60,6 +62,7 @@ const CANCELLABLE_ACTIONS = new Set([
   "db_list_databases",
   "db_list_tables",
   "db_normalize",
+  "db_scan_csv",
   "db_import",
   "db_export",
   "db_sync",
@@ -849,28 +852,13 @@ function bindForms() {
     }
   });
 
-  $("#db-normalize").addEventListener("click", () => {
-    if (!requireVerified("main")) return;
-    startAction("db_normalize", { csv_path: valueOf("db-csv-path"), settings: getDbSettings("main") });
+  $("#db-scan-csv").addEventListener("click", () => {
+    startAction("db_scan_csv", { csv_path: valueOf("db-csv-path") });
   });
   $("#db-import").addEventListener("click", async () => {
     if (!requireVerified("main")) return;
     const importMode = selectedImportMode();
-    const confirmations = {
-      append: {
-        title: "Import thêm CSV vào cơ sở dữ liệu?",
-        message: "Toàn bộ CSV hợp lệ trong folder đã chọn sẽ được INSERT vào table tương ứng. Dữ liệu hiện có được giữ nguyên.",
-      },
-      delete_matching_keys: {
-        title: "Xóa record trùng key rồi import?",
-        message: "Với từng CSV, hệ thống sẽ xóa record trong database có cùng toàn bộ primary key rồi mới INSERT dữ liệu CSV. CSV phải chứa đầy đủ primary key; nếu key là identity, cần bật “Giữ giá trị identity”.",
-      },
-      truncate_table: {
-        title: "Truncate toàn table rồi import?",
-        message: "CẢNH BÁO: Mỗi table tương ứng với CSV sẽ bị TRUNCATE, xóa sạch toàn bộ dữ liệu hiện có, rồi mới INSERT dữ liệu CSV. Một số database tự commit lệnh TRUNCATE nên không thể rollback nếu bước insert sau đó lỗi.",
-      },
-    };
-    const confirmation = confirmations[importMode] || confirmations.append;
+    const confirmation = importConfirmation(importMode);
     if (await confirmAction(confirmation.title, confirmation.message)) {
       startAction("db_import", {
         csv_path: valueOf("db-csv-path"),
@@ -880,6 +868,31 @@ function bindForms() {
         confirmed: true,
       });
     }
+  });
+  $("#db-import-selected").addEventListener("click", async () => {
+    if (!requireVerified("main")) return;
+    const tableNames = selectedImportTables();
+    if (!tableNames.length) {
+      showToast("Vui lòng chọn ít nhất một table CSV để import.", "error");
+      return;
+    }
+    const importMode = selectedImportMode();
+    const confirmation = importConfirmation(importMode, tableNames);
+    if (await confirmAction(confirmation.title, confirmation.message)) {
+      startAction("db_import", {
+        csv_path: valueOf("db-csv-path"),
+        settings: getDbSettings("main"),
+        keep_identity: checked("db-keep-identity"),
+        existing_row_mode: importMode,
+        table_names: tableNames,
+        confirmed: true,
+      });
+    }
+  });
+  $("#db-import-tables").addEventListener("change", syncImportTableControls);
+  $("#db-csv-path").addEventListener("input", () => {
+    state.importCsvTables = [];
+    renderImportCsvTables();
   });
   $$('input[name="db-import-mode"]').forEach((input) => input.addEventListener("change", syncImportButtonLabel));
   syncImportButtonLabel();
@@ -1346,17 +1359,85 @@ function selectedImportMode() {
   return $('input[name="db-import-mode"]:checked')?.value || "append";
 }
 
+function selectedImportTables() {
+  const select = $("#db-import-tables");
+  if (!select) return [];
+  return [...select.selectedOptions].map((option) => option.value).filter(Boolean);
+}
+
+function importConfirmation(importMode, tableNames = []) {
+  const scopeText = tableNames.length
+    ? `Các table đã chọn (${tableNames.join(", ")})`
+    : "Toàn bộ CSV hợp lệ trong folder đã chọn";
+  const confirmations = {
+    append: {
+      title: tableNames.length ? "Import table đã chọn vào cơ sở dữ liệu?" : "Import thêm CSV vào cơ sở dữ liệu?",
+      message: `${scopeText} sẽ được INSERT vào table tương ứng. Dữ liệu hiện có được giữ nguyên.`,
+    },
+    delete_matching_keys: {
+      title: "Xóa record trùng key rồi import?",
+      message: `${scopeText} sẽ xóa record trong database có cùng toàn bộ primary key rồi mới INSERT dữ liệu CSV. CSV phải chứa đầy đủ primary key; nếu key là identity, cần bật “Giữ giá trị identity”.`,
+    },
+    truncate_table: {
+      title: "Truncate table rồi import?",
+      message: `CẢNH BÁO: ${scopeText} sẽ TRUNCATE table tương ứng, xóa sạch toàn bộ dữ liệu hiện có, rồi mới INSERT dữ liệu CSV. Một số database tự commit lệnh TRUNCATE nên không thể rollback nếu bước insert sau đó lỗi.`,
+    },
+  };
+  return confirmations[importMode] || confirmations.append;
+}
+
 function syncImportButtonLabel() {
   const labels = {
     append: "Import CSV",
     delete_matching_keys: "Xóa trùng key & Import",
     truncate_table: "Truncate & Import",
   };
+  const selectedLabels = {
+    append: "Import table đã chọn",
+    delete_matching_keys: "Xóa trùng key & Import table",
+    truncate_table: "Truncate & Import table",
+  };
   const button = $("#db-import");
   const label = labels[selectedImportMode()] || labels.append;
   (button.querySelector("span") || button).textContent = label;
   button.setAttribute("aria-label", label);
   button.title = label;
+  const selectedButton = $("#db-import-selected");
+  if (selectedButton) {
+    const selectedLabel = selectedLabels[selectedImportMode()] || selectedLabels.append;
+    (selectedButton.querySelector("span") || selectedButton).textContent = selectedLabel;
+    selectedButton.setAttribute("aria-label", selectedLabel);
+    selectedButton.title = selectedLabel;
+  }
+  syncImportTableControls();
+}
+
+function renderImportCsvTables() {
+  const select = $("#db-import-tables");
+  const count = $("#db-scan-count");
+  const hint = $("#db-import-table-hint");
+  if (!select || !count || !hint) return;
+  const selected = new Set(selectedImportTables().map((name) => name.toLocaleLowerCase("vi")));
+  const tables = state.importCsvTables || [];
+  select.innerHTML = tables.map((item) => {
+    const name = String(item.table_name || "");
+    const rowLabel = `${Number(item.row_count || 0).toLocaleString("vi-VN")} dòng`;
+    const headerLabel = item.has_header ? "" : " · CSV rỗng/header thiếu";
+    const selectedAttr = selected.has(name.toLocaleLowerCase("vi")) ? " selected" : "";
+    return `<option value="${escapeHtml(name)}"${selectedAttr}>${escapeHtml(name)} (${rowLabel}${headerLabel})</option>`;
+  }).join("");
+  count.textContent = `${tables.length} table`;
+  hint.textContent = tables.length
+    ? "Giữ Ctrl/Shift để chọn nhiều table."
+    : "Chưa quét file CSV.";
+  syncImportTableControls();
+}
+
+function syncImportTableControls() {
+  const button = $("#db-import-selected");
+  const select = $("#db-import-tables");
+  if (!button || !select) return;
+  button.disabled = !selectedImportTables().length || !state.importCsvTables.length || document.body.classList.contains("is-busy");
 }
 
 function selectedSyncMode() {
@@ -2608,6 +2689,10 @@ function consumeJobResult(job) {
       saveUiCacheDebounced();
     }
   }
+  if (job.action === "db_scan_csv" && Array.isArray(result.tables)) {
+    state.importCsvTables = result.tables;
+    renderImportCsvTables();
+  }
   if (job.action === "sql_format" || job.action === "sql_analyze" || job.action === "sql_load_excel") {
     if (job.action === "sql_load_excel" && result.source_sql) {
       $("#sql-input").value = result.source_sql;
@@ -2846,6 +2931,17 @@ async function copyAnalyzedSqlTables() {
   showToast(`Đã sao chép ${state.sqlAnalysisTables.length} table database.`, "success");
 }
 
+async function copySqlSourceSelect(relationId) {
+  const source = (state.sqlWorkspace.sources || []).find((item) => item.relation_id === relationId);
+  const sql = String(source?.source_sql || "").trim();
+  if (!sql) {
+    showToast("Source này chưa có câu SELECT để sao chép.", "error");
+    return;
+  }
+  await writeClipboardText(sql);
+  showToast("Đã sao chép câu SELECT source theo key.", "success");
+}
+
 async function writeClipboardText(text, fallbackElement = null) {
   try {
     if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
@@ -3000,8 +3096,9 @@ function renderSqlWorkspace(result) {
   state.sqlWorkspace.stale = false;
   state.sqlWorkspace.dirty = {};
   state.sqlWorkspace.rowTokens = {};
+  state.sqlWorkspace.sources = result.sources || [];
   $("#sql-workspace-output").classList.remove("hidden");
-  state.sqlWorkspace.exportable = (result.sources || []).some((item) => item.lineage_status === "exact");
+  state.sqlWorkspace.exportable = (result.sources || []).some((item) => ["exact", "snapshot"].includes(item.lineage_status));
   $("#sql-export-all").disabled = !state.sqlWorkspace.exportable;
   const badge = $("#sql-workspace-state");
   badge.textContent = result.transaction_status || "READY";
@@ -3034,16 +3131,17 @@ function renderSqlSourceList(sources) {
     return;
   }
   container.innerHTML = sources.map((source) => `
-    <article class="sql-source-card ${source.lineage_status !== "exact" ? "unsupported" : ""}">
+    <article class="sql-source-card ${!["exact", "snapshot"].includes(source.lineage_status) ? "unsupported" : ""}">
       <header><strong>${escapeHtml(source.label || source.relation_id)}</strong><span>${escapeHtml(source.relation_kind || "")}</span></header>
       <small>${escapeHtml(source.scope_id || "")} · ${escapeHtml(source.lineage_status || "unsupported")}</small>
       ${source.unsupported_reason ? `<p>${escapeHtml(source.unsupported_reason)}</p>` : ""}
+      ${source.lineage_status === "snapshot" ? `<p>${escapeHtml(source.lineage_reason)}</p>` : ""}
     </article>`).join("");
 }
 
 function renderSqlSourceData(sources) {
   const container = $("#sql-source-data");
-  const exactSources = sources.filter((item) => item.lineage_status === "exact" && item.first_page);
+  const exactSources = sources.filter((item) => ["exact", "snapshot"].includes(item.lineage_status) && item.first_page);
   if (!sources.length) {
     container.innerHTML = sqlEmpty("Chưa có source data.");
     return;
@@ -3056,17 +3154,18 @@ function renderSqlSourceData(sources) {
       <small>Ưu tiên màu: JOIN &gt; WHERE &gt; SELECT</small>
     </div>`;
   container.innerHTML = legend + sources.map((source) => {
-    if (source.lineage_status !== "exact" || !source.first_page) {
+    if (!["exact", "snapshot"].includes(source.lineage_status) || !source.first_page) {
       return `<article class="sql-db-card unsupported"><header><div><strong>${escapeHtml(source.label || source.relation_id)}</strong><small>${escapeHtml(source.scope_id || "")} · ${escapeHtml(source.lineage_status || "unsupported")}</small></div><span>read-only</span></header>${sqlEmpty(source.unsupported_reason || "Không thể truy vết chính xác.")}</article>`;
     }
     rememberSqlRowTokens(source.relation_id, source.first_page.rows || []);
     return `
       <article class="sql-db-card" data-source-card="${escapeHtml(source.relation_id)}">
         <header>
-          <div><strong>${escapeHtml(source.label || source.relation_id)}</strong><small>${escapeHtml(source.scope_id || "")} · ${escapeHtml(source.lineage_status || "exact")}</small></div>
+          <div><strong>${escapeHtml(source.label || source.relation_id)}</strong><small>${escapeHtml(source.scope_id || "")} · ${source.lineage_status === "snapshot" ? "Toàn bảng để tái hiện" : "exact"}</small></div>
           <div class="sql-card-actions">
             <span>${Number(source.row_count || 0)} rows</span>
             <button class="secondary-button small" type="button" data-sql-export="${escapeHtml(source.relation_id)}">Export CSV</button>
+            <button class="secondary-button small" type="button" data-sql-copy-source="${escapeHtml(source.relation_id)}"${source.source_sql ? "" : " disabled"}>Copy SQL</button>
             <button class="primary-button small" type="button" data-sql-update="${escapeHtml(source.relation_id)}" disabled>Update Data</button>
           </div>
         </header>
@@ -3075,6 +3174,9 @@ function renderSqlSourceData(sources) {
   }).join("");
   $$("[data-sql-export]", container).forEach((button) => {
     button.addEventListener("click", () => exportSqlSources([button.dataset.sqlExport]));
+  });
+  $$("[data-sql-copy-source]", container).forEach((button) => {
+    button.addEventListener("click", () => copySqlSourceSelect(button.dataset.sqlCopySource));
   });
   $$("[data-sql-update]", container).forEach((button) => {
     button.addEventListener("click", () => updateSqlSource(button.dataset.sqlUpdate));
@@ -3349,7 +3451,7 @@ async function exportSqlSources(relationIds = null) {
     showToast("Vui lòng chọn output folder để export CSV.", "error");
     return;
   }
-  if (!await confirmAction("Export source data SQL?", "CSV sẽ được ghi vào folder đã chọn. Nếu xác định được, mỗi source sẽ có thêm đúng một negative record ở dòng cuối file.")) return;
+  if (!await confirmAction("Export source data SQL?", "CSV sẽ chứa dữ liệu Source Data đã lấy, không thêm negative record. Source có nhãn toàn bảng sẽ xuất tất cả record đã đọc của table đó.")) return;
   startAction("db_sql_export", {
     workspace_id: state.sqlWorkspace.workspaceId,
     settings: getDbSettings("main"),
@@ -3393,6 +3495,7 @@ function summaryMessage(job) {
   if (job.action === "sql_analyze") return `Đã phân tích ${result.statement_count || 0} statement: ${result.tables?.length || 0} table/reference, ${result.conditions?.length || 0} điều kiện, ${result.subqueries?.length || 0} subquery.`;
   if (job.action === "db_test") return "Kết nối cơ sở dữ liệu thành công.";
   if (job.action === "db_list_databases") return `Đã tải ${result.databases?.length || 0} cơ sở dữ liệu.`;
+  if (job.action === "db_scan_csv") return `Đã quét ${result.tables?.length || 0} table CSV trong folder import.`;
   if (job.action === "db_sql_execute") return `SQL Workspace đã chạy ${result.statements?.length || 0} statement, ${result.results?.length || 0} result set, ${result.sources?.length || 0} source.`;
   if (job.action === "db_sql_export") return `Đã export ${result.files?.length || 0} file CSV; lỗi ${result.error_count || 0}.`;
   if (job.action === "db_sql_update") return `Đã update ${result.updated_count || 0} row; ${result.conflicts?.length || 0} conflict.`;
@@ -3431,11 +3534,12 @@ function setBusy(busy) {
     cancelButton.disabled = !canCancel || Boolean(state.job?.cancel_requested);
     cancelButton.textContent = state.job?.cancel_requested ? "Đang hủy..." : "Hủy tác vụ";
   }
-  $$('button[type="submit"], #db-normalize, #db-import, #db-export, #db-switch-connections, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, #compare-bulk-assign, #compare-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes, #apply-fixmes-preview, #refresh-compare-preview, #check-fixmes, #load-folder-pairs').forEach((button) => {
+  $$('button[type="submit"], #db-scan-csv, #db-import, #db-import-selected, #db-export, #db-switch-connections, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-copy-source], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, #compare-bulk-assign, #compare-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes, #apply-fixmes-preview, #refresh-compare-preview, #check-fixmes, #load-folder-pairs').forEach((button) => {
     button.disabled = busy || (button.id === "delete-excel-format-preset" && !valueOf("excel-format-preset"));
   });
   updateFixmeToolbarState();
   updateCompareBulkToolbarState();
+  syncImportTableControls();
   renderCompareKeys();
 }
 

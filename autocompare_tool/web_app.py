@@ -37,6 +37,7 @@ from .database_io import (
     list_database_tables,
     normalize_csv_folder,
     preferred_sqlserver_driver,
+    scan_import_csv_tables,
     sync_database_tables,
     test_database_connection,
 )
@@ -215,6 +216,7 @@ class AutoCompareWebApplication:
         "db_list_databases": "Đang tải danh sách CSDL...",
         "db_list_tables": "Đang tải danh sách table...",
         "db_normalize": "Đang chuẩn hóa CSV...",
+        "db_scan_csv": "Đang quét file CSV...",
         "db_import": "Đang nhập CSV vào CSDL...",
         "db_export": "Đang xuất CSDL ra CSV...",
         "db_sync": "Đang đồng bộ hai CSDL...",
@@ -518,6 +520,8 @@ class AutoCompareWebApplication:
                     cancel=cancel.throw_if_cancelled,
                 )
             )
+        if action == "db_scan_csv":
+            return lambda log, cancel: self._scan_import_csv_tables(_text(payload, "csv_path"), log)
         if action == "db_import":
             return lambda log, cancel: self._database_summary(
                 import_csv_folder(
@@ -527,6 +531,7 @@ class AutoCompareWebApplication:
                     log=log,
                     existing_row_mode=str(payload.get("existing_row_mode", "append")),
                     cancel=cancel.throw_if_cancelled,
+                    table_names=payload.get("table_names"),
                 )
             )
         if action == "db_export":
@@ -658,6 +663,7 @@ class AutoCompareWebApplication:
             "db_normalize": lambda log: self._database_summary(
                 normalize_csv_folder(_text(payload, "csv_path"), _db_settings(payload.get("settings")), log)
             ),
+            "db_scan_csv": lambda log: self._scan_import_csv_tables(_text(payload, "csv_path"), log),
             "db_import": lambda log: self._database_summary(
                 import_csv_folder(
                     _text(payload, "csv_path"),
@@ -665,6 +671,7 @@ class AutoCompareWebApplication:
                     keep_identity=_bool(payload, "keep_identity"),
                     log=log,
                     existing_row_mode=str(payload.get("existing_row_mode", "append")),
+                    table_names=payload.get("table_names"),
                 )
             ),
             "db_export": lambda log: self._database_summary(
@@ -953,6 +960,24 @@ class AutoCompareWebApplication:
             "error_count": summary.error_count,
             "errors": summary.errors,
             "skipped": summary.skipped,
+        }
+
+    @staticmethod
+    def _scan_import_csv_tables(root_path: str, log: Logger) -> dict[str, Any]:
+        tables = scan_import_csv_tables(root_path)
+        log(f"Đã quét {len(tables)} file CSV trong folder import.")
+        return {
+            "root_path": str(Path(root_path).expanduser().resolve()),
+            "tables": [
+                {
+                    "table_name": item.table_name,
+                    "csv_path": str(item.csv_path),
+                    "file_name": item.csv_path.name,
+                    "row_count": item.row_count,
+                    "has_header": item.has_header,
+                }
+                for item in tables
+            ],
         }
 
 

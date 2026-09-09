@@ -40,6 +40,7 @@ from autocompare_tool.database_io import (
     canonical_row_hash,
     import_csv_folder,
     normalize_database_type,
+    scan_import_csv_tables,
     validate_connection_settings,
 )
 
@@ -541,10 +542,65 @@ class DatabaseIoTests(unittest.TestCase):
                 )
 
             self.assertEqual(1, summary.csv_count)
-            self.assertEqual(root / "customers.csv", summary.csv_results[0].csv_path)
+            self.assertEqual("customers.csv", summary.csv_results[0].csv_path.name)
             self.assertEqual(1, summary.row_count)
             self.assertEqual(1, len([call for call in adapter.calls if call[0] == "executemany"]))
             self.assertTrue(connection.closed)
+
+    def test_scan_import_csv_tables_reads_only_direct_csv_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            nested = root / "nested"
+            nested.mkdir()
+            (root / "customers.csv").write_text('id,name\n"1","Alice"\n', encoding="utf-8")
+            (root / "empty.csv").write_text("", encoding="utf-8")
+            (nested / "orders.csv").write_text('id,name\n"2","Nested"\n', encoding="utf-8")
+
+            tables = scan_import_csv_tables(root)
+
+            self.assertEqual(["customers", "empty"], [table.table_name for table in tables])
+            self.assertEqual([1, 0], [table.row_count for table in tables])
+            self.assertEqual([True, False], [table.has_header for table in tables])
+
+    def test_import_csv_folder_can_limit_to_selected_tables(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "customers.csv").write_text('id,name\n"1","Alice"\n', encoding="utf-8")
+            (root / "orders.csv").write_text('id,name\n"2","Skipped"\n', encoding="utf-8")
+            metadata = TableMetadata(
+                schema="dbo",
+                name="customers",
+                columns=[_column("id"), _column("name", data_type="nvarchar")],
+            )
+            adapter = RecordingImportAdapter(metadata)
+            connection = RecordingImportConnection()
+            adapter.connect = lambda _settings: connection
+            requested_table_names: list[str] = []
+
+            def get_table_spy(_connection, _settings, table_name: str, schema: str | None = None) -> TableMetadata:
+                requested_table_names.append(table_name)
+                return metadata
+
+            adapter.get_table = get_table_spy
+
+            with patch("autocompare_tool.database_io.get_adapter", return_value=adapter):
+                summary = import_csv_folder(
+                    root,
+                    DatabaseConnectionSettings(
+                        database_type="SQL Server",
+                        host=".",
+                        database="sample",
+                        schema="dbo",
+                        trusted_connection=True,
+                    ),
+                    table_names=["customers"],
+                    log=lambda _message: None,
+                )
+
+            self.assertEqual(1, summary.csv_count)
+            self.assertEqual("customers.csv", summary.csv_results[0].csv_path.name)
+            self.assertEqual(["customers"], requested_table_names)
+            self.assertEqual(1, len([call for call in adapter.calls if call[0] == "executemany"]))
 
     def test_import_cleanup_runs_after_insert_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
