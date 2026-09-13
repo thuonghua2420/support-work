@@ -32,6 +32,20 @@ class WebApplicationTests(unittest.TestCase):
         self.assertIn("SQL Server", result["database_types"])
         self.assertIn("folder_compare_file", result)
         self.assertIn("excel_format_presets", result)
+        self.assertEqual(result["compare_options"], {"copy_input": False, "sort_by_key": False})
+
+    def test_compare_forwards_explicit_file_options(self) -> None:
+        from autocompare_tool.processor import ProcessSummary
+
+        app = AutoCompareWebApplication()
+        for options in ({}, {"copy_input": True, "sort_by_key": True},
+                        {"copy_input": "false", "sort_by_key": "true"}):
+            with self.subTest(options=options), patch(
+                "autocompare_tool.web_app.process_root", return_value=ProcessSummary(Path.cwd()),
+            ) as process:
+                app._compare({"root": str(Path.cwd()), "workflows": ["htm_before_after"], **options}, lambda _: None)
+                self.assertEqual(process.call_args.kwargs["copy_input"], options.get("copy_input") is True)
+                self.assertEqual(process.call_args.kwargs["sort_by_key"], options.get("sort_by_key") is True)
 
     def test_excel_format_preset_can_be_saved_and_deleted(self) -> None:
         app = AutoCompareWebApplication()

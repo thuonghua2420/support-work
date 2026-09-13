@@ -74,6 +74,10 @@
             <div class="divider"></div>
             <div class="card-heading compact"><div><span class="step-number">02</span><h3>Luồng so sánh</h3></div><button class="text-button" id="toggle-workflows" type="button">Chọn / bỏ tất cả</button></div>
             <div class="choice-grid" id="compare-workflows"></div>
+            <div class="inline-actions compare-file-options">
+              <label class="checkbox-line"><input type="checkbox" id="compare-copy-input"><span>Copy các file từ folder input qua before</span></label>
+              <label class="checkbox-line"><input type="checkbox" id="compare-sort-by-key"><span>Sắp xếp record theo key và lưu vào CSV</span></label>
+            </div>
             <div class="form-actions"><span class="hint">Excel sẽ được tạo trong <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>ExportCompare</span><b>→</b></button></div>
           </form>
 
@@ -399,12 +403,17 @@
                     <div class="csv-zone-heading"><h3>Import CSV</h3><small>Import toàn bộ hoặc chỉ table đã chọn.</small></div>
                     <div class="csv-import-row">
                       <span>Tất cả CSV hợp lệ trong folder.</span>
-                      <button class="primary-button" id="db-import" type="button">Import CSV</button>
+                      <div class="csv-import-actions">
+                        <button class="primary-button" id="db-import" type="button">Import All</button>
+                        <button class="secondary-button" id="db-import-selected" type="button" disabled>Import Single</button>
+                      </div>
                     </div>
                     <div class="csv-selected-import">
                       <div class="csv-scan-toolbar"><button class="secondary-button" id="db-scan-csv" type="button">Quét file CSV</button><span class="soft-badge" id="db-scan-count">0 table</span></div>
-                      <label class="field"><span>Table trong folder CSV</span><select id="db-import-tables" multiple size="6"></select><small id="db-import-table-hint">Chưa quét file CSV.</small></label>
-                      <button class="secondary-button" id="db-import-selected" type="button" disabled>Import table đã chọn</button>
+                      <div class="import-table-picker">
+                        <div class="table-picker-header"><span>Table trong folder CSV</span><small id="db-import-table-hint">Chưa quét file CSV.</small></div>
+                        <div class="import-table-grid" id="db-import-tables"></div>
+                      </div>
                     </div>
                   </section>
                   <section class="csv-export-panel">

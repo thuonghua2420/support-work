@@ -79,8 +79,8 @@ function prepareCompactWorkspaces() {
     "sql-run-current": ["play", "Chạy hiện tại", false],
     "sql-run-all": ["list-start", "Chạy toàn bộ", false],
     "db-scan-csv": ["list-checks", "Quét file CSV", false],
-    "db-import": ["upload", "Import CSV", false],
-    "db-import-selected": ["upload-cloud", "Import table đã chọn", false],
+    "db-import": ["upload", "Import All", false],
+    "db-import-selected": ["upload-cloud", "Import Single", false],
     "db-export": ["download", "Export CSV", false],
   };
   for (const [id, [icon, label, iconOnly]] of Object.entries(icons)) {

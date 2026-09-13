@@ -25,6 +25,7 @@ const state = {
   sourceTables: [],
   selectedTables: [],
   importCsvTables: [],
+  selectedImportCsvTables: [],
   syncProgress: null,
   sqlAnalysisTables: [],
   sqlWorkspace: {
@@ -453,6 +454,9 @@ function restoreUiCache() {
     if (Array.isArray(cache.selectedTables)) {
       state.selectedTables = uniqueStrings(cache.selectedTables);
     }
+    if (Array.isArray(cache.selectedImportCsvTables)) {
+      state.selectedImportCsvTables = uniqueStrings(cache.selectedImportCsvTables);
+    }
   } finally {
     uiCacheRestoring = false;
   }
@@ -668,6 +672,7 @@ function saveUiCacheNow() {
     radioGroups,
     checkboxGroups,
     selectedTables: state.selectedTables,
+    selectedImportCsvTables: state.selectedImportCsvTables,
   };
   try {
     window.localStorage.setItem(UI_CACHE_KEY, JSON.stringify(cache));
@@ -717,7 +722,11 @@ function bindForms() {
   $("#compare-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const workflows = $$("input[name='compare-workflow']:checked").map((item) => item.value);
-    startAction("compare", { root: valueOf("compare-root"), workflows });
+    startAction("compare", {
+      root: valueOf("compare-root"), workflows,
+      copy_input: $("#compare-copy-input").checked,
+      sort_by_key: $("#compare-sort-by-key").checked,
+    });
   });
   $("#extract-compare-keys").addEventListener("click", () => {
     const role = valueOf("compare-key-role");
@@ -727,7 +736,7 @@ function bindForms() {
   $("#compare-key-role").addEventListener("change", renderCompareKeys);
   $("#remove-compare-keys").addEventListener("click", async () => {
     const count = Object.keys(state.bootstrap.update_compare_keys || {}).length;
-    if (await confirmAction("Xóa key compare?", `Xóa toàn bộ key đã lưu của ${count} table, bao gồm key nhập thủ công. Các lần compare tiếp theo sẽ bỏ qua bước lọc record ngoài đối tượng cho đến khi có key mới.`)) {
+    if (await confirmAction("Xóa key compare?", `Xóa toàn bộ key đã lưu của ${count} table, bao gồm key nhập thủ công. Các lần compare tiếp theo sẽ bỏ qua sắp xếp theo key cho đến khi có key mới.`)) {
       startAction("compare_keys_remove", { confirmed: true });
     }
   });
@@ -892,10 +901,16 @@ function bindForms() {
       });
     }
   });
-  $("#db-import-tables").addEventListener("change", syncImportTableControls);
+  $("#db-import-tables").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-import-table]");
+    if (!button) return;
+    toggleImportCsvTable(button.dataset.importTable || "");
+  });
   $("#db-csv-path").addEventListener("input", () => {
     state.importCsvTables = [];
+    state.selectedImportCsvTables = [];
     renderImportCsvTables();
+    saveUiCacheDebounced();
   });
   $$('input[name="db-import-mode"]').forEach((input) => input.addEventListener("change", syncImportButtonLabel));
   syncImportButtonLabel();
@@ -1180,6 +1195,8 @@ function hydrateDefaults() {
 }
 
 function renderWorkflows() {
+  $("#compare-copy-input").checked = state.bootstrap.compare_options?.copy_input === true;
+  $("#compare-sort-by-key").checked = state.bootstrap.compare_options?.sort_by_key === true;
   const container = $("#compare-workflows");
   container.innerHTML = state.bootstrap.compare_workflows.map((workflow) => `
     <label class="choice-card">
@@ -1363,9 +1380,10 @@ function selectedImportMode() {
 }
 
 function selectedImportTables() {
-  const select = $("#db-import-tables");
-  if (!select) return [];
-  return [...select.selectedOptions].map((option) => option.value).filter(Boolean);
+  const available = new Map((state.importCsvTables || []).map((item) => [String(item.table_name || "").toLocaleLowerCase("vi"), String(item.table_name || "")]));
+  return uniqueStrings(state.selectedImportCsvTables)
+    .map((name) => available.get(String(name).toLocaleLowerCase("vi")) || "")
+    .filter(Boolean);
 }
 
 function importConfirmation(importMode, tableNames = []) {
@@ -1390,24 +1408,14 @@ function importConfirmation(importMode, tableNames = []) {
 }
 
 function syncImportButtonLabel() {
-  const labels = {
-    append: "Import CSV",
-    delete_matching_keys: "Xóa trùng key & Import",
-    truncate_table: "Truncate & Import",
-  };
-  const selectedLabels = {
-    append: "Import table đã chọn",
-    delete_matching_keys: "Xóa trùng key & Import table",
-    truncate_table: "Truncate & Import table",
-  };
   const button = $("#db-import");
-  const label = labels[selectedImportMode()] || labels.append;
+  const label = "Import All";
   (button.querySelector("span") || button).textContent = label;
   button.setAttribute("aria-label", label);
   button.title = label;
   const selectedButton = $("#db-import-selected");
   if (selectedButton) {
-    const selectedLabel = selectedLabels[selectedImportMode()] || selectedLabels.append;
+    const selectedLabel = "Import Single";
     (selectedButton.querySelector("span") || selectedButton).textContent = selectedLabel;
     selectedButton.setAttribute("aria-label", selectedLabel);
     selectedButton.title = selectedLabel;
@@ -1416,31 +1424,47 @@ function syncImportButtonLabel() {
 }
 
 function renderImportCsvTables() {
-  const select = $("#db-import-tables");
+  const container = $("#db-import-tables");
   const count = $("#db-scan-count");
   const hint = $("#db-import-table-hint");
-  if (!select || !count || !hint) return;
-  const selected = new Set(selectedImportTables().map((name) => name.toLocaleLowerCase("vi")));
+  if (!container || !count || !hint) return;
   const tables = state.importCsvTables || [];
-  select.innerHTML = tables.map((item) => {
+  const availableNames = new Set(tables.map((item) => String(item.table_name || "").toLocaleLowerCase("vi")));
+  state.selectedImportCsvTables = uniqueStrings(state.selectedImportCsvTables)
+    .filter((name) => availableNames.has(String(name).toLocaleLowerCase("vi")));
+  const selected = new Set(state.selectedImportCsvTables.map((name) => name.toLocaleLowerCase("vi")));
+  container.innerHTML = tables.length ? tables.map((item) => {
     const name = String(item.table_name || "");
     const rowLabel = `${Number(item.row_count || 0).toLocaleString("vi-VN")} dòng`;
-    const headerLabel = item.has_header ? "" : " · CSV rỗng/header thiếu";
-    const selectedAttr = selected.has(name.toLocaleLowerCase("vi")) ? " selected" : "";
-    return `<option value="${escapeHtml(name)}"${selectedAttr}>${escapeHtml(name)} (${rowLabel}${headerLabel})</option>`;
-  }).join("");
+    const headerLabel = item.has_header ? "" : " · header?";
+    const isSelected = selected.has(name.toLocaleLowerCase("vi"));
+    return `<button class="import-table-chip${isSelected ? " selected" : ""}" type="button" data-import-table="${escapeHtml(name)}" aria-pressed="${isSelected ? "true" : "false"}"><span>${escapeHtml(name)}</span><small>${escapeHtml(rowLabel + headerLabel)}</small></button>`;
+  }).join("") : `<p>Chưa quét file CSV.</p>`;
   count.textContent = `${tables.length} table`;
   hint.textContent = tables.length
-    ? "Giữ Ctrl/Shift để chọn nhiều table."
+    ? `${state.selectedImportCsvTables.length} table đã chọn.`
     : "Chưa quét file CSV.";
   syncImportTableControls();
 }
 
 function syncImportTableControls() {
   const button = $("#db-import-selected");
-  const select = $("#db-import-tables");
-  if (!button || !select) return;
+  if (!button) return;
   button.disabled = !selectedImportTables().length || !state.importCsvTables.length || document.body.classList.contains("is-busy");
+}
+
+function toggleImportCsvTable(name) {
+  if (!name) return;
+  const key = name.toLocaleLowerCase("vi");
+  const selected = new Set(state.selectedImportCsvTables.map((item) => item.toLocaleLowerCase("vi")));
+  if (selected.has(key)) {
+    state.selectedImportCsvTables = state.selectedImportCsvTables.filter((item) => item.toLocaleLowerCase("vi") !== key);
+  } else {
+    const canonical = (state.importCsvTables || []).map((item) => String(item.table_name || "")).find((item) => item.toLocaleLowerCase("vi") === key) || name;
+    state.selectedImportCsvTables.push(canonical);
+  }
+  renderImportCsvTables();
+  saveUiCacheDebounced();
 }
 
 function selectedSyncMode() {

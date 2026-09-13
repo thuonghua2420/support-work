@@ -121,6 +121,8 @@ class AppConfig:
     excel_image_format: ExcelImageFormatConfig
     database_workspace: DatabaseWorkspaceConfig
     update_compare_keys: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    copy_input_default: bool = False
+    sort_by_key_default: bool = False
 
 
 def load_app_config(config_path: str | Path | None = None) -> AppConfig:
@@ -296,6 +298,8 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
         excel_image_format=excel_image_format,
         database_workspace=database_workspace,
         update_compare_keys=_read_update_compare_keys(parser),
+        copy_input_default=_get_bool(parser, "compare_workflows", "copy_input_enabled", False),
+        sort_by_key_default=_get_bool(parser, "compare_workflows", "sort_by_key_enabled", False),
     )
 
 

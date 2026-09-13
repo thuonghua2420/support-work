@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -72,12 +73,20 @@ def write_compare_workbook_with_fixmes(
     excel_style: ExcelCompareStyleConfig | None = None,
     case_folder_name: str = "",
     include_left_only_files: bool = False,
+    include_right_only_files: bool = True,
     recursive: bool = False,
     pair_by_record_order: bool = False,
     aligned_before_files: set[Path] | None = None,
     omit_equal_sheets: bool = False,
+    keys_by_table: dict[str, tuple[str, ...]] | None = None,
 ) -> CompareWorkbookWriteResult:
-    pairs = _iter_compare_csv_files(before_dir, after_dir, include_left_only_files, recursive)
+    pairs = _iter_compare_csv_files(
+        before_dir,
+        after_dir,
+        include_left_only_files,
+        include_right_only_files,
+        recursive,
+    )
     return write_compare_workbook_for_pairs(
         pairs,
         output_path,
@@ -87,6 +96,7 @@ def write_compare_workbook_with_fixmes(
         pair_by_record_order=pair_by_record_order,
         aligned_before_files=aligned_before_files,
         omit_equal_sheets=omit_equal_sheets,
+        keys_by_table=keys_by_table,
     )
 
 
@@ -99,6 +109,7 @@ def write_compare_workbook_for_pairs(
     pair_by_record_order: bool = False,
     aligned_before_files: set[Path] | None = None,
     omit_equal_sheets: bool = False,
+    keys_by_table: dict[str, tuple[str, ...]] | None = None,
 ) -> CompareWorkbookWriteResult:
     app_config = None if excel_headers is not None and excel_style is not None else load_app_config()
     headers = excel_headers or app_config.excel_headers
@@ -118,6 +129,7 @@ def write_compare_workbook_for_pairs(
         comparison = build_sheet_comparison(
             Path(csv_display_name).stem, before_table, after_table,
             pair_by_record_order=pair_by_record_order or before_csv in (aligned_before_files or set()),
+            key_columns=(keys_by_table or {}).get(Path(csv_display_name).stem.casefold(), ()),
         )
 
         sheet_name = sanitize_sheet_name(Path(csv_display_name).with_suffix("").as_posix(), used_sheet_names)
@@ -144,7 +156,14 @@ def write_compare_workbook_for_pairs(
         worksheet["A1"].font = styles.base_font
         worksheet.column_dimensions["A"].width = 40
 
-    workbook.save(output_path)
+    with NamedTemporaryFile(dir=output_path.parent, suffix=".xlsx", delete=False) as temporary:
+        temporary_path = Path(temporary.name)
+    try:
+        workbook.save(temporary_path)
+        temporary_path.replace(output_path)
+    finally:
+        workbook.close()
+        temporary_path.unlink(missing_ok=True)
     return CompareWorkbookWriteResult(
         output_path=output_path,
         sheet_count=sheet_count,
@@ -157,6 +176,7 @@ def _iter_compare_csv_files(
     before_dir: Path,
     after_dir: Path,
     include_left_only_files: bool,
+    include_right_only_files: bool,
     recursive: bool,
 ) -> list[tuple[Path, Path, str]]:
     pattern = "**/*.csv" if recursive else "*.csv"
@@ -166,6 +186,8 @@ def _iter_compare_csv_files(
             if not csv_path.is_file():
                 continue
             relative_name = _relative_csv_name(csv_path, after_dir, recursive)
+            if not include_right_only_files and not (before_dir / relative_name).is_file():
+                continue
             entries.append((before_dir / relative_name, csv_path, relative_name))
         return entries
 
@@ -179,6 +201,8 @@ def _iter_compare_csv_files(
         if not csv_path.is_file():
             continue
         relative_name = _relative_csv_name(csv_path, after_dir, recursive)
+        if not include_right_only_files and not (before_dir / relative_name).is_file():
+            continue
         by_name[relative_name.casefold()] = (before_dir / relative_name, csv_path, relative_name)
     return [by_name[key] for key in sorted(by_name)]
 

@@ -54,42 +54,36 @@ list is used on the next compare without restarting. **Xoa key** clears all
 entries in this section, including manual entries, after confirmation; other
 config sections and CSV files are preserved.
 
-A database primary key still needs stable values between before and after. If an
-identity key changes, use a suitable stable business key instead. For example, with
-`customers = CustomerId`, before containing C001-C004 and after containing C001,
-C002, C004 and C005, the next compare removes deleted C003 from `before` and inserted
-C005 from `after` before comparing the shared records.
-
-HTM/HTC before-after comparisons can use stable per-table keys in
-`autocompare_config.ini` to remove records outside the update scope. Use the CSV
-filename without `.csv` and exact column names:
+A database primary key needs stable values between before and after for matching.
+If an identity key changes, use a suitable stable business key instead. Per-table
+keys in `autocompare_config.ini` use the CSV filename without `.csv`:
 
 ```ini
 [update_compare_keys]
 ORDERS = ORDER_NO, DETAIL_NO
 ```
 
-Keys must remain unchanged by the update. The filter validates unique, nonblank keys
-on both sides, then retains their intersection: before-only keys are delete records
-and are removed from `before`; after-only keys are insert records and are removed
-from `after`. This also handles insert and delete in the same table when row counts
-happen to be equal. Missing key configuration/columns or duplicate/blank/NULL keys
-skip only this update-scope filter for that CSV; the compare workbook is still generated.
-Unfiltered CSVs match records by the first-column key, preserving shared keys even
-when rows move or counts differ. Unmatched records remain on their own side.
-Top-down fallback applies only when counts are equal and there are no shared
-nonblank keys (or the first-column headers differ). No deletion key is guessed
-from column position because that could remove the wrong record.
+Compare CSV > Cấu hình has two independent checkboxes, both off by default:
 
-Once validated, shared records in `before` are physically filtered and reordered to
-the `after` order, while insert records are physically removed from `after`. Only
-these validated files force top-down pairing. Files under Input stay unchanged.
-Logs list shared, insert and delete record numbers; CSV NULL and quoted empty strings
-remain distinct. After comparison, an HTM/HTC sheet with no differences is omitted
-from its workbook and its corresponding `before` CSV is deleted. If that leaves no
-CSV in the `before` folder, the empty folder is removed. The matching `after` CSV is
-kept. Every rerun refreshes `before` from Input. Ad-hoc folder compares do not use
-this filtering or cleanup.
+- **Copy các file từ folder input qua before** copies Input CSVs into both before
+  folders, creating them as needed and overwriting matching filenames without
+  clearing existing files. With this off, compare uses the existing before folders.
+  After HTC versus HTM never requires Input or before and ignores this checkbox.
+- **Sắp xếp record theo key và lưu vào CSV** sorts both sides of selected workflows
+  in place by every configured key column, using ascending text order. Full keys
+  also drive workbook pairing, so insert/delete records remain on their own side.
+  Missing columns/config or duplicate/blank/NULL keys skip ordering for that table
+  with a log entry and leave the CSVs unchanged. Original CSV encoding, quoting,
+  values and record counts are preserved, including NULL versus quoted empty string.
+
+Default checkbox states are `copy_input_enabled` and `sort_by_key_enabled` under
+`[compare_workflows]`. The UI also remembers choices in its existing input cache.
+Compare never automatically filters/deletes records, CSV files or before folders,
+and equal sheets are retained. Before-after workbooks include only tables present
+in before (including before-only tables); after-only tables are excluded. Input is
+never modified. With ordering off, after CSVs stay byte-for-byte unchanged.
+Each export overwrites only the selected workbooks. Unselected workbooks from
+earlier runs are retained; the compare output folder is never cleared.
 
 AutoCompare là công cụ web chạy local dành cho kiểm thử CSV/UT trên Windows. Ứng dụng tái sử dụng các workflow Python hiện có để sao chép dữ liệu, tạo workbook so sánh, review FIXME, xử lý file và trao đổi dữ liệu với cơ sở dữ liệu.
 
@@ -219,7 +213,7 @@ Mỗi case có thể tạo tối đa ba workbook theo các checkbox đang bật:
 - `Compare現行_Before_After.xlsx`
 - `Compare現行_vs_新_After_After.xlsx`
 
-Mỗi lần chạy, CSV cũ trong hai folder before được làm mới từ `Input`. File before không có file after tương ứng bị loại bỏ. Workbook của workflow đang tắt cũng được xóa để tránh đọc nhầm kết quả cũ.
+Chỉ copy CSV từ `Input` vào hai folder before khi bật checkbox copy. Compare không tự xóa record, CSV hay folder before. Checkbox sắp xếp ghi thứ tự theo key vào CSV và giữ nguyên số lượng record. Workbook của workflow không được chọn được giữ nguyên.
 
 Record được ghép bằng cột đầu tiên của CSV cộng với thứ tự xuất hiện khi key bị trùng. Record chỉ có ở một phía được giữ lại với giá trị phía còn lại để trống. Các cột metadata `ValidationErrors`, `HasErrors`, `TargetProperties` và `DataState` được bỏ qua khi compare.
 

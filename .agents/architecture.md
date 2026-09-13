@@ -91,7 +91,8 @@ Owns:
 
 - Root validation for compare workflow.
 - `UT*` test case discovery.
-- Before-folder refresh.
+- Explicit optional Input copy into before folders without clearing existing files.
+- Optional physical CSV key ordering through `csv_order.py`, preserving every record.
 - Selected compare workflow execution.
 - Compare workbook generation summary and FIXME item aggregation.
 
@@ -99,7 +100,7 @@ Important functions:
 
 - `process_root`
 - `discover_test_cases`
-- `_refresh_before_folders`
+- `_copy_input_folders`
 
 ### `autocompare_tool/folder_compare.py`
 
@@ -350,15 +351,13 @@ Future refactor path:
 ```text
 Root folder
   -> discover UT* cases
-  -> copy Input CSV to before folders
-  -> prune before CSVs without matching after CSV
-  -> for HTM/HTC before-after update workflows, retain shared configured keys, removing delete rows from before and insert rows from after
-  -> skip that filter, but keep generating the workbook, when configured keys are missing/unsafe
+  -> optionally copy Input CSV to both before folders for before-after workflows
+  -> optionally sort selected before/after CSVs in place by validated configured keys
   -> run selected compare workflows
   -> read left/right CSV
   -> build row pairs and column list
-  -> omit equal before-after sheets and delete their corresponding before CSVs
-  -> remove a before folder when no CSV remains, then write Excel workbooks
+  -> retain all records, CSVs and equal sheets; before-after includes only tables in before
+  -> overwrite selected Excel workbooks without clearing previous unselected outputs
   -> return mismatch items for GUI FIXME review
 ```
 

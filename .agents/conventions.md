@@ -24,7 +24,7 @@
 - Load config through `app_config.py`.
 - Keep comments in `autocompare_config.ini` clear because users may edit it directly.
 - Keep `constants.py` as a backward-compatible import surface only.
-- When a compare workflow is unchecked, remove its configured workbook output to avoid stale results.
+- When a compare workflow is unchecked, retain its existing workbook output. Overwrite only selected outputs; never clear the compare folder.
 
 ### Compare CSV
 
@@ -33,8 +33,10 @@
 - Preserve DBeaver-style NULL versus empty string in compare inputs: unquoted blank data cell is `NULL`, quoted empty string is `""`.
 - Compare workbooks display `NULL` values as literal `NULL`; empty strings remain visually blank.
 - Pair records by the first CSV column when key values line up. If before/after files have the same record count but the first-column key sequence or key header differs, compare rows by top-down record order because leading identity or timestamp columns may legitimately differ.
-- HTM/HTC before-after update filtering uses validated `[update_compare_keys]` values to retain the key intersection: remove before-only delete records from copied `before`, remove after-only insert records from `after`, and align shared rows in after order. Missing or unsafe keys skip filtering for that CSV and still generate the compare workbook; never guess a key from leading columns.
-- Omit an equal HTM/HTC before-after sheet and delete only its corresponding `before` CSV. Remove the `before` folder when it has no CSV left; never delete the matching `after` CSV or modify Input during cleanup.
+- Compare must never automatically filter/delete records, CSV files or before folders, including equal-table cleanup. Keep equal sheets. After HTC/HTM row counts must never change.
+- Copy Input to both before folders only when `copy_input` is enabled and at least one before-after workflow is selected. Copy overwrites matching filenames without clearing or pruning. Otherwise compare existing folders; after-after needs no Input/before folders.
+- Optional `sort_by_key` uses `[update_compare_keys]` for ascending text ordering of all composite-key columns and explicit key pairing. `csv_order.py` validates both sides per table, preserves raw record contents/encoding and writes reordered CSVs atomically. Missing/unsafe keys skip sorting with a log. No CSV ordering or mutation occurs when disabled. Input is never sorted.
+- HTM/HTC before-after workbooks compare tables present in before, including before-only CSVs; after-only CSVs must not create before-after sheets.
 - Compare key extraction is managed from Database > Trích xuất key and reads primary-key metadata for all tables in the selected connected DB/schema. Extraction rewrites `[update_compare_keys]` with the DB keys it can read; use remove key to clear the section.
 
 ### DBeaver CSV

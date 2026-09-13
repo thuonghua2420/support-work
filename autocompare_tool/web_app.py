@@ -262,6 +262,10 @@ class AutoCompareWebApplication:
                 for workflow in self.config.compare_workflows
             ],
             "folder_compare_file": self.config.workbooks.folder_compare_file,
+            "compare_options": {
+                "copy_input": self.config.copy_input_default,
+                "sort_by_key": self.config.sort_by_key_default,
+            },
             "update_compare_keys": load_app_config().update_compare_keys,
             "database_types": database_type_options(),
             "database_defaults": {
@@ -738,7 +742,11 @@ class AutoCompareWebApplication:
         selected = payload.get("workflows")
         if not isinstance(selected, list) or not selected:
             raise ValueError("Vui lòng chọn ít nhất một tùy chọn so sánh.")
-        summary = process_root(_text(payload, "root"), log=log, selected_workflow_keys=set(map(str, selected)))
+        summary = process_root(
+            _text(payload, "root"), log=log, selected_workflow_keys=set(map(str, selected)),
+            copy_input=payload.get("copy_input") is True,
+            sort_by_key=payload.get("sort_by_key") is True,
+        )
         workbooks = [
             CompareWorkbookReference(
                 case_folder_name=test_case.case_path.name,

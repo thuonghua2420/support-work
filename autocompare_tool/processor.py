@@ -14,7 +14,7 @@ from .app_config import (
     WORKFLOW_HTC_BEFORE_AFTER,
 )
 from .excel_writer import WorkbookFixmeEntry, write_compare_workbook_with_fixmes
-from .update_compare import filter_update_before_folder
+from .csv_order import sort_csv_folders_by_key
 
 Logger = Callable[[str], None]
 
@@ -61,10 +61,15 @@ def process_root(
     log: Logger | None = None,
     selected_workflow_keys: set[str] | list[str] | tuple[str, ...] | None = None,
     config: AppConfig | None = None,
+    *,
+    copy_input: bool | None = None,
+    sort_by_key: bool | None = None,
 ) -> ProcessSummary:
     root = Path(root_path).expanduser().resolve()
     logger = log or (lambda message: None)
     app_config = config or load_app_config()
+    copy_input = app_config.copy_input_default if copy_input is None else copy_input
+    sort_by_key = app_config.sort_by_key_default if sort_by_key is None else sort_by_key
     selected_keys = set(selected_workflow_keys) if selected_workflow_keys is not None else default_selected_workflow_keys(app_config)
 
     if not root.exists():
@@ -88,7 +93,7 @@ def process_root(
 
     logger(f"Tìm thấy {len(test_cases)} folder case test.")
     for case_path in test_cases:
-        result = _process_test_case(case_path, logger, app_config, selected_keys)
+        result = _process_test_case(case_path, logger, app_config, selected_keys, copy_input, sort_by_key)
         summary.test_cases.append(result)
         summary.errors.extend(result.errors)
 
@@ -115,6 +120,8 @@ def _process_test_case(
     log: Logger,
     config: AppConfig,
     selected_workflow_keys: set[str],
+    copy_input: bool,
+    sort_by_key: bool,
 ) -> TestCaseResult:
     result = TestCaseResult(case_path=case_path)
     log(f"[{case_path.name}] Bắt đầu")
@@ -124,69 +131,46 @@ def _process_test_case(
     output_dir = case_path / folders.output_dir
     before_htm = output_dir / folders.before_htm_dir
     before_htc = output_dir / folders.before_htc_dir
-    after_htm = output_dir / folders.after_htm_dir
-    after_htc = output_dir / folders.after_htc_dir
     compare_dir = output_dir / folders.compare_dir
 
     try:
-        if not input_dir.exists() or not input_dir.is_dir():
-            raise FileNotFoundError(f"Thiếu folder Input: {input_dir}")
-
-        for folder in (before_htm, before_htc, compare_dir):
-            folder.mkdir(parents=True, exist_ok=True)
-
-        removed_outputs = _remove_unselected_compare_outputs(compare_dir, config.compare_workflows, selected_workflow_keys)
-        if removed_outputs:
-            log(f"[{case_path.name}] Đã xóa {len(removed_outputs)} file Excel compare không được chọn.")
-
-        copied_files = _refresh_before_folders(
-            input_dir,
-            before_htm,
-            before_htc,
-            after_htm,
-            after_htc,
-        )
-        result.copied_files = copied_files
-        log(f"[{case_path.name}] Đã sao chép {copied_files} file CSV vào các folder before.")
+        copy_failed = False
+        if copy_input and selected_workflow_keys & {WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER}:
+            try:
+                if not input_dir.is_dir():
+                    raise FileNotFoundError(f"Thiếu folder Input: {input_dir}")
+                result.copied_files = _copy_input_folders(input_dir, before_htm, before_htc)
+                log(f"[{case_path.name}] Đã sao chép {result.copied_files} file CSV vào các folder before.")
+            except Exception as exc:
+                copy_failed = True
+                message = f"[{case_path.name}/copy] ERROR: {exc}"
+                result.errors.append(message)
+                log(message)
 
         for workflow in config.compare_workflows:
             if workflow.key not in selected_workflow_keys:
                 continue
-            aligned_before_files: set[Path] = set()
-            if workflow.key in {WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER}:
-                # A failed validation must not leave an old successful workbook visible.
-                (compare_dir / workflow.output_file_name).unlink(missing_ok=True)
-                try:
-                    aligned_before_files = filter_update_before_folder(
-                        output_dir / workflow.left_dir_name,
-                        output_dir / workflow.right_dir_name,
-                        config.update_compare_keys,
-                        log,
-                        strict=False,
-                    )
-                except Exception as exc:
-                    message = f"[{case_path.name}/{workflow.key}] ERROR: {exc}"
-                    result.errors.append(message)
-                    log(message)
-                    continue
-            workbook_result = _write_workflow_workbook(
-                case_path,
-                output_dir,
-                compare_dir,
-                workflow,
-                config,
-                aligned_before_files,
-            )
+            if copy_failed and workflow.key in {WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER}:
+                continue
+            try:
+                folders_to_compare = [output_dir / workflow.left_dir_name, output_dir / workflow.right_dir_name]
+                for folder in folders_to_compare:
+                    if not folder.is_dir():
+                        raise FileNotFoundError(f"Thiếu folder compare: {folder}")
+                keys = sort_csv_folders_by_key(folders_to_compare, config.update_compare_keys, log) if sort_by_key else {}
+                workbook_result = _write_workflow_workbook(
+                    case_path, output_dir, compare_dir, workflow, config, keys,
+                )
+            except Exception as exc:
+                message = f"[{case_path.name}/{workflow.key}] ERROR: {exc}"
+                result.errors.append(message)
+                log(message)
+                continue
             result.workbooks.append(workbook_result)
             log(
                 f"[{case_path.name}] Đã tạo {workbook_result.output_path.name} "
                 f"({workbook_result.sheet_count} sheet, {len(workbook_result.fixme_entries)} mục FIXME)."
             )
-            if workbook_result.removed_equal_before_files:
-                log(
-                    f"[{case_path.name}] Đã bỏ {len(workbook_result.removed_equal_before_files)} sheet không có sai khác "
-                    f"và xóa CSV tương ứng khỏi {output_dir / workflow.left_dir_name}."
-                )
     except Exception as exc:
         message = f"[{case_path.name}] LỖI: {exc}"
         result.errors.append(message)
@@ -195,33 +179,18 @@ def _process_test_case(
     return result
 
 
-def _remove_unselected_compare_outputs(
-    compare_dir: Path,
-    workflows: tuple[CompareWorkflowConfig, ...],
-    selected_workflow_keys: set[str],
-) -> list[Path]:
-    removed_outputs: list[Path] = []
-    for workflow in workflows:
-        if workflow.key in selected_workflow_keys:
-            continue
-        output_path = compare_dir / workflow.output_file_name
-        if output_path.is_file():
-            output_path.unlink()
-            removed_outputs.append(output_path)
-    return removed_outputs
-
-
 def _write_workflow_workbook(
     case_path: Path,
     output_dir: Path,
     compare_dir: Path,
     workflow: CompareWorkflowConfig,
     config: AppConfig,
-    aligned_before_files: set[Path],
+    keys_by_table: dict[str, tuple[str, ...]],
 ) -> WorkbookResult:
     left_dir = output_dir / workflow.left_dir_name
     right_dir = output_dir / workflow.right_dir_name
     output_path = compare_dir / workflow.output_file_name
+    is_update_compare = workflow.key in {WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER}
 
     write_result = write_compare_workbook_with_fixmes(
         left_dir,
@@ -229,61 +198,30 @@ def _write_workflow_workbook(
         output_path,
         excel_headers=config.excel_headers,
         case_folder_name=case_path.name,
-        include_left_only_files=workflow.include_left_only_files,
-        aligned_before_files=aligned_before_files,
-        omit_equal_sheets=workflow.key in {WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER},
+        include_left_only_files=is_update_compare or workflow.include_left_only_files,
+        include_right_only_files=not is_update_compare,
+        keys_by_table=keys_by_table,
     )
-    removed_equal_before_files: list[Path] = []
-    if workflow.key in {WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER}:
-        for before_path in write_result.equal_before_files:
-            if before_path.is_file():
-                before_path.unlink()
-                removed_equal_before_files.append(before_path)
-        if left_dir.is_dir() and not any(left_dir.glob("*.csv")):
-            try:
-                left_dir.rmdir()
-            except OSError:
-                pass
     return WorkbookResult(
         output_path=write_result.output_path,
         sheet_count=write_result.sheet_count,
         workflow_key=workflow.key,
         workflow_label=workflow.label,
         fixme_entries=write_result.fixme_entries,
-        removed_equal_before_files=removed_equal_before_files,
     )
 
 
-def _refresh_before_folders(
+def _copy_input_folders(
     input_dir: Path,
     before_new: Path,
     before_current: Path,
-    after_new: Path,
-    after_current: Path,
 ) -> int:
     for before_dir in (before_new, before_current):
-        _clear_csv_files(before_dir)
+        before_dir.mkdir(parents=True, exist_ok=True)
 
     input_csv_files = sorted(input_dir.glob("*.csv"), key=lambda path: path.name.lower())
     for source in input_csv_files:
         shutil.copy2(source, before_new / source.name)
         shutil.copy2(source, before_current / source.name)
 
-    _prune_before_files(before_new, after_new)
-    _prune_before_files(before_current, after_current)
-
     return len(input_csv_files)
-
-
-def _clear_csv_files(folder: Path) -> None:
-    folder.mkdir(parents=True, exist_ok=True)
-    for csv_file in folder.glob("*.csv"):
-        if csv_file.is_file():
-            csv_file.unlink()
-
-
-def _prune_before_files(before_dir: Path, after_dir: Path) -> None:
-    after_names = {path.name for path in after_dir.glob("*.csv")} if after_dir.exists() else set()
-    for csv_file in before_dir.glob("*.csv"):
-        if csv_file.name not in after_names:
-            csv_file.unlink()

@@ -62,13 +62,13 @@ class ProcessorAndExcelTests(unittest.TestCase):
 
             self.assertIsNotNone(process_root)
             config = replace(load_app_config(), update_compare_keys={"table": ("id",)})
-            summary = process_root(root, config=config)
+            summary = process_root(root, config=config, copy_input=True)
 
             self.assertFalse(summary.errors)
-            self.assertFalse((before_new / "stale.csv").exists())
+            self.assertTrue((before_new / "stale.csv").exists())
             self.assertTrue((before_new / "table.csv").exists())
-            self.assertFalse(before_current.exists())
-            self.assertFalse((before_new / "before_only.csv").exists())
+            self.assertTrue(before_current.exists())
+            self.assertTrue((before_new / "before_only.csv").exists())
 
             compare_new = output_dir / COMPARE_DIR / COMPARE_NEW_FILE
             compare_current = output_dir / COMPARE_DIR / COMPARE_CURRENT_FILE
@@ -86,9 +86,9 @@ class ProcessorAndExcelTests(unittest.TestCase):
             self.assertEqual(worksheet["B2"].value, "後列名")
             self.assertEqual(worksheet["C2"].value, "前:1行目")
             self.assertEqual(worksheet["D2"].value, "後:1行目")
-            self.assertEqual(worksheet["B1"].value, 1)
+            self.assertEqual(worksheet["B1"].value, 2)
             self.assertEqual(worksheet["F4"].value, "after")
-            self.assertEqual(worksheet["H4"].value, "FIXME")
+            self.assertEqual(worksheet["J4"].value, "FIXME")
 
     def test_process_root_respects_selected_compare_workflows_and_applies_notes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -113,14 +113,14 @@ class ProcessorAndExcelTests(unittest.TestCase):
             _write_text(stale_compare_dir / COMPARE_AFTER_AFTER_FILE, "stale")
 
             config = replace(load_app_config(), update_compare_keys={"table": ("id",)})
-            summary = process_root(root, selected_workflow_keys={"htm_before_after"}, config=config)
+            summary = process_root(root, selected_workflow_keys={"htm_before_after"}, config=config, copy_input=True)
 
             compare_new = output_dir / COMPARE_DIR / COMPARE_NEW_FILE
             compare_current = output_dir / COMPARE_DIR / COMPARE_CURRENT_FILE
             compare_after_after = output_dir / COMPARE_DIR / COMPARE_AFTER_AFTER_FILE
             self.assertTrue(compare_new.exists())
-            self.assertFalse(compare_current.exists())
-            self.assertFalse(compare_after_after.exists())
+            self.assertEqual(compare_current.read_text(), "stale")
+            self.assertEqual(compare_after_after.read_text(), "stale")
             self.assertEqual(len(summary.fixme_entries), 1)
 
             result = apply_fixme_replacements(summary.fixme_entries, {0: "KNOWN_DIFF"})

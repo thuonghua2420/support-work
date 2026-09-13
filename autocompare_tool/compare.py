@@ -24,12 +24,18 @@ class SheetComparison:
 
 def build_sheet_comparison(
     name: str, before: CsvTable, after: CsvTable, *, pair_by_record_order: bool = False,
+    key_columns: tuple[str, ...] = (),
 ) -> SheetComparison:
     columns = _union_headers(before.headers, after.headers)
     before_keyed = _key_rows(before)
     after_keyed = _key_rows(after)
 
-    if pair_by_record_order or _should_pair_by_record_order(before, after, before_keyed, after_keyed):
+    if key_columns:
+        before_index = _configured_key_rows(before, key_columns)
+        after_index = _configured_key_rows(after, key_columns)
+        pairs = [RecordPair(before_index.get(key), after_index.get(key))
+                 for key in sorted(before_index.keys() | after_index.keys())]
+    elif pair_by_record_order or _should_pair_by_record_order(before, after, before_keyed, after_keyed):
         pairs = _pair_by_record_order(before.rows, after.rows)
     else:
         pairs = _pair_by_key(before_keyed, after_keyed)
@@ -41,6 +47,17 @@ def build_sheet_comparison(
         columns=columns,
         pairs=pairs,
     )
+
+
+def _configured_key_rows(table: CsvTable, columns: tuple[str, ...]) -> dict[tuple[str, ...], dict[str, str | None]]:
+    names = {header.casefold(): header for header in table.headers}
+    result = {}
+    for row in table.rows:
+        key = tuple(row[names[column.casefold()]] for column in columns)
+        if any(value is None or not value.strip() for value in key) or key in result:
+            raise ValueError("CSV contains a NULL/empty or duplicate configured key.")
+        result[key] = row
+    return result
 
 
 def _pair_by_key(
