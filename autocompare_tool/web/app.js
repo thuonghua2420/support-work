@@ -1004,6 +1004,10 @@ function bindForms() {
   $("#compare-bulk-note")?.addEventListener("change", updateCompareBulkToolbarState);
   $("#compare-bulk-assign")?.addEventListener("click", assignCompareBulkNote);
   $("#compare-bulk-clear")?.addEventListener("click", clearCompareRowSelection);
+  $("#compare-scroll-pad")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-compare-scroll]");
+    if (button) scrollComparePreview(button.dataset.compareScroll);
+  });
 
   $$('[data-browse-target]').forEach((button) => button.addEventListener("click", () => openPathPicker(button)));
 }
@@ -1984,6 +1988,23 @@ function showComparePreviewStatus(message) {
   $("#compare-preview-status").textContent = message;
   $("#compare-preview-status").classList.remove("hidden");
   $("#compare-preview-table").classList.add("hidden");
+  $("#compare-scroll-pad")?.classList.add("hidden");
+}
+
+function scrollComparePreview(direction) {
+  const container = $(".compare-grid-wrap");
+  if (!container) return;
+  const stepX = Math.max(160, Math.floor(container.clientWidth * 0.55));
+  const stepY = Math.max(90, Math.floor(container.clientHeight * 0.55));
+  const moves = {
+    left: { left: -stepX, top: 0 },
+    right: { left: stepX, top: 0 },
+    up: { left: 0, top: -stepY },
+    down: { left: 0, top: stepY },
+  };
+  const move = moves[String(direction || "").toLowerCase()];
+  if (!move) return;
+  container.scrollBy({ ...move, behavior: "smooth" });
 }
 
 function renderCompareSheet() {
@@ -2009,6 +2030,7 @@ function renderCompareSheet() {
       </tr>`).join("")}</tbody>`;
   $("#compare-preview-status").classList.add("hidden");
   table.classList.remove("hidden");
+  $("#compare-scroll-pad")?.classList.remove("hidden");
   bindCompareCellCopyControls(table);
   bindCompareFixmeControls();
   updateCompareBulkToolbarState();

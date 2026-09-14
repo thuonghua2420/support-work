@@ -143,12 +143,25 @@
             <div class="compare-preview-shell">
               <header class="compare-preview-tabs">
                 <div class="compare-tab-line"><span>Case</span><div class="compare-tabs" id="compare-case-tabs"></div></div>
-                <div class="compare-tab-line"><span>File compare</span><div class="compare-tabs" id="compare-workbook-tabs"></div></div>
+                <div class="compare-tab-line compare-file-line">
+                  <span>File compare</span>
+                  <div class="compare-file-row">
+                    <div class="compare-tabs" id="compare-workbook-tabs"></div>
+                    <div class="compare-scroll-pad hidden" id="compare-scroll-pad" aria-label="Di chuyển vị trí sheet">
+                      <button class="compare-scroll-button up" type="button" data-compare-scroll="up" title="Di chuyển lên" aria-label="Di chuyển lên">↑</button>
+                      <button class="compare-scroll-button left" type="button" data-compare-scroll="left" title="Di chuyển sang trái" aria-label="Di chuyển sang trái">←</button>
+                      <button class="compare-scroll-button right" type="button" data-compare-scroll="right" title="Di chuyển sang phải" aria-label="Di chuyển sang phải">→</button>
+                      <button class="compare-scroll-button down" type="button" data-compare-scroll="down" title="Di chuyển xuống" aria-label="Di chuyển xuống">↓</button>
+                    </div>
+                  </div>
+                </div>
                 <div class="compare-tab-line compare-sheet-line"><span>Sheet</span><div class="compare-tabs sheet-tabs" id="compare-sheet-tabs"></div></div>
               </header>
-              <div class="compare-grid-wrap">
-                <div class="compare-preview-status" id="compare-preview-status">Chọn case, file compare và sheet để xem dữ liệu.</div>
-                <table class="compare-grid hidden" id="compare-preview-table"></table>
+              <div class="compare-grid-host">
+                <div class="compare-grid-wrap">
+                  <div class="compare-preview-status" id="compare-preview-status">Chọn case, file compare và sheet để xem dữ liệu.</div>
+                  <table class="compare-grid hidden" id="compare-preview-table"></table>
+                </div>
               </div>
             </div>
           </section>

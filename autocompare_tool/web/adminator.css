@@ -186,7 +186,10 @@ body.nav-collapsed { --sidebar-width: 72px; }
 .compare-preview-card.panel-expanded > .compare-bulk-toolbar { flex: 0 0 auto; margin-bottom: 8px; }
 .compare-preview-card.panel-expanded .compare-preview-shell { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; }
 .compare-preview-card.panel-expanded .compare-preview-tabs { flex: 0 0 auto; padding-block: 6px; }
+.compare-preview-card.panel-expanded .compare-grid-host { flex: 1 1 auto; min-height: 0; display: flex; }
 .compare-preview-card.panel-expanded .compare-grid-wrap { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; }
+.compare-scroll-pad { border-radius: 0; box-shadow: none; }
+.compare-scroll-button { border-radius: 4px; box-shadow: none; }
 .fixme-card.panel-expanded { overflow: auto; }
 body:has(.panel-expanded) { overflow: hidden; }
 @media (max-width: 1200px) {
