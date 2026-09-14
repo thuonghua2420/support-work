@@ -1435,10 +1435,10 @@ function renderImportCsvTables() {
   const selected = new Set(state.selectedImportCsvTables.map((name) => name.toLocaleLowerCase("vi")));
   container.innerHTML = tables.length ? tables.map((item) => {
     const name = String(item.table_name || "");
-    const rowLabel = `${Number(item.row_count || 0).toLocaleString("vi-VN")} dòng`;
-    const headerLabel = item.has_header ? "" : " · header?";
+    const rowLabel = `${Number(item.row_count || 0).toLocaleString("vi-VN")} record`;
+    const headerLabel = item.has_header ? "" : "/header?";
     const isSelected = selected.has(name.toLocaleLowerCase("vi"));
-    return `<button class="import-table-chip${isSelected ? " selected" : ""}" type="button" data-import-table="${escapeHtml(name)}" aria-pressed="${isSelected ? "true" : "false"}"><span>${escapeHtml(name)}</span><small>${escapeHtml(rowLabel + headerLabel)}</small></button>`;
+    return `<button class="import-table-chip${isSelected ? " selected" : ""}" type="button" data-import-table="${escapeHtml(name)}" aria-pressed="${isSelected ? "true" : "false"}"><span>${escapeHtml(name)}</span><small>/${escapeHtml(rowLabel + headerLabel)}</small></button>`;
   }).join("") : `<p>Chưa quét file CSV.</p>`;
   count.textContent = `${tables.length} table`;
   hint.textContent = tables.length

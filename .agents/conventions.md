@@ -117,6 +117,7 @@
 - Include relative CSV paths when processing many files.
 - Distinguish skipped files from errors.
 - Keep the web activity log history across tasks; add start/end timestamps, elapsed time, and a separator line after each task.
+- Do not redirect local dev/smoke web-server stdout or stderr to `*-server-*.log`, `*.err.log`, or `*.out.log` in the repo root. Use `DEVNULL` for detached helper servers, or place temporary diagnostics under ignored `.tmp` and clean them up.
 
 ## Web UI Rules
 

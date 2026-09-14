@@ -2,3 +2,7 @@
 /excel_format_presets.json
 /database_connection_history.json
 /.tmp/
+/*.log
+/*.err.log
+/*.out.log
+/*-server-*.log
