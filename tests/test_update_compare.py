@@ -54,8 +54,11 @@ class CompareFileSafetyTests(unittest.TestCase):
         self.assertEqual(self.snapshot(), original)
         result = process_root(self.case, config=self.config, selected_workflow_keys={"htm_before_after"}, copy_input=True)
         self.assertFalse(result.errors)
-        for name in (self.folders.before_htm_dir, self.folders.before_htc_dir):
-            self.assertEqual((self.output / name / "orders.csv").read_bytes(), source.read_bytes())
+        self.assertEqual((self.output / self.folders.before_htm_dir / "orders.csv").read_bytes(), source.read_bytes())
+        self.assertEqual(
+            (self.output / self.folders.before_htc_dir / "orders.csv").read_bytes(),
+            original[self.output / self.folders.before_htc_dir / "orders.csv"],
+        )
         for path, content in original.items():
             if path.parent.name not in (self.folders.before_htm_dir, self.folders.before_htc_dir) or path.name == "manual.csv":
                 self.assertEqual(path.read_bytes(), content)

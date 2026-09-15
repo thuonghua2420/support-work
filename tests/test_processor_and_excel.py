@@ -68,7 +68,8 @@ class ProcessorAndExcelTests(unittest.TestCase):
             self.assertTrue((before_new / "stale.csv").exists())
             self.assertTrue((before_new / "table.csv").exists())
             self.assertTrue(before_current.exists())
-            self.assertTrue((before_new / "before_only.csv").exists())
+            self.assertFalse((before_new / "before_only.csv").exists())
+            self.assertFalse((before_current / "before_only.csv").exists())
 
             compare_new = output_dir / COMPARE_DIR / COMPARE_NEW_FILE
             compare_current = output_dir / COMPARE_DIR / COMPARE_CURRENT_FILE

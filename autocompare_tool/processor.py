@@ -139,7 +139,14 @@ def _process_test_case(
             try:
                 if not input_dir.is_dir():
                     raise FileNotFoundError(f"Thiếu folder Input: {input_dir}")
-                result.copied_files = _copy_input_folders(input_dir, before_htm, before_htc)
+                result.copied_files = _copy_input_folders(
+                    input_dir,
+                    before_htm,
+                    before_htc,
+                    output_dir / folders.after_htm_dir,
+                    output_dir / folders.after_htc_dir,
+                    selected_workflow_keys,
+                )
                 log(f"[{case_path.name}] Đã sao chép {result.copied_files} file CSV vào các folder before.")
             except Exception as exc:
                 copy_failed = True
@@ -215,13 +222,30 @@ def _copy_input_folders(
     input_dir: Path,
     before_new: Path,
     before_current: Path,
+    after_new: Path,
+    after_current: Path,
+    selected_workflow_keys: set[str],
 ) -> int:
-    for before_dir in (before_new, before_current):
-        before_dir.mkdir(parents=True, exist_ok=True)
+    input_csv_files = {path.name.lower(): path for path in input_dir.glob("*.csv")}
+    copied_count = 0
 
-    input_csv_files = sorted(input_dir.glob("*.csv"), key=lambda path: path.name.lower())
-    for source in input_csv_files:
-        shutil.copy2(source, before_new / source.name)
-        shutil.copy2(source, before_current / source.name)
+    copy_pairs = (
+        (WORKFLOW_HTM_BEFORE_AFTER, before_new, after_new),
+        (WORKFLOW_HTC_BEFORE_AFTER, before_current, after_current),
+    )
+    for workflow_key, before_dir, after_dir in copy_pairs:
+        if workflow_key not in selected_workflow_keys:
+            continue
+        if not after_dir.is_dir():
+            continue
 
-    return len(input_csv_files)
+        after_csv_files = sorted(after_dir.glob("*.csv"), key=lambda path: path.name.lower())
+        for after_csv in after_csv_files:
+            source = input_csv_files.get(after_csv.name.lower())
+            if source is None:
+                continue
+            before_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, before_dir / source.name)
+            copied_count += 1
+
+    return copied_count
