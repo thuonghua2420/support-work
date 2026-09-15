@@ -1431,7 +1431,7 @@ function renderImportCsvTables() {
   const container = $("#db-import-tables");
   const count = $("#db-scan-count");
   const hint = $("#db-import-table-hint");
-  if (!container || !count || !hint) return;
+  if (!container || !count) return;
   const tables = state.importCsvTables || [];
   const availableNames = new Set(tables.map((item) => String(item.table_name || "").toLocaleLowerCase("vi")));
   state.selectedImportCsvTables = uniqueStrings(state.selectedImportCsvTables)
@@ -1445,9 +1445,11 @@ function renderImportCsvTables() {
     return `<button class="import-table-chip${isSelected ? " selected" : ""}" type="button" data-import-table="${escapeHtml(name)}" aria-pressed="${isSelected ? "true" : "false"}"><span>${escapeHtml(name)}</span><small>/${escapeHtml(rowLabel + headerLabel)}</small></button>`;
   }).join("") : `<p>Chưa quét file CSV.</p>`;
   count.textContent = `${tables.length} table`;
-  hint.textContent = tables.length
-    ? `${state.selectedImportCsvTables.length} table đã chọn.`
-    : "Chưa quét file CSV.";
+  if (hint) {
+    hint.textContent = tables.length
+      ? `${state.selectedImportCsvTables.length} table đã chọn.`
+      : "Chưa quét file CSV.";
+  }
   syncImportTableControls();
 }
 
@@ -2021,11 +2023,11 @@ function renderCompareSheet() {
       ${widths.map(() => `<col class="compare-value-col">`).join("")}
       <col class="compare-check-col">
     </colgroup>
-    <thead><tr><th class="compare-corner"></th>${letters.map((letter) => `<th>${escapeHtml(letter)}</th>`).join("")}<th class="compare-check-header"></th></tr></thead>
+    <thead><tr><th class="compare-corner"></th>${letters.map((letter, index) => `<th class="${compareColumnStickyClass(index)}">${escapeHtml(letter)}</th>`).join("")}<th class="compare-check-header"></th></tr></thead>
     <tbody>${rows.map((row) => `
       <tr>
         <th class="compare-row-number">${escapeHtml(row.number)}</th>
-        ${(row.cells || []).map((cell) => compareCellHtml(cell, row)).join("")}
+        ${(row.cells || []).map((cell, index) => compareCellHtml(cell, row, index)).join("")}
         ${compareCheckCellHtml(row)}
       </tr>`).join("")}</tbody>`;
   $("#compare-preview-status").classList.add("hidden");
@@ -2036,9 +2038,15 @@ function renderCompareSheet() {
   updateCompareBulkToolbarState();
 }
 
-function compareCellHtml(cell, row) {
+function compareColumnStickyClass(index) {
+  if (index === 0) return "compare-sticky-col-a";
+  if (index === 1) return "compare-sticky-col-b";
+  return "";
+}
+
+function compareCellHtml(cell, row, columnIndex = -1) {
   const fixmeIndices = Array.isArray(cell.fixme_indices) ? cell.fixme_indices : [];
-  const classes = ["compare-cell", ...compareCellColorClasses(cell, row)];
+  const classes = ["compare-cell", compareColumnStickyClass(columnIndex), ...compareCellColorClasses(cell, row)].filter(Boolean);
   if (Number(cell?.row || row?.number || 0) === 2) classes.push("compare-header-cell");
   if (compareCellBelongsToDiffPair(cell, row)) classes.push("compare-diff-cell");
   if (cell.style?.wrap) classes.push("wrap");

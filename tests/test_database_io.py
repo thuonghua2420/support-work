@@ -626,6 +626,40 @@ class DatabaseIoTests(unittest.TestCase):
             self.assertEqual(summary.error_count, 1)
             self.assertTrue(connection.rolled_back)
 
+    def test_import_preserves_null_and_empty_string_parameters(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            csv_path = root / "customers.csv"
+            csv_path.write_text('id,empty_value,null_value\n"1","",\n', encoding="utf-8")
+            metadata = TableMetadata(
+                schema="dbo",
+                name="customers",
+                columns=[
+                    _column("id", data_type="int"),
+                    _column("empty_value", data_type="nvarchar"),
+                    _column("null_value", data_type="nvarchar"),
+                ],
+            )
+            adapter = RecordingImportAdapter(metadata)
+            connection = RecordingImportConnection()
+            summary = DatabaseCsvSummary(action_name="Nháº­p CSV vÃ o CSDL", root_path=root)
+
+            _import_one_csv(
+                connection,
+                adapter,
+                DatabaseConnectionSettings(database_type="sqlserver", host=".", database="sample", schema="dbo"),
+                root,
+                csv_path,
+                False,
+                summary,
+                lambda _message: None,
+            )
+
+            insert_calls = [call for call in adapter.calls if call[0] == "executemany"]
+            self.assertEqual(len(insert_calls), 1)
+            self.assertEqual(insert_calls[0][2], [("1", "", None)])
+            self.assertTrue(connection.committed)
+
     def test_import_deletes_matching_composite_primary_keys_before_insert(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

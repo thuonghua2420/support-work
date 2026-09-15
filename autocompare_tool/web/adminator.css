@@ -135,7 +135,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
 .db-dialog-card { border: 0; background: #fff; }
 .db-dialog-card + .db-dialog-card { border-left: 1px solid var(--line); }
 .database-layout { gap: 20px; }
-.table-wrap, .compare-grid-wrap, .sql-workspace-grid-wrap { max-width: 100%; overflow: auto; border-radius: 0; }
+.table-wrap, .sql-workspace-grid-wrap { max-width: 100%; overflow: auto; border-radius: 0; }
+.compare-grid-wrap { max-width: 100%; overflow: scroll; border-radius: 0; }
 .table-wrap { border-color: var(--line); }
 .fixme-card, .compare-preview-card { padding: 20px; }
 .fixme-table { font-size: 12px; }
@@ -143,7 +144,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
 .fixme-table td { padding: 10px 8px; }
 .fixme-table tbody tr:hover { background: #f8fafc; }
 .compare-preview-shell { border-radius: 0; }
-.compare-grid-wrap { max-height: none; }
+.compare-grid-wrap { max-height: clamp(320px, 58vh, 620px); }
 .compare-tabs { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
 .compare-tabs button { flex: 0 0 auto; }
 .compare-tab, .compare-tab.active, .sheet-tabs .compare-tab.active { border-radius: 4px; box-shadow: none; font-size: 12px; }
@@ -187,7 +188,7 @@ body.nav-collapsed { --sidebar-width: 72px; }
 .compare-preview-card.panel-expanded .compare-preview-shell { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; }
 .compare-preview-card.panel-expanded .compare-preview-tabs { flex: 0 0 auto; padding-block: 6px; }
 .compare-preview-card.panel-expanded .compare-grid-host { flex: 1 1 auto; min-height: 0; display: flex; }
-.compare-preview-card.panel-expanded .compare-grid-wrap { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; }
+.compare-preview-card.panel-expanded .compare-grid-wrap { flex: 1 1 auto; min-height: 0; max-height: none; overflow: scroll; }
 .compare-scroll-pad { border-radius: 0; box-shadow: none; }
 .compare-scroll-button { border-radius: 4px; box-shadow: none; }
 .fixme-card.panel-expanded { overflow: auto; }

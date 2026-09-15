@@ -1,4 +1,0 @@
-customer_id,customer_name,email,status,registered_date
-C001,Nguyen Van An,an.@example.com,Active,2026-06-01
-C002,Tran Thi Binh,binh.tran@example.com,Active,2026-06-02
-C004,Pham Quang Dung,dung.pham@example.com,Active,2026-06-04
