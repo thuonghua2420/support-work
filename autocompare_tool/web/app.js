@@ -13,7 +13,7 @@ const state = {
   fixmeSorts: defaultFixmeSorts(),
   folderComparePairs: [],
   folderPairDrag: null,
-  compareView: { cases: [], activeCaseId: "", activeWorkbookId: "", activeSheetName: "", sheet: null, loadingKey: "" },
+  compareView: { cases: [], activeCaseId: "", activeWorkbookId: "", activeSheetName: "", sheet: null, loadingKey: "", sheetCache: {}, sheetHtmlCache: {}, sheetPending: {}, preloadStarted: false, viewToken: "initial" },
   job: null,
   jobCursor: 0,
   handledJobs: new Set(),
@@ -117,6 +117,7 @@ async function init() {
     renderExcelFormatPresets();
     renderFixmes();
     renderComparePreview();
+    preloadCompareSheets();
     renderTables();
     restoreUiCache();
     updateFolderCompareMode();
@@ -193,7 +194,7 @@ function renderCompareKeys() {
   $("#remove-compare-keys").disabled = Boolean(busy) || !entries.length;
 }
 
-function showPage(pageKey, updateHash) {
+function showPage(pageKey, updateHash, options = {}) {
     $$(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.page === pageKey));
     $$(".page").forEach((page) => page.classList.toggle("active", page.id === `page-${pageKey}`));
     const page = $(`#page-${pageKey}`);
@@ -205,7 +206,7 @@ function showPage(pageKey, updateHash) {
       else item.removeAttribute("aria-current");
     });
     if (updateHash) history.replaceState(null, "", `#${pageKey}`);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (options.scrollTop !== false) scrollPageTo(0, "smooth");
 }
 
 function bindMobileMenu() {
@@ -1543,6 +1544,7 @@ function renderFixmes() {
     input.addEventListener("input", () => {
       if (input.value.trim()) state.fixmeSelections[input.dataset.fixmeIndex] = input.value.trim();
       else delete state.fixmeSelections[input.dataset.fixmeIndex];
+      invalidateCompareSheetHtmlCache();
       if ((state.fixmeSorts || []).some((sort) => sort.field === "note") || state.fixmeFilters.note) renderFixmes();
       else {
         updateFixmeToolbarState(filteredEntries);
@@ -1555,6 +1557,7 @@ function renderFixmes() {
       const index = checkbox.dataset.fixmeCheckIndex;
       if (checkbox.checked) state.fixmeCheckedRows.add(index);
       else state.fixmeCheckedRows.delete(index);
+      invalidateCompareSheetHtmlCache();
       updateFixmeToolbarState(filteredEntries);
       syncComparePreviewNoteControls();
       updateCompareBulkToolbarState();
@@ -1721,11 +1724,13 @@ function clearFixmeFilters() {
 
 function selectFilteredFixmeRows() {
   filteredFixmes().forEach((entry) => state.fixmeCheckedRows.add(String(entry.index)));
+  invalidateCompareSheetHtmlCache();
   renderFixmes();
 }
 
 function clearFixmeRowSelection() {
   state.fixmeCheckedRows.clear();
+  invalidateCompareSheetHtmlCache();
   renderFixmes();
 }
 
@@ -1736,6 +1741,7 @@ function toggleVisibleFixmeRows(event) {
     if (event.target.checked) state.fixmeCheckedRows.add(index);
     else state.fixmeCheckedRows.delete(index);
   });
+  invalidateCompareSheetHtmlCache();
   renderFixmes();
 }
 
@@ -1752,6 +1758,7 @@ function assignBulkFixmeNote() {
     return;
   }
   targets.forEach((entry) => { state.fixmeSelections[entry.index] = note; });
+  invalidateCompareSheetHtmlCache();
   renderFixmes();
   showToast(`Đã gán note cho ${targets.length} dòng FIXME.`, "success");
 }
@@ -1763,6 +1770,7 @@ function clearBulkFixmeNotes() {
     return;
   }
   targets.forEach((entry) => { delete state.fixmeSelections[entry.index]; });
+  invalidateCompareSheetHtmlCache();
   renderFixmes();
   showToast(`Đã xóa note khỏi ${targets.length} dòng FIXME.`, "success");
 }
@@ -1820,6 +1828,7 @@ function renameFixmeSelectionNote(oldValue, newValue) {
   Object.keys(state.fixmeSelections).forEach((index) => {
     if (state.fixmeSelections[index] === oldValue) state.fixmeSelections[index] = newValue;
   });
+  invalidateCompareSheetHtmlCache();
 }
 
 function pruneFixmeSelectionsToNotes() {
@@ -1827,6 +1836,7 @@ function pruneFixmeSelectionsToNotes() {
   Object.keys(state.fixmeSelections).forEach((index) => {
     if (!knownNotes.has(state.fixmeSelections[index])) delete state.fixmeSelections[index];
   });
+  invalidateCompareSheetHtmlCache();
 }
 
 function normalizeCompareView(view) {
@@ -1851,6 +1861,11 @@ function normalizeCompareView(view) {
     activeSheetName: current.activeSheetName || "",
     sheet: null,
     loadingKey: "",
+    sheetCache: {},
+    sheetHtmlCache: {},
+    sheetPending: {},
+    preloadStarted: false,
+    viewToken: `${Date.now()}:${Math.random()}`,
   };
 }
 
@@ -1874,15 +1889,15 @@ function renderComparePreview() {
   updateFixmeToolbarState();
 
   if (!active.workbook) {
-    showComparePreviewStatus("Case đang chọn chưa có file compare.");
+    showComparePreviewStatus("Case đang chọn chưa có file compare.", { done: true });
     return;
   }
   if (active.workbook.error) {
-    showComparePreviewStatus(`Không đọc được workbook: ${active.workbook.error}`);
+    showComparePreviewStatus(`Không đọc được workbook: ${active.workbook.error}`, { done: true });
     return;
   }
   if (!active.sheet) {
-    showComparePreviewStatus("Workbook đang chọn chưa có sheet để hiển thị.");
+    showComparePreviewStatus("Workbook đang chọn chưa có sheet để hiển thị.", { done: true });
     return;
   }
   loadActiveCompareSheet();
@@ -1906,7 +1921,7 @@ function ensureActiveCompareSelection() {
 function renderCompareCaseTabs(cases, activeCase) {
   const container = $("#compare-case-tabs");
   container.innerHTML = cases.map((caseItem) =>
-    `<button class="compare-tab ${caseItem.id === activeCase?.id ? "active" : ""}" data-compare-case="${escapeHtml(caseItem.id)}" type="button" title="${escapeHtml(caseItem.name)}">${escapeHtml(caseItem.name)}</button>`
+    `<button class="compare-tab compare-copyable-tab ${caseItem.id === activeCase?.id ? "active" : ""}" data-compare-case="${escapeHtml(caseItem.id)}" data-compare-copy-label="case" data-compare-copy-value="${escapeHtml(caseItem.name)}" type="button" title="${escapeHtml(caseItem.name)}">${escapeHtml(caseItem.name)}</button>`
   ).join("");
   $$("[data-compare-case]", container).forEach((button) => button.addEventListener("click", () => {
     state.compareView.activeCaseId = button.dataset.compareCase;
@@ -1915,13 +1930,14 @@ function renderCompareCaseTabs(cases, activeCase) {
     state.compareView.sheet = null;
     renderComparePreview();
   }));
+  bindCompareTabCopyControls(container);
 }
 
 function renderCompareWorkbookTabs(caseItem, activeWorkbook) {
   const container = $("#compare-workbook-tabs");
   const workbooks = caseItem?.workbooks || [];
   container.innerHTML = workbooks.map((workbook) =>
-    `<button class="compare-tab ${workbook.id === activeWorkbook?.id ? "active" : ""} ${workbook.error ? "error" : ""}" data-compare-workbook="${escapeHtml(workbook.id)}" type="button" title="${escapeHtml(workbook.path || workbook.name)}">${escapeHtml(workbook.name)}</button>`
+    `<button class="compare-tab compare-copyable-tab ${workbook.id === activeWorkbook?.id ? "active" : ""} ${workbook.error ? "error" : ""}" data-compare-workbook="${escapeHtml(workbook.id)}" data-compare-copy-label="file" data-compare-copy-value="${escapeHtml(workbook.name)}" type="button" title="${escapeHtml(workbook.path || workbook.name)}">${escapeHtml(workbook.name)}</button>`
   ).join("");
   $$("[data-compare-workbook]", container).forEach((button) => button.addEventListener("click", () => {
     state.compareView.activeWorkbookId = button.dataset.compareWorkbook;
@@ -1929,19 +1945,59 @@ function renderCompareWorkbookTabs(caseItem, activeWorkbook) {
     state.compareView.sheet = null;
     renderComparePreview();
   }));
+  bindCompareTabCopyControls(container);
 }
 
 function renderCompareSheetTabs(workbook, activeSheet) {
   const container = $("#compare-sheet-tabs");
   const sheets = workbook?.sheets || [];
   container.innerHTML = sheets.map((sheet) =>
-    `<button class="compare-tab ${sheet.name === activeSheet?.name ? "active" : ""}" data-compare-sheet="${escapeHtml(sheet.name)}" type="button" title="${escapeHtml(sheet.name)}">${escapeHtml(sheet.name)}</button>`
+    `<button class="compare-tab compare-copyable-tab ${sheet.name === activeSheet?.name ? "active" : ""}" data-compare-sheet="${escapeHtml(sheet.name)}" data-compare-copy-label="sheet" data-compare-copy-value="${escapeHtml(sheet.name)}" type="button" title="${escapeHtml(sheet.name)}">${escapeHtml(sheet.name)}</button>`
   ).join("");
   $$("[data-compare-sheet]", container).forEach((button) => button.addEventListener("click", () => {
     state.compareView.activeSheetName = button.dataset.compareSheet;
     state.compareView.sheet = null;
     renderComparePreview();
   }));
+  bindCompareTabCopyControls(container);
+}
+
+function pageScroller() {
+  return document.scrollingElement || document.documentElement || document.body;
+}
+
+function currentPageScrollTop() {
+  const scroller = pageScroller();
+  return scroller?.scrollTop || window.scrollY || 0;
+}
+
+function scrollPageTo(top, behavior = "auto") {
+  const scroller = pageScroller();
+  if (scroller?.scrollTo) {
+    scroller.scrollTo({ top, behavior });
+  } else {
+    window.scrollTo({ top, behavior });
+  }
+}
+
+function bindCompareTabCopyControls(container) {
+  $$("[data-compare-copy-value]", container).forEach((button) => {
+    button.addEventListener("dblclick", () => copyCompareTabValue(button));
+    button.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        copyCompareTabValue(button);
+      }
+    });
+  });
+}
+
+async function copyCompareTabValue(button) {
+  const value = button?.dataset?.compareCopyValue || button?.textContent?.trim() || "";
+  if (!value) return;
+  const label = button?.dataset?.compareCopyLabel || "giá trị";
+  await writeClipboardText(value);
+  showToast(`Đã sao chép tên ${label}.`, "success");
 }
 
 async function refreshComparePreview() {
@@ -1949,10 +2005,31 @@ async function refreshComparePreview() {
     const response = await api("/api/compare-view");
     state.compareView = normalizeCompareView(response.compare_view);
     renderComparePreview();
+    preloadCompareSheets();
+    if (state.compareView.cases.length) requestComparePageBottomScroll();
     showToast("Đã tải lại view file compare.", "success");
   } catch (error) {
     showToast(error.message, "error", 7000);
   }
+}
+
+function requestComparePageBottomScroll() {
+  state.compareView.scrollPageToBottomAfterRender = true;
+  scrollComparePageToBottom();
+}
+
+function scrollComparePageToBottom() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const scroller = pageScroller();
+      const maxTop = Math.max(
+        document.documentElement.scrollHeight,
+        document.body?.scrollHeight || 0,
+        scroller?.scrollHeight || 0,
+      );
+      scrollPageTo(maxTop, "smooth");
+    });
+  });
 }
 
 function reloadActiveCompareSheet() {
@@ -1965,29 +2042,101 @@ function reloadActiveCompareSheet() {
 async function loadActiveCompareSheet() {
   const active = ensureActiveCompareSelection();
   if (!active.workbook || !active.sheet || active.workbook.error) return;
-  const key = `${active.workbook.id}\u001f${active.sheet.name}`;
+  const key = compareSheetCacheKey(active.workbook, active.sheet);
+  const cachedSheet = state.compareView.sheetCache?.[key];
+  if (cachedSheet) {
+    state.compareView.sheet = cachedSheet;
+    state.compareView.loadingKey = "";
+    renderCompareSheet();
+    return;
+  }
   if (state.compareView.sheet?.key === key) {
     renderCompareSheet();
     return;
   }
   if (state.compareView.loadingKey === key) return;
   state.compareView.loadingKey = key;
-  showComparePreviewStatus(`Đang tải sheet ${active.sheet.name}...`);
+  const keepCurrentTable = !$("#compare-preview-table")?.classList.contains("hidden");
+  showComparePreviewStatus(`Đang tải sheet ${active.sheet.name}...`, { keepTable: keepCurrentTable });
   try {
-    const sheet = await api(`/api/compare-view/sheet?workbook_id=${encodeURIComponent(active.workbook.id)}&sheet=${encodeURIComponent(active.sheet.name)}`);
+    const sheet = await fetchCompareSheet(active.workbook, active.sheet);
     if (state.compareView.loadingKey !== key) return;
-    state.compareView.sheet = { ...sheet, key };
+    state.compareView.sheet = sheet;
     state.compareView.loadingKey = "";
     renderCompareSheet();
   } catch (error) {
     if (state.compareView.loadingKey !== key) return;
     state.compareView.loadingKey = "";
-    showComparePreviewStatus(error.message);
+    showComparePreviewStatus(error.message, { done: true });
   }
 }
 
-function showComparePreviewStatus(message) {
+function compareSheetCacheKey(workbook, sheet) {
+  return `${workbook?.id || ""}\u001f${sheet?.name || ""}`;
+}
+
+function compareSheetReferences() {
+  const refs = [];
+  (state.compareView.cases || []).forEach((caseItem) => {
+    (caseItem.workbooks || []).forEach((workbook) => {
+      if (workbook.error) return;
+      (workbook.sheets || []).forEach((sheet) => refs.push({ workbook, sheet }));
+    });
+  });
+  return refs;
+}
+
+async function fetchCompareSheet(workbook, sheet) {
+  const key = compareSheetCacheKey(workbook, sheet);
+  const viewToken = state.compareView.viewToken;
+  state.compareView.sheetCache = state.compareView.sheetCache || {};
+  state.compareView.sheetPending = state.compareView.sheetPending || {};
+  if (state.compareView.sheetCache[key]) return state.compareView.sheetCache[key];
+  if (state.compareView.sheetPending[key]) return state.compareView.sheetPending[key];
+
+  const promise = api(`/api/compare-view/sheet?workbook_id=${encodeURIComponent(workbook.id)}&sheet=${encodeURIComponent(sheet.name)}`)
+    .then((sheetData) => {
+      const normalizedSheet = { ...sheetData, key };
+      if (state.compareView.viewToken !== viewToken) return normalizedSheet;
+      state.compareView.sheetCache[key] = normalizedSheet;
+      scheduleCompareSheetHtmlBuild(normalizedSheet);
+      return normalizedSheet;
+    })
+    .finally(() => {
+      if (state.compareView.viewToken === viewToken) delete state.compareView.sheetPending[key];
+    });
+  state.compareView.sheetPending[key] = promise;
+  return promise;
+}
+
+function preloadCompareSheets() {
+  if (state.compareView.preloadStarted) return;
+  const refs = compareSheetReferences();
+  if (!refs.length) return;
+  state.compareView.preloadStarted = true;
+  const queue = refs.slice();
+  const workerCount = Math.min(4, queue.length);
+  const runNext = async () => {
+    while (queue.length) {
+      const ref = queue.shift();
+      try {
+        await fetchCompareSheet(ref.workbook, ref.sheet);
+      } catch (_error) {
+        // Individual corrupt/locked sheets should not stop the rest of the preload.
+      }
+    }
+  };
+  Promise.all(Array.from({ length: workerCount }, runNext)).finally(() => {
+    state.compareView.preloadDone = true;
+  });
+}
+
+function showComparePreviewStatus(message, options = {}) {
   $("#compare-preview-status").textContent = message;
+  if (options.keepTable) {
+    $("#compare-preview-status").classList.add("hidden");
+    return;
+  }
   $("#compare-preview-status").classList.remove("hidden");
   $("#compare-preview-table").classList.add("hidden");
   $("#compare-scroll-pad")?.classList.add("hidden");
@@ -1996,17 +2145,17 @@ function showComparePreviewStatus(message) {
 function scrollComparePreview(direction) {
   const container = $(".compare-grid-wrap");
   if (!container) return;
-  const stepX = Math.max(160, Math.floor(container.clientWidth * 0.55));
-  const stepY = Math.max(90, Math.floor(container.clientHeight * 0.55));
+  const maxLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+  const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
   const moves = {
-    left: { left: -stepX, top: 0 },
-    right: { left: stepX, top: 0 },
-    up: { left: 0, top: -stepY },
-    down: { left: 0, top: stepY },
+    left: { left: 0, top: container.scrollTop },
+    right: { left: maxLeft, top: container.scrollTop },
+    up: { left: container.scrollLeft, top: 0 },
+    down: { left: container.scrollLeft, top: maxTop },
   };
   const move = moves[String(direction || "").toLowerCase()];
   if (!move) return;
-  container.scrollBy({ ...move, behavior: "smooth" });
+  container.scrollTo({ ...move, behavior: "smooth" });
 }
 
 function renderCompareSheet() {
@@ -2014,10 +2163,36 @@ function renderCompareSheet() {
   const active = ensureActiveCompareSelection();
   if (!sheet || sheet.key !== `${active.workbook?.id}\u001f${active.sheet?.name}`) return;
   const table = $("#compare-preview-table");
+  state.compareView.sheetHtmlCache = state.compareView.sheetHtmlCache || {};
+  const html = state.compareView.sheetHtmlCache[sheet.key] || buildCompareSheetHtml(sheet);
+  state.compareView.sheetHtmlCache[sheet.key] = html;
+  const renderKey = `${state.compareView.viewToken || ""}\u001f${sheet.key}`;
+  const needsDomSwap = table.dataset.compareSheetRenderKey !== renderKey || !table.innerHTML.trim();
+  if (needsDomSwap) {
+    table.innerHTML = html;
+    table.dataset.compareSheetRenderKey = renderKey;
+  }
+  $("#compare-preview-status").classList.add("hidden");
+  table.classList.remove("hidden");
+  $("#compare-scroll-pad")?.classList.remove("hidden");
+  if (needsDomSwap) {
+    bindCompareCellCopyControls(table);
+    bindCompareFixmeControls();
+  } else {
+    syncComparePreviewNoteControls();
+  }
+  updateCompareBulkToolbarState();
+  if (state.compareView.scrollPageToBottomAfterRender) {
+    delete state.compareView.scrollPageToBottomAfterRender;
+    scrollComparePageToBottom();
+  }
+}
+
+function buildCompareSheetHtml(sheet) {
   const widths = Array.isArray(sheet.column_widths) ? sheet.column_widths : [];
   const letters = Array.isArray(sheet.column_letters) ? sheet.column_letters : [];
   const rows = Array.isArray(sheet.rows) ? sheet.rows : [];
-  table.innerHTML = `
+  return `
     <colgroup>
       <col class="compare-row-number-col">
       ${widths.map(() => `<col class="compare-value-col">`).join("")}
@@ -2030,12 +2205,28 @@ function renderCompareSheet() {
         ${(row.cells || []).map((cell, index) => compareCellHtml(cell, row, index)).join("")}
         ${compareCheckCellHtml(row)}
       </tr>`).join("")}</tbody>`;
-  $("#compare-preview-status").classList.add("hidden");
-  table.classList.remove("hidden");
-  $("#compare-scroll-pad")?.classList.remove("hidden");
-  bindCompareCellCopyControls(table);
-  bindCompareFixmeControls();
-  updateCompareBulkToolbarState();
+}
+
+function invalidateCompareSheetHtmlCache() {
+  if (state.compareView) state.compareView.sheetHtmlCache = {};
+}
+
+function scheduleCompareSheetHtmlBuild(sheet) {
+  if (!sheet?.key) return;
+  const viewToken = state.compareView.viewToken;
+  const build = () => {
+    if (state.compareView.viewToken !== viewToken) return;
+    if (!state.compareView.sheetCache?.[sheet.key]) return;
+    state.compareView.sheetHtmlCache = state.compareView.sheetHtmlCache || {};
+    if (!state.compareView.sheetHtmlCache[sheet.key]) {
+      state.compareView.sheetHtmlCache[sheet.key] = buildCompareSheetHtml(sheet);
+    }
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(build, { timeout: 1500 });
+  } else {
+    window.setTimeout(build, 0);
+  }
 }
 
 function compareColumnStickyClass(index) {
@@ -2160,14 +2351,24 @@ function compareCellContent(cell, fixmeIndices) {
       : "";
     return `<input class="compare-fixme-note-input" data-compare-fixme-indices="${escapeHtml(fixmeIndices.join(","))}" data-compare-fixme-value="${escapeHtml(workbookValue)}" list="fixme-note-values" value="${escapeHtml(compareFixmeInputValue(fixmeIndices, workbookValue))}" placeholder="Nhập hoặc chọn note">${existingNote}`;
   }
-  return `<textarea class="compare-cell-value" readonly title="Click để chọn/copy value">${escapeHtml(cell.value)}</textarea>`;
+  return `<div class="compare-cell-value" tabindex="0" title="Click để chọn/copy value">${escapeHtml(cell.value)}</div>`;
 }
 
 function bindCompareCellCopyControls(root) {
-  $$(".compare-cell-value", root).forEach((textarea) => {
-    textarea.addEventListener("focus", () => textarea.select());
-    textarea.addEventListener("click", () => textarea.select());
+  $$(".compare-cell-value", root).forEach((cell) => {
+    cell.addEventListener("focus", () => selectCompareCellText(cell));
+    cell.addEventListener("click", () => selectCompareCellText(cell));
   });
+}
+
+function selectCompareCellText(cell) {
+  if (!cell) return;
+  const selection = window.getSelection?.();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(cell);
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 function compareFixmeInputValue(indices, workbookValue = "") {
@@ -2187,6 +2388,7 @@ function bindCompareFixmeControls() {
         if (checkbox.checked) state.fixmeCheckedRows.add(String(index));
         else state.fixmeCheckedRows.delete(String(index));
       });
+      invalidateCompareSheetHtmlCache();
       syncFixmeRowChecks();
       updateFixmeToolbarState();
       updateCompareBulkToolbarState();
@@ -2200,6 +2402,7 @@ function bindCompareFixmeControls() {
         if (value) state.fixmeSelections[index] = value;
         else delete state.fixmeSelections[index];
       });
+      invalidateCompareSheetHtmlCache();
       renderFixmes();
       syncComparePreviewNoteControls();
     });
@@ -2220,6 +2423,7 @@ function toggleVisibleCompareFixmeRows(event) {
     if (event.target.checked) state.fixmeCheckedRows.add(index);
     else state.fixmeCheckedRows.delete(index);
   });
+  invalidateCompareSheetHtmlCache();
   syncFixmeRowChecks();
   syncComparePreviewNoteControls();
   updateFixmeToolbarState();
@@ -2239,6 +2443,7 @@ function assignCompareBulkNote() {
     return;
   }
   targets.forEach((index) => { state.fixmeSelections[index] = note; });
+  invalidateCompareSheetHtmlCache();
   renderFixmes();
   syncComparePreviewNoteControls();
   updateCompareBulkToolbarState();
@@ -2247,6 +2452,7 @@ function assignCompareBulkNote() {
 
 function clearCompareRowSelection() {
   state.fixmeCheckedRows.clear();
+  invalidateCompareSheetHtmlCache();
   syncFixmeRowChecks();
   syncComparePreviewNoteControls();
   updateFixmeToolbarState();
@@ -2715,9 +2921,11 @@ function consumeJobResult(job) {
   if (result.compare_view) {
     state.compareView = normalizeCompareView(result.compare_view);
     renderComparePreview();
+    preloadCompareSheets();
     if (state.compareView.cases.length && $("#page-compare.active, #page-folder-compare.active")) {
-      showPage("compare", true);
+      showPage("compare", true, { scrollTop: false });
       $("#tab-compare-preview-card")?.click();
+      requestComparePageBottomScroll();
     }
   }
   if (Array.isArray(result.fixme_scan_locations)) {
