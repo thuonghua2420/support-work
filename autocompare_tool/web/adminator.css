@@ -367,3 +367,32 @@ body:has(.panel-expanded) { overflow: hidden; }
   #page-database .sql-toolbar-actions { gap: 6px; }
   #page-database .sql-toolbar-actions button { flex: 0 1 auto; }
 }
+
+/* Keep workbook actions in the otherwise unused page-intro space. */
+#page-compare > .page-intro { position: relative; }
+.compare-page-toolbar { position: absolute; z-index: 5; top: 1px; right: 0; display: grid; width: min(900px, calc(100% - 260px)); gap: 7px; margin: 0; }
+.compare-page-toolbar > .card-heading { align-items: center; justify-content: space-between; flex-direction: row; flex-wrap: nowrap; margin: 0; }
+.compare-page-toolbar > .card-heading .step-number,
+.compare-page-toolbar > .card-heading h3 { display: none; }
+.compare-page-toolbar > .card-heading .inline-actions { justify-content: flex-end; gap: 7px; }
+.compare-page-toolbar > .compare-bulk-toolbar { grid-template-columns: auto minmax(190px, 1fr) auto auto; gap: 7px; margin: 0; padding: 0; border: 0; background: transparent; }
+.compare-page-toolbar > .compare-bulk-toolbar select { min-height: 34px; }
+#compare-preview-card { margin-top: 0; padding-top: 12px; }
+.compare-preview-card.panel-expanded > .compare-page-toolbar { position: static; flex: 0 0 auto; width: 100%; max-width: none; margin: 0 0 8px; }
+.compare-preview-card.panel-expanded > .compare-page-toolbar > .card-heading,
+.compare-preview-card.panel-expanded > .compare-page-toolbar > .compare-bulk-toolbar { flex: 0 0 auto; }
+
+@media (max-width: 1200px) {
+  #page-compare > .page-intro { flex-wrap: wrap; }
+  .compare-page-toolbar { position: static; flex: 1 1 100%; width: 100%; max-width: none; margin: 0; }
+}
+
+@media (max-width: 600px) {
+  .compare-page-toolbar > .card-heading { align-items: stretch; flex-direction: column; }
+  .compare-page-toolbar > .card-heading .inline-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .compare-page-toolbar > .card-heading .inline-actions > button { width: 100%; }
+  .compare-page-toolbar > .compare-bulk-toolbar { grid-template-columns: 1fr; }
+  .compare-page-toolbar > .compare-bulk-toolbar button,
+  .compare-page-toolbar > .compare-bulk-toolbar select { width: 100%; }
+  #compare-preview-card { padding-top: 8px; }
+}

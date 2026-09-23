@@ -98,7 +98,7 @@ const path = require('node:path');
     const naturalGridHeight = await page.locator('.compare-grid-wrap').evaluate(el => el.getBoundingClientRect().height);
     const tableHeight = await page.locator('#compare-preview-table').evaluate(el => el.getBoundingClientRect().height);
     assert.ok(naturalGridHeight >= tableHeight, 'Normal workbook view should expand to the full sheet height');
-    await page.locator('#compare-preview-card .expand-panel').click();
+    await page.locator('#compare-page-toolbar .expand-panel').click();
     const fullscreen = await page.locator('#compare-preview-card').evaluate(el => {
       const rect = el.getBoundingClientRect();
       return { top: rect.top, left: rect.left, width: rect.width, height: rect.height, viewportWidth: innerWidth, viewportHeight: innerHeight };

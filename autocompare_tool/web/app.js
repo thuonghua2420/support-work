@@ -1893,8 +1893,6 @@ function renderComparePreview() {
   }
 
   const active = ensureActiveCompareSelection();
-  const workbookCount = cases.reduce((total, caseItem) => total + (caseItem.workbooks?.length || 0), 0);
-  $("#compare-preview-meta").textContent = `${workbookCount} workbook`;
   renderCompareCaseTabs(cases, active.caseItem);
   renderCompareWorkbookTabs(active.caseItem, active.workbook);
   renderCompareSheetTabs(active.workbook, active.sheet);

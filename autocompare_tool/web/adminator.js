@@ -44,6 +44,7 @@ function prepareAdminatorLayout() {
     button.innerHTML = '<i data-lucide="maximize-2"></i>';
     button.addEventListener("click", () => {
       const expanded = panel.classList.toggle("panel-expanded");
+      if (id === "compare-preview-card") placeComparePageToolbar(panel, expanded);
       button.setAttribute("aria-pressed", String(expanded));
       button.title = expanded ? "Thu nhỏ kết quả" : "Phóng to kết quả";
       button.setAttribute("aria-label", button.title);
@@ -52,10 +53,38 @@ function prepareAdminatorLayout() {
     });
     actions.append(button);
   }
+  prepareComparePageToolbar();
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") document.querySelector(".panel-expanded .expand-panel")?.click();
   });
   window.lucide?.createIcons();
+}
+
+function prepareComparePageToolbar() {
+  const page = document.getElementById("page-compare");
+  const intro = page?.querySelector(".page-intro");
+  const panel = document.getElementById("compare-preview-card");
+  const heading = panel?.querySelector(":scope > .card-heading");
+  const bulk = document.getElementById("compare-bulk-tools");
+  if (!intro || !panel || !heading || !bulk || document.getElementById("compare-page-toolbar")) return;
+  const toolbar = document.createElement("div");
+  toolbar.id = "compare-page-toolbar";
+  toolbar.className = "compare-page-toolbar hidden";
+  toolbar.setAttribute("aria-label", "Thao tác workbook compare");
+  toolbar.append(heading, bulk);
+  intro.append(toolbar);
+}
+
+function placeComparePageToolbar(panel, expanded) {
+  const toolbar = document.getElementById("compare-page-toolbar");
+  const intro = document.querySelector("#page-compare > .page-intro");
+  if (!toolbar || !intro) return;
+  if (expanded) {
+    panel.prepend(toolbar);
+    toolbar.classList.remove("hidden");
+  } else {
+    intro.append(toolbar);
+  }
 }
 
 function prepareCompactWorkspaces() {
@@ -138,6 +167,12 @@ function prepareCompareWorkbench() {
       button.tabIndex = active ? 0 : -1;
       document.getElementById(button.getAttribute("aria-controls")).classList.toggle("active", active);
     });
+    const compareToolbar = document.getElementById("compare-page-toolbar");
+    const comparePanel = document.getElementById("compare-preview-card");
+    compareToolbar?.classList.toggle(
+      "hidden",
+      target.id !== "tab-compare-preview-card" || comparePanel?.classList.contains("hidden"),
+    );
   };
   sections.forEach(([id, label], index) => {
     const content = document.getElementById(id);
