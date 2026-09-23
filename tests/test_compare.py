@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from autocompare_tool.compare import build_sheet_comparison, cell_value
+from autocompare_tool.compare import build_sheet_comparison, cell_value, cell_values_equal
 from autocompare_tool.csv_table import CsvTable
 
 
@@ -139,6 +139,14 @@ class CompareTests(unittest.TestCase):
         comparison = build_sheet_comparison("sample.csv", before, after)
 
         self.assertEqual(comparison.columns, ["id", "name"])
+
+    def test_exact_cell_comparison_keeps_null_empty_missing_and_line_endings_distinct(self) -> None:
+        self.assertFalse(cell_values_equal({"value": None}, {"value": "NULL"}, "value"))
+        self.assertFalse(cell_values_equal({"value": None}, {"value": ""}, "value"))
+        self.assertFalse(cell_values_equal({}, {"value": ""}, "value"))
+        self.assertFalse(cell_values_equal(None, {"value": ""}, "value"))
+        self.assertFalse(cell_values_equal({"value": "a\r\nb"}, {"value": "a\nb"}, "value"))
+        self.assertTrue(cell_values_equal({"value": " exact "}, {"value": " exact "}, "value"))
 
 
 if __name__ == "__main__":

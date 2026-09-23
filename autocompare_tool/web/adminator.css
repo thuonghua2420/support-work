@@ -69,9 +69,9 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--blue);
 input, select, textarea { border-radius: 4px; border-color: #cdd5df; background: white; }
 input, select { min-height: 38px; padding: 8px 10px; }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
-.folder-export-options { border-radius: 4px; }
-.folder-export-options label { position: relative; border-radius: 3px; }
-.folder-export-options input { width: 1px; height: 1px; min-height: 0; padding: 0; margin: 0; clip-path: inset(50%); }
+.folder-export-options { border-radius: 0; }
+.folder-export-options label { position: relative; border-radius: 0; }
+.folder-export-options input { width: 14px; height: 14px; min-height: 14px; padding: 0; margin: 0; clip-path: none; }
 .folder-export-options label:has(input:focus-visible) { outline: 2px solid var(--blue); outline-offset: 3px; }
 .folder-export-options label:has(input:checked) { box-shadow: none; }
 .path-control { gap: 0; }
@@ -294,8 +294,8 @@ body:has(.panel-expanded) { overflow: hidden; }
 #page-database .import-mode-card.danger-mode b { color: #b42332; }
 #page-database .switch-row { justify-content: flex-start; gap: 12px; min-height: 32px; padding: 4px 0; margin: 8px 0; border: 0; background: none; }
 #page-database .switch-row .switch { margin-left: 0; flex-shrink: 0; }
-#folder-compare-form .folder-export-options { padding: 0; gap: 2px; background: none; border: 1px solid var(--line); width: fit-content; max-width: 100%; }
-#folder-compare-form .folder-export-options label { min-height: 30px; padding: 4px 12px; }
+#folder-compare-form .folder-export-options { padding: 0; gap: 8px 18px; background: none; border: 0; width: fit-content; max-width: 100%; }
+#folder-compare-form .folder-export-options label { min-height: 30px; padding: 4px 0; }
 .csv-common-panel { display: grid; gap: 8px; }
 .csv-common-panel > .field { margin: 0; }
 .csv-common-panel .import-mode-fieldset { margin: 10px 0 0; }

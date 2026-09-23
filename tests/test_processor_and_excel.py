@@ -10,12 +10,18 @@ try:
     from autocompare_tool.app_config import ExcelCompareStyleConfig, load_app_config
     from autocompare_tool.excel_writer import WorkbookFixmeEntry, write_compare_workbook_with_fixmes
     from autocompare_tool.fixme_replacements import apply_fixme_replacements
-    from autocompare_tool.folder_compare import compare_csv_folder_pairs, compare_csv_folders, preview_folder_compare_pairs
+    from autocompare_tool.folder_compare import (
+        compare_csv_folder_pairs,
+        compare_csv_folder_pairs_to_workbook,
+        compare_csv_folders,
+        preview_folder_compare_pairs,
+    )
     from autocompare_tool.processor import process_root
 except ImportError:  # pragma: no cover
     apply_fixme_replacements = None
     compare_csv_folders = None
     compare_csv_folder_pairs = None
+    compare_csv_folder_pairs_to_workbook = None
     preview_folder_compare_pairs = None
     ExcelCompareStyleConfig = None
     Workbook = None
@@ -244,6 +250,50 @@ class ProcessorAndExcelTests(unittest.TestCase):
             self.assertTrue((output / "customer_compare.xlsx").exists())
             self.assertTrue((output / "order_compare.xlsx").exists())
             self.assertEqual(len(preview_folder_compare_pairs(left, right)), 2)
+
+    def test_compare_csv_folder_pairs_can_export_one_workbook_named_from_right_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            left = root / "left"
+            right = root / "right"
+            left.mkdir()
+            right.mkdir()
+            _write_text(left / "customer_old.csv", "id,name\n1,A\n")
+            _write_text(left / "order_old.csv", "id,total\n1,10\n")
+            _write_text(right / "customer_new.csv", "id,name\n1,B\n")
+            _write_text(right / "order_new.csv", "id,total\n1,20\n")
+            output = root / "paired.xlsx"
+
+            summary = compare_csv_folder_pairs_to_workbook(left, right, output, [
+                {"left_name": "customer_old.csv", "right_name": "customer_new.csv"},
+                {"left_name": "order_old.csv", "right_name": "order_new.csv"},
+            ])
+
+            self.assertEqual(summary.workbook_count, 1)
+            self.assertEqual(summary.sheet_count, 2)
+            workbook = load_workbook(output)
+            try:
+                self.assertEqual(workbook.sheetnames, ["customer_new", "order_new"])
+            finally:
+                workbook.close()
+
+    def test_compare_detects_line_endings_and_distinct_null_representations(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            before = root / "before"
+            after = root / "after"
+            before.mkdir()
+            after.mkdir()
+            _write_text(before / "table.csv", 'id,text,nullish\r\n1,"line1\r\nline2",\r\n')
+            _write_text(after / "table.csv", 'id,text,nullish\r\n1,"line1\nline2","NULL"\r\n')
+            output = root / "compare.xlsx"
+
+            result = write_compare_workbook_with_fixmes(before, after, output)
+
+            self.assertEqual({entry.column_name for entry in result.fixme_entries}, {"text", "nullish"})
+            text_entry = next(entry for entry in result.fixme_entries if entry.column_name == "text")
+            self.assertEqual(text_entry.left_value, "line1\r\nline2")
+            self.assertEqual(text_entry.right_value, "line1\nline2")
 
     def test_compare_workbook_uses_configurable_style_colors(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

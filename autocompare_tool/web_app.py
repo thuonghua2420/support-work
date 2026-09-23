@@ -55,7 +55,12 @@ from .file_utilities import (
 )
 from .fixme_notes import FixmeNote, FixmeNoteStore
 from .fixme_replacements import apply_fixme_replacements
-from .folder_compare import compare_csv_folder_pairs, compare_csv_folders, preview_folder_compare_pairs
+from .folder_compare import (
+    compare_csv_folder_pairs,
+    compare_csv_folder_pairs_to_workbook,
+    compare_csv_folders,
+    preview_folder_compare_pairs,
+)
 from .processor import process_root
 from .sql_excel_loader import format_excel_sql_entries, load_sql_entries_from_excel, render_raw_sql_entries
 from .sql_tools import analyze_sql, format_sql
@@ -770,8 +775,9 @@ class AutoCompareWebApplication:
 
     def _folder_compare(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
         mode = str(payload.get("export_mode", "single"))
-        if mode == "separate":
-            summary = compare_csv_folder_pairs(
+        if mode in {"separate", "paired_single"}:
+            compare_pairs = compare_csv_folder_pairs_to_workbook if mode == "paired_single" else compare_csv_folder_pairs
+            summary = compare_pairs(
                 _text(payload, "left"),
                 _text(payload, "right"),
                 _text(payload, "output"),

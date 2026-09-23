@@ -10,7 +10,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from .app_config import ExcelCompareStyleConfig, ExcelHeaderConfig, load_app_config
-from .compare import SheetComparison, build_sheet_comparison, cell_value
+from .compare import SheetComparison, build_sheet_comparison, cell_value, cell_values_equal
 from .csv_table import CsvTable, read_csv_table
 
 INVALID_SHEET_CHARS = re.compile(r"[\[\]:*?/\\]")
@@ -285,7 +285,7 @@ def _write_sheet(
             before_cell.font = styles.base_font
             after_cell.font = styles.base_font
 
-            if before_value != after_value:
+            if not cell_values_equal(pair.before, pair.after, column_name):
                 has_mismatch = True
                 _style_diff(before_cell, styles)
                 _style_diff(after_cell, styles)

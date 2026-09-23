@@ -147,11 +147,17 @@
                   <span>File compare</span>
                   <div class="compare-file-row">
                     <div class="compare-tabs" id="compare-workbook-tabs"></div>
-                    <div class="compare-scroll-pad hidden" id="compare-scroll-pad" aria-label="Di chuyển vị trí sheet">
-                      <button class="compare-scroll-button up" type="button" data-compare-scroll="up" title="Di chuyển lên" aria-label="Di chuyển lên">↑</button>
-                      <button class="compare-scroll-button left" type="button" data-compare-scroll="left" title="Di chuyển sang trái" aria-label="Di chuyển sang trái">←</button>
-                      <button class="compare-scroll-button right" type="button" data-compare-scroll="right" title="Di chuyển sang phải" aria-label="Di chuyển sang phải">→</button>
-                      <button class="compare-scroll-button down" type="button" data-compare-scroll="down" title="Di chuyển xuống" aria-label="Di chuyển xuống">↓</button>
+                    <div class="compare-navigation-tools hidden" id="compare-navigation-tools">
+                      <label class="compare-diff-filter-control" title="Chỉ hiển thị các dòng có value sai khác">
+                        <input id="compare-filter-differences" type="checkbox">
+                        <span>Filter sai khác</span>
+                      </label>
+                      <div class="compare-scroll-pad" id="compare-scroll-pad" aria-label="Di chuyển vị trí sheet">
+                        <button class="compare-scroll-button up" type="button" data-compare-scroll="up" title="Di chuyển lên" aria-label="Di chuyển lên">↑</button>
+                        <button class="compare-scroll-button left" type="button" data-compare-scroll="left" title="Di chuyển sang trái" aria-label="Di chuyển sang trái">←</button>
+                        <button class="compare-scroll-button right" type="button" data-compare-scroll="right" title="Di chuyển sang phải" aria-label="Di chuyển sang phải">→</button>
+                        <button class="compare-scroll-button down" type="button" data-compare-scroll="down" title="Di chuyển xuống" aria-label="Di chuyển xuống">↓</button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -179,22 +185,23 @@
               <div class="folder-export-options">
                 <label><input type="radio" name="folder-export-mode" value="single" checked><span>Export 1 file</span></label>
                 <label><input type="radio" name="folder-export-mode" value="separate"><span>Export từng file</span></label>
+                <label><input type="radio" name="folder-export-mode" value="paired_single"><span>Gộp các pair vào 1 file</span></label>
               </div>
             </fieldset>
             <label class="field field-wide"><span>File / folder Excel xuất ra</span><span class="path-control"><input id="folder-output" required><button class="browse-button" type="button" data-browse-target="folder-output" data-browse-kind="save" data-browse-ext="xlsx">Chọn</button></span></label>
             <section class="folder-pair-panel hidden" id="folder-pair-panel">
               <div class="card-heading compact">
-                <div><h3>Danh sách file CSV</h3><p>Kéo thả row để sắp lại pair trước khi export. Cột tên file xuất ra có thể sửa trực tiếp.</p></div>
+                <div><h3>Danh sách file CSV</h3><p id="folder-pair-hint">Kéo thả row để sắp lại pair trước khi export. Cột tên file xuất ra có thể sửa trực tiếp.</p></div>
                 <button class="secondary-button" type="button" id="load-folder-pairs">Quét file CSV</button>
               </div>
               <div class="table-wrap folder-pair-wrap">
                 <table class="folder-pair-table">
-                  <thead><tr><th>File folder bên trái</th><th>File folder bên phải</th><th>Tên file export</th></tr></thead>
+                  <thead><tr><th>File folder bên trái</th><th>File folder bên phải</th><th id="folder-pair-output-heading">Tên file export</th></tr></thead>
                   <tbody id="folder-pair-body"><tr><td colspan="3">Chưa quét file CSV.</td></tr></tbody>
                 </table>
               </div>
             </section>
-            <div class="form-actions"><span class="hint">Export 1 file giữ cơ chế cũ. Export từng file sẽ tạo folder theo tên path xuất ra nếu path có đuôi <code>.xlsx</code>.</span><button class="primary-button" type="submit">Tạo file so sánh <b>→</b></button></div>
+            <div class="form-actions"><span class="hint">Chế độ gộp pair tạo một sheet cho mỗi pair và dùng tên file CSV bên phải làm tên sheet.</span><button class="primary-button" type="submit">Tạo file so sánh <b>→</b></button></div>
           </form>
         </section>
 

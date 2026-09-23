@@ -157,7 +157,10 @@ def _read_text(path: Path) -> str:
     last_error: UnicodeDecodeError | None = None
     for encoding in ("utf-8-sig", "utf-8", "cp932"):
         try:
-            return path.read_text(encoding=encoding)
+            # newline="" is intentional: universal-newline translation would
+            # collapse CRLF inside quoted values to LF before comparison.
+            with path.open("r", encoding=encoding, newline="") as file:
+                return file.read()
         except UnicodeDecodeError as exc:
             last_error = exc
 

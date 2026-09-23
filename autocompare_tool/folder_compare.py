@@ -152,6 +152,63 @@ def compare_csv_folder_pairs(
     )
 
 
+def compare_csv_folder_pairs_to_workbook(
+    left_dir: str | Path,
+    right_dir: str | Path,
+    output_path: str | Path,
+    pairs: list[dict[str, str]],
+    log: Logger | None = None,
+    config: AppConfig | None = None,
+) -> FolderCompareSummary:
+    left = Path(left_dir).expanduser().resolve()
+    right = Path(right_dir).expanduser().resolve()
+    output = _normalize_output_path(Path(output_path).expanduser().resolve())
+    logger = log or (lambda message: None)
+    app_config = config or load_app_config()
+
+    _validate_folder(left, "Folder bÃªn trÃ¡i")
+    _validate_folder(right, "Folder bÃªn pháº£i")
+    if output.exists() and output.is_dir():
+        raise IsADirectoryError(f"File Excel xuáº¥t ra Ä‘ang lÃ  folder: {output}")
+
+    csv_pairs: list[tuple[Path, Path, str]] = []
+    for pair in pairs:
+        left_name = str(pair.get("left_name", "")).strip()
+        right_name = str(pair.get("right_name", "")).strip()
+        if not left_name and not right_name:
+            continue
+        left_csv = _resolve_child_csv(left, left_name) if left_name else output.parent / "__missing_left__.csv"
+        right_csv = _resolve_child_csv(right, right_name) if right_name else output.parent / "__missing_right__.csv"
+        # The right-side file is the authoritative sheet label for paired export.
+        csv_pairs.append((left_csv, right_csv, right_name or left_name))
+
+    if not csv_pairs:
+        raise ValueError("ChÆ°a cÃ³ pair CSV nÃ o Ä‘á»ƒ xuáº¥t compare.")
+
+    logger(f"Folder bÃªn trÃ¡i: {left}")
+    logger(f"Folder bÃªn pháº£i: {right}")
+    logger(f"File Excel gá»™p: {output}")
+    result = write_compare_workbook_for_pairs(
+        csv_pairs,
+        output,
+        excel_headers=excel_headers_for_workflow(app_config, WORKFLOW_AFTER_HTC_VS_HTM),
+        case_folder_name=f"{left.name} - {right.name}",
+    )
+    logger(
+        f"ÄÃ£ táº¡o {result.output_path.name} "
+        f"({result.sheet_count} sheet, {len(result.fixme_entries)} má»¥c FIXME)."
+    )
+    return FolderCompareSummary(
+        left_dir=left,
+        right_dir=right,
+        output_path=result.output_path,
+        sheet_count=result.sheet_count,
+        workbook_count=1,
+        output_paths=[result.output_path],
+        fixme_entries=result.fixme_entries,
+    )
+
+
 def _validate_folder(path: Path, label: str) -> None:
     if not path.exists():
         raise FileNotFoundError(f"{label} không tồn tại: {path}")

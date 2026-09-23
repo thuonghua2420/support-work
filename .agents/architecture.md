@@ -111,6 +111,7 @@ Owns:
 - Passing `include_left_only_files=True` and `recursive=True` for the one-workbook mode so all CSV files under both selected folders are represented.
 - Direct-folder CSV pair preview for per-file export.
 - Per-file compare export, where each user-adjusted pair is written to its own workbook.
+- Paired single-workbook export, where user-adjusted pairs become sheets named from the right-side CSV files.
 
 ### `autocompare_tool/file_utilities.py`
 
@@ -134,6 +135,7 @@ Owns:
 - CSV row pairing.
 - Column union.
 - Metadata-column skipping.
+- Exact cell equality that keeps missing cells, `NULL`, empty strings, LF, and CRLF distinct.
 
 Matching rule:
 

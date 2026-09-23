@@ -146,3 +146,18 @@ def cell_value(row: dict[str, str | None] | None, column: str) -> str:
         return ""
     value = row.get(column, "")
     return "NULL" if value is None else value
+
+
+def cell_values_equal(
+    before_row: dict[str, str | None] | None,
+    after_row: dict[str, str | None] | None,
+    column: str,
+) -> bool:
+    """Compare CSV cells without collapsing distinct source representations."""
+    if before_row is None or after_row is None:
+        return before_row is after_row
+    if (column in before_row) != (column in after_row):
+        return False
+    if column not in before_row:
+        return True
+    return before_row[column] == after_row[column]

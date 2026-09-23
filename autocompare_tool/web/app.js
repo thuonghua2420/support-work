@@ -13,6 +13,8 @@ const state = {
   fixmeSorts: defaultFixmeSorts(),
   folderComparePairs: [],
   folderPairDrag: null,
+  compareDifferencesOnly: false,
+  pendingCompareCell: "",
   compareView: { cases: [], activeCaseId: "", activeWorkbookId: "", activeSheetName: "", sheet: null, loadingKey: "", sheetCache: {}, sheetHtmlCache: {}, sheetPending: {}, preloadStarted: false, viewToken: "initial" },
   job: null,
   jobCursor: 0,
@@ -750,7 +752,7 @@ function bindForms() {
   $("#folder-compare-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const exportMode = $('input[name="folder-export-mode"]:checked')?.value || "single";
-    if (exportMode === "separate" && !state.folderComparePairs.length) {
+    if (["separate", "paired_single"].includes(exportMode) && !state.folderComparePairs.length) {
       loadFolderComparePairs();
       return;
     }
@@ -759,7 +761,7 @@ function bindForms() {
       right: valueOf("folder-right"),
       output: valueOf("folder-output"),
       export_mode: exportMode,
-      pairs: exportMode === "separate" ? collectFolderComparePairs() : [],
+      pairs: ["separate", "paired_single"].includes(exportMode) ? collectFolderComparePairs() : [],
     });
   });
   $$('input[name="folder-export-mode"]').forEach((control) => control.addEventListener("change", updateFolderCompareMode));
@@ -1005,6 +1007,7 @@ function bindForms() {
   $("#compare-bulk-note")?.addEventListener("change", updateCompareBulkToolbarState);
   $("#compare-bulk-assign")?.addEventListener("click", assignCompareBulkNote);
   $("#compare-bulk-clear")?.addEventListener("click", clearCompareRowSelection);
+  $("#compare-filter-differences")?.addEventListener("change", updateCompareDifferenceFilter);
   $("#compare-scroll-pad")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-compare-scroll]");
     if (button) scrollComparePreview(button.dataset.compareScroll);
@@ -1047,7 +1050,15 @@ function checkRemainingFixmes() {
 
 function updateFolderCompareMode() {
   const exportMode = $('input[name="folder-export-mode"]:checked')?.value || "single";
-  $("#folder-pair-panel")?.classList.toggle("hidden", exportMode !== "separate");
+  $("#folder-pair-panel")?.classList.toggle("hidden", !["separate", "paired_single"].includes(exportMode));
+  const combined = exportMode === "paired_single";
+  if ($("#folder-pair-output-heading")) $("#folder-pair-output-heading").textContent = combined ? "Tên sheet" : "Tên file export";
+  if ($("#folder-pair-hint")) {
+    $("#folder-pair-hint").textContent = combined
+      ? "Kéo thả để sắp lại pair. Tên sheet tự động lấy từ tên file CSV bên phải."
+      : "Kéo thả row để sắp lại pair trước khi export. Cột tên file xuất ra có thể sửa trực tiếp.";
+  }
+  $$('[data-pair-output]').forEach((input) => { input.disabled = combined; });
 }
 
 function resetFolderComparePairs() {
@@ -1084,11 +1095,12 @@ function renderFolderComparePairs() {
     body.innerHTML = `<tr><td colspan="3">Không tìm thấy file CSV trong hai folder.</td></tr>`;
     return;
   }
+  const combined = $('input[name="folder-export-mode"]:checked')?.value === "paired_single";
   body.innerHTML = state.folderComparePairs.map((pair, index) => `
     <tr data-index="${index}">
       <td draggable="true" data-pair-side="left" data-pair-left="${escapeHtml(pair.left_name || "")}" title="${escapeHtml(pair.left_name || "")}">${escapeHtml(pair.left_name || "(trống)")}</td>
       <td draggable="true" data-pair-side="right" data-pair-right="${escapeHtml(pair.right_name || "")}" title="${escapeHtml(pair.right_name || "")}">${escapeHtml(pair.right_name || "(trống)")}</td>
-      <td><input data-pair-output value="${escapeHtml(pair.output_name || "")}" placeholder="compare_${index + 1}.xlsx"></td>
+      <td><input data-pair-output value="${escapeHtml(pair.output_name || "")}" placeholder="${combined ? "Tên file bên phải" : `compare_${index + 1}.xlsx`}" ${combined ? "disabled" : ""}></td>
     </tr>
   `).join("");
   $$("#folder-pair-body [data-pair-side]").forEach((cell) => {
@@ -2139,7 +2151,7 @@ function showComparePreviewStatus(message, options = {}) {
   }
   $("#compare-preview-status").classList.remove("hidden");
   $("#compare-preview-table").classList.add("hidden");
-  $("#compare-scroll-pad")?.classList.add("hidden");
+  $("#compare-navigation-tools")?.classList.add("hidden");
 }
 
 function scrollComparePreview(direction) {
@@ -2164,9 +2176,10 @@ function renderCompareSheet() {
   if (!sheet || sheet.key !== `${active.workbook?.id}\u001f${active.sheet?.name}`) return;
   const table = $("#compare-preview-table");
   state.compareView.sheetHtmlCache = state.compareView.sheetHtmlCache || {};
-  const html = state.compareView.sheetHtmlCache[sheet.key] || buildCompareSheetHtml(sheet);
-  state.compareView.sheetHtmlCache[sheet.key] = html;
-  const renderKey = `${state.compareView.viewToken || ""}\u001f${sheet.key}`;
+  const htmlKey = `${sheet.key}\u001f${state.compareDifferencesOnly ? "diff" : "all"}`;
+  const html = state.compareView.sheetHtmlCache[htmlKey] || buildCompareSheetHtml(sheet);
+  state.compareView.sheetHtmlCache[htmlKey] = html;
+  const renderKey = `${state.compareView.viewToken || ""}\u001f${htmlKey}`;
   const needsDomSwap = table.dataset.compareSheetRenderKey !== renderKey || !table.innerHTML.trim();
   if (needsDomSwap) {
     table.innerHTML = html;
@@ -2174,7 +2187,7 @@ function renderCompareSheet() {
   }
   $("#compare-preview-status").classList.add("hidden");
   table.classList.remove("hidden");
-  $("#compare-scroll-pad")?.classList.remove("hidden");
+  $("#compare-navigation-tools")?.classList.remove("hidden");
   if (needsDomSwap) {
     bindCompareCellCopyControls(table);
     bindCompareFixmeControls();
@@ -2182,6 +2195,8 @@ function renderCompareSheet() {
     syncComparePreviewNoteControls();
   }
   updateCompareBulkToolbarState();
+  syncCompareDifferenceFilterButton();
+  focusPendingCompareCell();
   if (state.compareView.scrollPageToBottomAfterRender) {
     delete state.compareView.scrollPageToBottomAfterRender;
     scrollComparePageToBottom();
@@ -2191,7 +2206,9 @@ function renderCompareSheet() {
 function buildCompareSheetHtml(sheet) {
   const widths = Array.isArray(sheet.column_widths) ? sheet.column_widths : [];
   const letters = Array.isArray(sheet.column_letters) ? sheet.column_letters : [];
-  const rows = Array.isArray(sheet.rows) ? sheet.rows : [];
+  const rows = (Array.isArray(sheet.rows) ? sheet.rows : []).filter((row) =>
+    !state.compareDifferencesOnly || Number(row.number) <= 2 || compareRowFixmeIndices(row).length > 0
+  );
   return `
     <colgroup>
       <col class="compare-row-number-col">
@@ -2242,7 +2259,41 @@ function compareCellHtml(cell, row, columnIndex = -1) {
   if (compareCellBelongsToDiffPair(cell, row)) classes.push("compare-diff-cell");
   if (cell.style?.wrap) classes.push("wrap");
   if (fixmeIndices.length) classes.push("compare-fixme-cell");
-  return `<td class="${classes.join(" ")}">${compareCellContent(cell, fixmeIndices)}</td>`;
+  const address = `${compareColumnLetter(Number(cell?.column || columnIndex + 1))}${Number(cell?.row || row?.number || 0)}`;
+  return `<td class="${classes.join(" ")}" data-compare-address="${escapeHtml(address)}">${compareCellContent(cell, fixmeIndices)}</td>`;
+}
+
+function compareColumnLetter(column) {
+  let value = Math.max(1, Number(column) || 1);
+  let result = "";
+  while (value > 0) {
+    value -= 1;
+    result = String.fromCharCode(65 + (value % 26)) + result;
+    value = Math.floor(value / 26);
+  }
+  return result;
+}
+
+function updateCompareDifferenceFilter(event) {
+  state.compareDifferencesOnly = event.target.checked;
+  renderCompareSheet();
+}
+
+function syncCompareDifferenceFilterButton() {
+  const button = $("#compare-filter-differences");
+  if (!button) return;
+  button.checked = state.compareDifferencesOnly;
+}
+
+function focusPendingCompareCell() {
+  const address = String(state.pendingCompareCell || "").toUpperCase();
+  if (!address) return;
+  const cell = $$('[data-compare-address]').find((item) => item.dataset.compareAddress === address);
+  if (!cell) return;
+  state.pendingCompareCell = "";
+  cell.classList.add("compare-cell-target");
+  cell.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+  window.setTimeout(() => cell.classList.remove("compare-cell-target"), 2500);
 }
 
 function compareCheckCellHtml(row) {
@@ -3018,8 +3069,8 @@ function renderFixmeScanResult() {
     <div class="table-wrap fixme-scan-table-wrap">
       <table class="fixme-scan-table">
         <thead><tr><th>Case</th><th>Workbook</th><th>Sheet</th><th>Cell</th><th>Value</th></tr></thead>
-        <tbody>${locations.map((item) => `
-          <tr>
+        <tbody>${locations.map((item, index) => `
+          <tr class="fixme-scan-location" data-fixme-location="${index}" tabindex="0" title="Mở vị trí này trong workbook">
             <td>${escapeHtml(item.case_folder_name)}</td>
             <td title="${escapeHtml(item.workbook_path)}">${escapeHtml(item.workbook_name)}</td>
             <td>${escapeHtml(item.sheet_name)}</td>
@@ -3028,6 +3079,39 @@ function renderFixmeScanResult() {
           </tr>`).join("")}</tbody>
       </table>
     </div>`;
+  $$('[data-fixme-location]', container).forEach((row) => {
+    const open = () => navigateToFixmeLocation(locations[Number(row.dataset.fixmeLocation)]);
+    row.addEventListener("click", open);
+    row.addEventListener("keydown", (event) => {
+      if (!["Enter", " "].includes(event.key)) return;
+      event.preventDefault();
+      open();
+    });
+  });
+}
+
+function navigateToFixmeLocation(location) {
+  if (!location) return;
+  const normalizePath = (value) => String(value || "").replace(/\\/g, "/").toLocaleLowerCase("vi");
+  const cases = state.compareView.cases || [];
+  const caseItem = cases.find((item) => item.name === location.case_folder_name)
+    || cases.find((item) => (item.workbooks || []).some((workbook) => normalizePath(workbook.path) === normalizePath(location.workbook_path)));
+  const workbook = (caseItem?.workbooks || []).find((item) => normalizePath(item.path) === normalizePath(location.workbook_path))
+    || (caseItem?.workbooks || []).find((item) => item.name === location.workbook_name);
+  const sheet = (workbook?.sheets || []).find((item) => item.name === location.sheet_name);
+  if (!caseItem || !workbook || !sheet) {
+    showToast("Không tìm thấy workbook/sheet của FIXME trong view hiện tại.", "error");
+    return;
+  }
+  state.compareDifferencesOnly = false;
+  state.pendingCompareCell = String(location.cell || "").toUpperCase();
+  state.compareView.activeCaseId = caseItem.id;
+  state.compareView.activeWorkbookId = workbook.id;
+  state.compareView.activeSheetName = sheet.name;
+  state.compareView.sheet = null;
+  showPage("compare", true, { scrollTop: false });
+  $("#tab-compare-preview-card")?.click();
+  renderComparePreview();
 }
 
 function runSqlAction(action) {

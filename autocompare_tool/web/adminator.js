@@ -128,8 +128,8 @@ function prepareCompareWorkbench() {
   const sections = [
     ["compare-form", "Cấu hình"],
     ["compare-preview-card", "Workbook"],
-    ["fixme-expand-card", "Danh sách FIXME"],
   ];
+  document.getElementById("fixme-expand-card")?.classList.add("hidden");
   const activate = (target) => {
     tabs.querySelectorAll("button").forEach((button) => {
       const active = button === target;
@@ -167,11 +167,6 @@ function prepareCompareWorkbench() {
       const updateEmpty = () => empty.classList.toggle("hidden", !content.classList.contains("hidden"));
       new MutationObserver(updateEmpty).observe(content, { attributes: true, attributeFilter: ["class"] });
       updateEmpty();
-    }
-    if (id === "fixme-expand-card") {
-      content.classList.remove("collapsed");
-      content.querySelector("h3").textContent = "Danh sách FIXME";
-      content.querySelector("#toggle-fixme-expand").textContent = "Thu gọn";
     }
   });
   tabs.addEventListener("keydown", (event) => {

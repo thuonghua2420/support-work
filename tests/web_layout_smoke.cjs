@@ -72,11 +72,7 @@ const path = require('node:path');
     await page.locator('#tab-compare-form').focus();
     await page.keyboard.press('ArrowRight');
     assert.equal(await page.locator('#tab-compare-preview-card').getAttribute('aria-selected'), 'true');
-    await page.locator('#tab-fixme-expand-card').click();
-    await page.locator('#fixme-expand-card .expand-panel').click();
-    assert.ok(await page.locator('.panel-expanded').isVisible());
-    await page.keyboard.press('Escape');
-    assert.equal(await page.locator('.panel-expanded').count(), 0);
+    assert.equal(await page.locator('#tab-fixme-expand-card').count(), 0);
     await page.locator('#menu-toggle').click();
     assert.ok(await page.locator('body.nav-collapsed').count());
     await page.locator('#menu-toggle').click();
@@ -117,14 +113,14 @@ const path = require('node:path');
       await page.locator('#tab-compare-preview-card').click();
       await page.screenshot({ path: path.join(output, `${width}-workbook-data.png`), fullPage: true });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
-      await page.locator('#tab-fixme-expand-card').click();
-      await page.locator('[data-fixme-filter="column_name"]').fill('status');
-      assert.equal(await page.locator('#fixme-body tr').count(), 30);
-      await page.screenshot({ path: path.join(output, `${width}-fixme-data.png`), fullPage: true });
+      if (!await page.locator('#compare-filter-differences').isChecked()) await page.locator('#compare-filter-differences').check();
+      assert.equal(await page.locator('#compare-preview-table tbody tr').count(), 3);
+      assert.equal(await page.locator('[data-compare-fixme-check]').count(), 1);
+      await page.screenshot({ path: path.join(output, `${width}-fixme-values.png`), fullPage: true });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     }
     assert.deepEqual(errors, []);
-    console.log('PASS: 6 pages, 4 widths, database tabs/dialog, compare tabs, input retention, keyboard, expanded results, real CSV export and FIXME filters.');
+    console.log('PASS: 6 pages, 4 widths, database tabs/dialog, compare tabs, input retention, keyboard, expanded results, real CSV export and value-difference filters.');
   } finally {
     await browser.close();
   }
