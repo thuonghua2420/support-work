@@ -926,8 +926,23 @@ class AutoCompareWebApplication:
     def _check_fixmes(self, log: Logger) -> dict[str, Any]:
         with self._state_lock:
             workbooks = list(self._compare_workbooks)
+            fixme_entries = list(self._fixme_entries)
+        known_paths = {reference.workbook_path.resolve(strict=False) for reference in workbooks}
+        for entry in fixme_entries:
+            workbook_path = Path(entry.workbook_path).resolve(strict=False)
+            if workbook_path in known_paths:
+                continue
+            known_paths.add(workbook_path)
+            workbooks.append(
+                CompareWorkbookReference(
+                    case_folder_name=entry.case_folder_name,
+                    workbook_path=workbook_path,
+                    workbook_name=entry.workbook_name,
+                )
+            )
         if not workbooks:
             raise ValueError("Chưa có file compare từ lần so sánh hiện tại để kiểm tra.")
+        log(f"Đang quét toàn bộ sheet trong {len(workbooks)} file compare.")
         locations = scan_compare_workbook_fixmes(workbooks)
         if not locations:
             log("Không còn cell nào có text FIXME trong các file compare hiện tại.")
@@ -943,6 +958,7 @@ class AutoCompareWebApplication:
         return {
             "fixme_exists": bool(locations),
             "fixme_location_count": len(locations),
+            "scanned_workbook_count": len(workbooks),
             "fixme_scan_locations": locations,
             "compare_view": self.compare_view_index(),
         }

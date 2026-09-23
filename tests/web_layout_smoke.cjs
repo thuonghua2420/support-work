@@ -89,6 +89,8 @@ const path = require('node:path');
     await page.locator('#folder-compare-form button[type="submit"]').click();
     await page.locator('#compare-preview-table:not(.hidden)').waitFor({ timeout: 30000 });
     assert.equal(await page.locator('#tab-compare-preview-card').getAttribute('aria-selected'), 'true');
+    await page.locator('#compare-preview-card.panel-expanded').waitFor({ timeout: 5000 });
+    await page.keyboard.press('Escape');
     assert.ok(await page.locator('#compare-workbook-tabs').evaluate((workbooks, sheets) =>
       workbooks.getBoundingClientRect().top < sheets.getBoundingClientRect().top,
       await page.locator('#compare-sheet-tabs').elementHandle()));

@@ -641,11 +641,11 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .confirm-modal footer { justify-content: center; margin-top: 22px; padding: 17px 0 0; }
 .confirm-symbol { display: grid; place-items: center; width: 48px; height: 48px; margin: auto; border-radius: 50%; color: white; background: var(--red); font-size: 22px; font-weight: 800; }
 
-.toast-stack { position: fixed; top: 94px; right: 22px; z-index: 80; display: grid; gap: 8px; width: min(360px, calc(100vw - 44px)); }
+.toast-stack { position: fixed; top: auto; right: auto; bottom: 22px; left: 22px; z-index: 80; display: grid; gap: 8px; width: min(360px, calc(100vw - 44px)); }
 .toast { padding: 12px 14px; border: 1px solid #d5e0eb; border-left: 4px solid var(--blue); border-radius: 10px; color: #405268; background: white; box-shadow: 0 12px 32px rgba(20,39,63,.15); font-size: 11px; line-height: 1.5; animation: toast-in .2s ease; }
 .toast.error { border-left-color: var(--red); }
 .toast.success { border-left-color: var(--green); }
-@keyframes toast-in { from { opacity: 0; transform: translateX(12px); } }
+@keyframes toast-in { from { opacity: 0; transform: translateX(-12px); } }
 
 @media (max-width: 1080px) {
   :root { --sidebar-width: 224px; }

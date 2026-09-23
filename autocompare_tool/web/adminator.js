@@ -173,6 +173,9 @@ function prepareCompareWorkbench() {
       "hidden",
       target.id !== "tab-compare-preview-card" || comparePanel?.classList.contains("hidden"),
     );
+    if (target.id === "tab-compare-preview-card" && !comparePanel?.classList.contains("hidden")) {
+      window.requestAnimationFrame(expandComparePanelFromTab);
+    }
   };
   sections.forEach(([id, label], index) => {
     const content = document.getElementById(id);
@@ -214,4 +217,12 @@ function prepareCompareWorkbench() {
     activate(buttons[next]);
     buttons[next].focus();
   });
+}
+
+function expandComparePanelFromTab() {
+  const panel = document.getElementById("compare-preview-card");
+  if (!panel || panel.classList.contains("hidden") || panel.classList.contains("panel-expanded")) return;
+  const button = document.querySelector("#compare-page-toolbar .expand-panel")
+    || panel.querySelector(".expand-panel");
+  button?.click();
 }

@@ -122,6 +122,38 @@ class CompareWorkbookViewTests(unittest.TestCase):
             locations,
         )
 
+    def test_scan_compare_workbook_fixmes_scans_every_sheet_in_every_workbook(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first_path = root / "first.xlsx"
+            second_path = root / "second.xlsx"
+
+            first = Workbook()
+            first.active.title = "customers"
+            first.active["C3"] = "FIXME"
+            first.create_sheet("orders")["D4"] = "FIXME"
+            first.save(first_path)
+
+            second = Workbook()
+            second.active.title = "products"
+            second.active["E5"] = "FIXME"
+            second.create_sheet("unchanged")["A1"] = "OK"
+            second.save(second_path)
+
+            locations = scan_compare_workbook_fixmes([
+                CompareWorkbookReference("UT01", first_path, first_path.name),
+                CompareWorkbookReference("UT02", second_path, second_path.name),
+            ])
+
+        self.assertEqual(
+            {(item["workbook_name"], item["sheet_name"], item["cell"]) for item in locations},
+            {
+                ("first.xlsx", "customers", "C3"),
+                ("first.xlsx", "orders", "D4"),
+                ("second.xlsx", "products", "E5"),
+            },
+        )
+
 
 def _write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8", newline="")

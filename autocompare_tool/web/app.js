@@ -2974,7 +2974,6 @@ function consumeJobResult(job) {
     if (state.compareView.cases.length && $("#page-compare.active, #page-folder-compare.active")) {
       showPage("compare", true, { scrollTop: false });
       $("#tab-compare-preview-card")?.click();
-      requestComparePageBottomScroll();
     }
   }
   if (Array.isArray(result.fixme_scan_locations)) {
@@ -3832,7 +3831,10 @@ function summaryMessage(job) {
   if (job.action === "folder_compare") return `Đã tạo ${result.workbook_count || 1} workbook / ${result.sheet_count || 0} sheet, tìm thấy ${result.fixme_count || 0} FIXME.`;
   if (job.action === "check_fixmes") {
     const count = result.fixme_location_count || 0;
-    return count ? `Vẫn còn ${count} cell FIXME trong file compare.` : "Không còn cell FIXME trong các file compare.";
+    const workbookCount = result.scanned_workbook_count || 0;
+    return count
+      ? `Đã quét toàn bộ sheet trong ${workbookCount} file; vẫn còn ${count} cell FIXME.`
+      : `Đã quét toàn bộ sheet trong ${workbookCount} file; không còn cell FIXME.`;
   }
   if (job.action === "format_excel_images") return `Đã format ${result.processed_count || 0}/${result.file_count || 0} workbook, chuẩn hóa ${result.workbook_format_sheet_count || 0} sheet, giữ size cũ tại ${result.font_size_skipped_row_count || 0} row; lỗi ${result.error_count || 0}.`;
   if (job.action === "sql_format") return `Đã format ${result.statement_count || 0} câu lệnh SQL.`;

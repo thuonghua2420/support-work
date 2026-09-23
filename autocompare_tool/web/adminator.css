@@ -172,7 +172,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
 .modal header { padding: 16px 20px; }
 .modal header h3 { font-size: 16px; }
 .toast { border-radius: 4px; font-size: 12px; }
-.toast-stack { top: 70px; }
+.toast-stack { top: auto; right: auto; bottom: 18px; left: 20px; }
 .menu-backdrop { display: none; }
 body.nav-collapsed { --sidebar-width: 72px; }
 .nav-collapsed .sidebar { padding-inline: 10px; }
@@ -216,7 +216,7 @@ body:has(.panel-expanded) { overflow: hidden; }
   .tool-grid, .two-column { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
-  .toast-stack { top: auto; bottom: 70px; right: 12px; width: calc(100vw - 24px); }
+  .toast-stack { top: auto; right: auto; bottom: 70px; left: 12px; width: calc(100vw - 24px); }
   :root { --panel-padding: 16px; }
   .content { padding: 20px 12px 72px; }
   .topbar { padding: 8px 12px; gap: 8px; }
