@@ -116,6 +116,7 @@ class AppConfig:
     folders: FolderConfig
     workbooks: WorkbookConfig
     excel_headers: ExcelHeaderConfig
+    excel_headers_by_workflow: dict[str, ExcelHeaderConfig]
     excel_compare_style: ExcelCompareStyleConfig
     compare_workflows: tuple[CompareWorkflowConfig, ...]
     excel_image_format: ExcelImageFormatConfig
@@ -163,6 +164,11 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
             "Không tìm thấy file CSV trong folder so sánh.",
         ),
     )
+    excel_headers_by_workflow = {
+        WORKFLOW_HTM_BEFORE_AFTER: _read_excel_headers(parser, "excel_headers_htm_before_after", excel_headers),
+        WORKFLOW_HTC_BEFORE_AFTER: _read_excel_headers(parser, "excel_headers_htc_before_after", excel_headers),
+        WORKFLOW_AFTER_HTC_VS_HTM: _read_excel_headers(parser, "excel_headers_after_htc_vs_htm", excel_headers),
+    }
     excel_compare_style = ExcelCompareStyleConfig(
         base_font_color=_get_hex_color(parser, "excel_compare_style", "base_font_color", "000000"),
         header_font_color=_get_hex_color(parser, "excel_compare_style", "header_font_color", "006100"),
@@ -293,6 +299,7 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
         folders=folders,
         workbooks=workbooks,
         excel_headers=excel_headers,
+        excel_headers_by_workflow=excel_headers_by_workflow,
         excel_compare_style=excel_compare_style,
         compare_workflows=workflows,
         excel_image_format=excel_image_format,
@@ -322,6 +329,31 @@ def default_config_path() -> Path:
 
 def default_selected_workflow_keys(config: AppConfig) -> set[str]:
     return {workflow.key for workflow in config.compare_workflows if workflow.default_enabled}
+
+
+def excel_headers_for_workflow(config: AppConfig, workflow_key: str) -> ExcelHeaderConfig:
+    return config.excel_headers_by_workflow.get(workflow_key, config.excel_headers)
+
+
+def _read_excel_headers(
+    parser: configparser.ConfigParser,
+    section: str,
+    base: ExcelHeaderConfig | None,
+) -> ExcelHeaderConfig:
+    return ExcelHeaderConfig(
+        diff_count_title=_get(parser, section, "diff_count_title", base.diff_count_title if base else "差分行数"),
+        left_column_title=_get(parser, section, "left_column_title", base.left_column_title if base else "前列名"),
+        right_column_title=_get(parser, section, "right_column_title", base.right_column_title if base else "後列名"),
+        left_record_prefix=_get(parser, section, "left_record_prefix", base.left_record_prefix if base else "前"),
+        right_record_prefix=_get(parser, section, "right_record_prefix", base.right_record_prefix if base else "後"),
+        fixme_text=_get(parser, section, "fixme_text", base.fixme_text if base else "FIXME"),
+        no_csv_message=_get(
+            parser,
+            section,
+            "no_csv_message",
+            base.no_csv_message if base else "Không tìm thấy file CSV trong folder so sánh.",
+        ),
+    )
 
 
 def _read_config(path: Path) -> configparser.ConfigParser:

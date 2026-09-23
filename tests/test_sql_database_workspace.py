@@ -86,9 +86,8 @@ class SqlDatabaseWorkspaceTests(unittest.TestCase):
         )
 
         self.assertEqual("", reason)
-        self.assertEqual("exact matched primary-key trace", strategy)
+        self.assertEqual("exact row-participation primary-key trace", strategy)
         self.assertIn("__ac_pk_1", trace_sql)
-        self.assertIn("DISTINCT", trace_sql.upper())
         self.assertIn("EXISTS", trace_sql.upper())
         self.assertIn("INNER JOIN", source_sql.upper())
         self.assertIn("ORDER BY", source_sql.upper())
@@ -133,7 +132,7 @@ class SqlDatabaseWorkspaceTests(unittest.TestCase):
         self.assertEqual("", strategy)
         self.assertIn("metadata", reason.lower())
 
-    def test_source_data_rejects_grouped_trace_until_group_lineage_exists(self) -> None:
+    def test_source_data_traces_grouped_rows(self) -> None:
         sql = "SELECT o.status, COUNT(*) FROM dbo.Office o GROUP BY o.status"
         expression = parse_sql_expressions(sql, "tsql")[0]
         analysis = analyze_sql(sql, "tsql")
@@ -141,7 +140,8 @@ class SqlDatabaseWorkspaceTests(unittest.TestCase):
         metadata = TableMetadata(
             schema="dbo",
             name="Office",
-            columns=[DatabaseColumn(name="OFFICECD", ordinal=1, data_type="int", is_primary_key=True)],
+            columns=[DatabaseColumn(name="OFFICECD", ordinal=1, data_type="int", is_primary_key=True),
+                     DatabaseColumn(name="status", ordinal=2, data_type="nvarchar")],
         )
 
         source_sql, reason, trace_sql, strategy = _diagnostic_source_sql(
@@ -152,10 +152,10 @@ class SqlDatabaseWorkspaceTests(unittest.TestCase):
             "tsql",
         )
 
-        self.assertEqual("", source_sql)
-        self.assertEqual("", trace_sql)
-        self.assertEqual("", strategy)
-        self.assertIn("group", reason.lower())
+        self.assertTrue(source_sql, reason)
+        self.assertIn("GROUP BY", trace_sql)
+        self.assertEqual("exact row-participation primary-key trace", strategy)
+        self.assertEqual("", reason)
 
     def test_database_grid_displays_null_marker_but_empty_as_blank(self) -> None:
         column = {"name": "name", "index": 1, "data_type": "nvarchar", "nullable": True}

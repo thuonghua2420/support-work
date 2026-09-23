@@ -36,6 +36,7 @@ from .database_io import (
 from .dbeaver_csv import write_typed_dbeaver_csv_rows
 from .sql_tools import analyze_sql, parse_sql_expressions, render_sql_expression
 from .sql_source_lineage import projection_key_trace
+from .sql_row_lineage import participation_key_trace
 
 
 Logger = Callable[[str], None]
@@ -53,7 +54,7 @@ JOIN_COLORS = (
     "#9333ea",
     "#ea580c",
 )
-AVAILABLE_SOURCE_STATUSES = {"exact", "snapshot"}
+AVAILABLE_SOURCE_STATUSES = {"exact"}
 
 
 def _check_cancel(cancel: CancelChecker | None) -> None:
@@ -642,6 +643,14 @@ class SqlDatabaseWorkspaceManager:
                 relation["unsupported_reason"] = reason
                 source["lineage_status"] = "unsupported"
                 source["unsupported_reason"] = reason
+                source["item_id"] = ""
+                source["updateable"] = False
+                relation["updateable"] = False
+                relation["read_only_reason"] = reason
+                source["read_only_reason"] = reason
+                for column in relation["columns"]:
+                    column["editable"] = False
+                    column["locked_reason"] = reason
 
     def _workspace_response(self, workspace: _Workspace) -> dict[str, Any]:
         results = [self._item_response(workspace, item) for item in workspace.results]
@@ -1121,6 +1130,19 @@ def _build_relations(
 ) -> list[dict[str, Any]]:
     relations: list[dict[str, Any]] = []
     expression_by_index = {index: expression for index, expression in enumerate(expressions, start=1)}
+    metadata_cache = {}
+    for table_ref in analysis.tables:
+        if table_ref.source_type != "TABLE":
+            continue
+        key = (table_ref.catalog, table_ref.schema, table_ref.name)
+        if key not in metadata_cache:
+            try:
+                metadata_cache[key] = adapter.get_relation(
+                    connection, workspace.settings, table_ref.name, table_ref.schema or None,
+                )
+            except Exception as exc:
+                metadata_cache[key] = exc
+    resolved_metadata = [item for item in metadata_cache.values() if isinstance(item, TableMetadata)]
     for occurrence_index, table_ref in enumerate(analysis.tables, start=1):
         relation_id = f"s{table_ref.statement_index}.q{_safe_token(table_ref.scope_id)}.r{occurrence_index}"
         metadata: TableMetadata | None = None
@@ -1128,12 +1150,9 @@ def _build_relations(
         unresolved_reason = ""
         if table_ref.source_type == "TABLE":
             try:
-                metadata = adapter.get_relation(
-                    connection,
-                    workspace.settings,
-                    table_ref.name,
-                    table_ref.schema or None,
-                )
+                metadata = metadata_cache[(table_ref.catalog, table_ref.schema, table_ref.name)]
+                if isinstance(metadata, Exception):
+                    raise metadata
                 relation_kind = metadata.relation_type
             except TableNotFoundError as exc:
                 unresolved_reason = str(exc)
@@ -1165,6 +1184,7 @@ def _build_relations(
                 metadata,
                 adapter,
                 dialect,
+                resolved_metadata,
             )
             if source_sql:
                 lineage_status = "exact"
@@ -1207,46 +1227,7 @@ def _build_relations(
             "metadata": _metadata_to_dict(metadata),
         }
         relations.append(relation)
-    _use_reproduction_snapshots(relations, expressions, adapter)
     return relations
-
-
-def _use_reproduction_snapshots(relations, expressions, adapter):
-    """Keep complete dependencies when an exact subset cannot be established."""
-    for index, statement in enumerate(expressions, 1):
-        if not is_read_statement(statement):
-            continue
-        physical = [relation for relation in relations
-                    if relation["statement_index"] == index and relation["source_type"] == "TABLE"]
-        incomplete = any(
-            relation["lineage_status"] != "exact"
-            or not any(column.is_primary_key for column in _metadata_from_relation(relation).columns)
-            for relation in physical
-        )
-        cardinality = any(isinstance(node, (exp.AggFunc, exp.Window, exp.SetOperation))
-                          for node in statement.walk())
-        if not incomplete and not cardinality:
-            continue
-        # Use the same scope for every dependency. Mixing a whole table with
-        # reduced joined/anti-joined tables can change the replayed result.
-        for relation in physical:
-            metadata = _metadata_from_relation(relation)
-            if metadata.relation_type != "table" or not metadata.columns:
-                continue
-            columns = ", ".join(adapter.quote_identifier(column.name) for column in metadata.columns)
-            relation.update(
-                source_sql=f"SELECT {columns} FROM {adapter.qualified_table(metadata)}",
-                trace_sql="",
-                lineage_status="snapshot",
-                lineage_strategy="full dependency snapshot",
-                lineage_reason="Toàn bộ record của table để tái hiện SQL; có thể gồm record ngoài kết quả.",
-                unsupported_reason="",
-                updateable=False,
-                read_only_reason="Source toàn bảng dùng để tái hiện SQL.",
-            )
-            for column in relation["columns"]:
-                column["editable"] = False
-                column["locked_reason"] = relation["read_only_reason"]
 
 
 def _legacy_projection_source_sql(statement: exp.Expression, table_ref, dialect: str) -> tuple[str, str]:
@@ -1304,20 +1285,28 @@ def _diagnostic_source_sql(
     metadata: TableMetadata,
     adapter: DatabaseAdapter,
     dialect: str,
+    table_metadata: Sequence[TableMetadata] = (),
 ) -> tuple[str, str, str, str]:
-    if not is_read_statement(statement) or getattr(statement, "key", "").lower() != "select":
+    if not is_read_statement(statement):
         return "", "Chỉ hỗ trợ truy vết exact cho SELECT.", "", ""
-    if table_ref.depth != 0:
+    if table_ref.source_type == "TABLE":
         primary_keys = [column for column in metadata.columns if column.is_primary_key]
-        if table_ref.source_type != "TABLE" or metadata.relation_type != "table" or not primary_keys:
-            return "", "Truy vết source lồng nhau cần metadata và primary key của base table.", "", ""
+        if metadata.relation_type != "table" or not primary_keys:
+            return "", "Truy vết source cần metadata và primary key của base table; không tự lấy toàn bảng.", "", ""
         try:
-            trace, key_aliases = projection_key_trace(statement, table_ref, [column.name for column in primary_keys])
+            try:
+                trace, key_aliases = projection_key_trace(statement, table_ref, [column.name for column in primary_keys])
+                strategy = "exact projection-lineage primary-key trace"
+            except ValueError:
+                trace, key_aliases = participation_key_trace(statement, table_ref, metadata, dialect, table_metadata)
+                strategy = "exact row-participation primary-key trace"
             trace_sql = render_sql_expression(trace, dialect)
             source_sql = _source_sql_from_primary_key_trace(adapter, metadata, trace_sql, primary_keys, key_aliases, dialect)
-            return source_sql, "", trace_sql, "exact projection-lineage primary-key trace"
-        except ValueError as exc:
+            return source_sql, "", trace_sql, strategy
+        except Exception as exc:
             return "", str(exc), "", ""
+    if table_ref.depth != 0 or not isinstance(statement, exp.Select):
+        return "", "Xem record tại các bảng nguồn của CTE/subquery.", "", ""
     unsupported = _unsupported_select_trace_reason(statement)
     if unsupported:
         return "", unsupported, "", ""
@@ -1405,11 +1394,12 @@ def _source_sql_from_primary_key_trace(
 ) -> str:
     trace = parse_sql_expressions(trace_sql, dialect)[0]
     with_clause = trace.args.get("with_")
+    options = trace.args.pop("options", None)
     prefix = ""
     if with_clause is not None:
         trace.set("with_", None)
         prefix = render_sql_expression(with_clause, dialect) + " "
-        trace_sql = render_sql_expression(trace, dialect)
+    trace_sql = render_sql_expression(trace, dialect)
     source_alias = adapter.quote_identifier("__ac_source")
     keys_alias = adapter.quote_identifier("__ac_keys")
     column_sql = ", ".join(
@@ -1424,12 +1414,17 @@ def _source_sql_from_primary_key_trace(
         f"{source_alias}.{adapter.quote_identifier(column.name)}"
         for column in primary_keys
     )
-    return (
+    source_sql = (
         f"{prefix}SELECT {column_sql} "
         f"FROM {adapter.qualified_table(metadata)} {source_alias} "
         f"INNER JOIN ({trace_sql}) {keys_alias} ON {join_sql} "
         f"ORDER BY {order_sql}"
     )
+    if options:
+        source = parse_sql_expressions(source_sql, dialect)[0]
+        source.set("options", options)
+        return render_sql_expression(source, dialect)
+    return source_sql
 
 
 def _column_expression(table_alias: str, column_name: str) -> exp.Column:

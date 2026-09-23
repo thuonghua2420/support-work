@@ -8,6 +8,8 @@ from sqlglot import ErrorLevel, exp
 from sqlglot.errors import ParseError
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
+from .sql_recursive_lineage import enable_recursive_ctes
+
 
 Logger = Callable[[str], None]
 SUPPORTED_DIALECTS = {
@@ -240,6 +242,9 @@ def _parse_sql(sql_text: str, dialect: str) -> list[exp.Expression]:
         raise ValueError(f"SQL không hợp lệ: {exc}") from exc
 
     expressions = [expression for expression in parsed if expression is not None]
+    if dialect == "tsql":
+        for expression in expressions:
+            enable_recursive_ctes(expression)
     if not expressions:
         raise ValueError("Không tìm thấy câu lệnh SQL hợp lệ để xử lý.")
     return expressions

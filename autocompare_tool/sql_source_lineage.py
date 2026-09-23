@@ -30,6 +30,9 @@ def projection_key_trace(statement, table_ref, key_columns):
         for clause in ("group", "having", "qualify", "limit", "offset"):
             if query.args.get(clause):
                 raise ValueError(f"{clause.upper()} requires cardinality-aware source lineage.")
+        distinct = query.args.get("distinct")
+        if distinct and distinct.args.get("on"):
+            raise ValueError("DISTINCT ON requires ordered source lineage.")
     if any(isinstance(node, (exp.AggFunc, exp.Window, exp.Pivot)) for node in statement.walk()):
         raise ValueError("Aggregate/window/pivot requires cardinality-aware source lineage.")
     if any(node.args.get("recursive") for node in statement.find_all(exp.With)):

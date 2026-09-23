@@ -289,11 +289,15 @@ Tab **SQL Workspace** kế thừa formatter/analyzer cũ, đồng thời có th�
 
 Kết quả query được đọc bằng `fetchmany()` và spool tạm theo workspace để phân trang. Source Data tự truy vết primary key qua CTE/subquery trong FROM, kể cả projection đổi tên/tính toán và CTE dùng lại nhiều lần; điều kiện lọc và JOIN ngoài cùng vẫn quyết định record được lấy. User không cần tự đẩy predicate.
 
-Khi chưa xác định được tập record chính xác (aggregate, window, subquery tương quan, recursive CTE hoặc cấu trúc khác), hệ thống lấy toàn bộ các table đọc được của statement và hiển thị nhãn **Toàn bảng để tái hiện**. Dữ liệu có thể dư; source này chỉ đọc. Thiếu metadata/quyền đọc hoặc vượt giới hạn spool vẫn báo lỗi. Việc tái hiện đòi hỏi dữ liệu không thay đổi trong lúc đọc và cùng schema/môi trường SQL; hàm thời gian/ngẫu nhiên, phụ thuộc ẩn trong view/UDF chưa được bảo đảm.
+Source Data không tự chuyển sang lấy toàn bảng khi truy vấn phức tạp. Hệ thống truy ngược từng cấp CTE/derived table, subquery tương quan (EXISTS/IN/scalar, kể cả IN nhiều cột), CROSS/OUTER APPLY và LATERAL về primary key, kể cả key ghép. GROUP BY/HAVING, ROLLUP/CUBE/GROUPING SETS, DISTINCT/DISTINCT ON, UNION/INTERSECT/EXCEPT, PIVOT/UNPIVOT và TOP/LIMIT được xử lý theo kết quả trung gian, không chỉ theo vị trí record. Phép gom nhóm và DISTINCT giữ nguyên số dòng trung gian; chỉ thành viên của nhóm/kết quả được chọn mới được lấy. SEMI/ANTI/NATURAL JOIN được chuẩn hóa theo điều kiện join và metadata.
+
+CTE đệ quy có luồng truy vết riêng để giữ các record trên đường dẫn đến kết quả được chọn, không lấy mọi nhánh cây. SQL Server tự nhận diện CTE đệ quy dù không có từ khóa RECURSIVE; OPTION(MAXRECURSION ...) được giữ ở cấp statement. Window được xử lý theo partition, thứ tự và frame ROWS/RANGE. LAG/LEAD giữ cả các dòng trung gian cần cho offset, gồm offset tính toán và IGNORE NULLS. ROW_NUMBER/RANK/DENSE_RANK cần phần dữ liệu đứng trước record được chọn; các hàm phân phối cần partition tương ứng. CSV export và Copy SQL dùng cùng tập record với Source Data.
+
+Thiếu primary key/metadata, thiếu định nghĩa bên trong view/table-valued function hoặc lỗi truy vết sẽ hiển thị lý do tại source đó, không đọc toàn bảng thay thế. Các record phụ thuộc thứ tự/gom nhóm có thể nhiều hơn số dòng kết quả, và một phép tổng hợp toàn bảng thực sự có thể cần toàn bảng. Việc tái hiện còn phụ thuộc dữ liệu ổn định, cùng schema/môi trường SQL, thứ tự xác định khi giá trị sắp xếp trùng, các nhánh phủ định dùng lại cùng bảng và hàm thời gian/ngẫu nhiên. Không cam kết mọi biến thể riêng của từng database đều đã được kiểm chứng.
 
 Source grid hiển thị header hai tầng gồm index column, icon key cho primary key, datatype và màu usage: JOIN ưu tiên cao nhất, WHERE màu xanh lá, SELECT màu vàng. Join group được hợp nhất bắc cầu, ví dụ `A.x = B.y` và `A.x = C.z` sẽ tô cùng màu cho cả ba column. Hover vào column JOIN hiển thị các column cùng group.
 
-Export source CSV ghi theo chuẩn DBeaver: `NULL` là ô trống không quote, empty string là `""`, string được quote, numeric không quote và CRLF. CSV xuất đúng Source Data, không thêm negative record có thể làm thay đổi kết quả khi nạp lại. Inline Update chỉ bật cho source exact của base table có đầy đủ primary key; source toàn bảng/view/CTE/subquery/table không PK là read-only. Update dùng parameter, kiểm tra hash toàn row trước khi ghi và rollback toàn bộ nhóm nếu có conflict.
+Export source CSV ghi theo chuẩn DBeaver: `NULL` là ô trống không quote, empty string là `""`, string được quote, numeric không quote và CRLF. CSV xuất đúng Source Data, không thêm negative record có thể làm thay đổi kết quả khi nạp lại. Inline Update chỉ bật cho source exact của base table có đầy đủ primary key; view/CTE/subquery/table không PK là read-only. Update dùng parameter, kiểm tra hash toàn row trước khi ghi và rollback toàn bộ nhóm nếu có conflict.
 
 `autocompare_config.ini` có `[database_workspace]` để chỉnh page size, timeout, batch export và giới hạn spool tạm.
 
@@ -302,5 +306,14 @@ Export source CSV ghi theo chuẩn DBeaver: `NULL` là ô trống không quote, 
 ```bat
 .venv\Scripts\python.exe -m unittest discover -s tests
 ```
+
+Bộ kiểm thử Source Data chạy SQL trên dữ liệu mẫu, trích xuất record theo key rồi nạp vào database rỗng để đối chiếu kết quả SQL gốc. SQLite được dùng cho các ca cơ bản; bộ mở rộng dùng DuckDB cho APPLY, CTE đệ quy, PIVOT, grouping sets và window. Cài thêm dependency kiểm thử để không bỏ qua các ca mở rộng:
+
+```bat
+.venv\Scripts\python.exe -m pip install -r requirements-test.txt
+.venv\Scripts\python.exe -m unittest tests.test_sql_source_lineage tests.test_sql_advanced_lineage tests.test_sql_database_workspace tests.test_sql_tools
+```
+
+Các bài kiểm thử dùng database trong bộ nhớ, không ghi vào database đang kết nối của người dùng. Kiểm thử qua DuckDB không thay thế kiểm chứng cú pháp/thực thi trên SQL Server, PostgreSQL, MySQL và Oracle thực tế.
 
 Nếu `.venv` trỏ tới bản Python đã bị gỡ, hãy xóa `.venv` rồi chạy lại `run.bat` sau khi cài Python 3.10+ để tạo lại môi trường.

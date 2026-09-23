@@ -156,7 +156,7 @@ function prepareCompareReviewLayout() {
   fixmeCard?.classList.add("collapsed");
   if (previewCard && !$("#compare-bulk-tools")) {
     $(".card-heading", previewCard)?.insertAdjacentHTML("afterend", `
-      <div class="compare-bulk-toolbar hidden" id="compare-bulk-tools">
+      <div class="compare-bulk-toolbar" id="compare-bulk-tools">
         <span id="compare-checked-count">0 dòng đã tick</span>
         <select id="compare-bulk-note"></select>
         <button class="secondary-button small" id="compare-bulk-assign" type="button">Gán note cho dòng đã tick</button>
@@ -2470,7 +2470,7 @@ function updateCompareBulkToolbarState() {
   const visible = visibleCompareFixmeIndices();
   const checkedCount = visible.filter((index) => state.fixmeCheckedRows.has(index)).length;
   const totalCheckedCount = checkedFixmeIndices().length;
-  toolbar.classList.toggle("hidden", visible.length === 0);
+  toolbar.classList.remove("hidden");
   $("#compare-checked-count").textContent = `${totalCheckedCount} dòng đã tick`;
   const checkAll = $("#compare-check-visible");
   if (checkAll) {
@@ -3362,7 +3362,7 @@ function renderSqlWorkspace(result) {
   state.sqlWorkspace.rowTokens = {};
   state.sqlWorkspace.sources = result.sources || [];
   $("#sql-workspace-output").classList.remove("hidden");
-  state.sqlWorkspace.exportable = (result.sources || []).some((item) => ["exact", "snapshot"].includes(item.lineage_status));
+  state.sqlWorkspace.exportable = (result.sources || []).some((item) => item.lineage_status === "exact");
   $("#sql-export-all").disabled = !state.sqlWorkspace.exportable;
   const badge = $("#sql-workspace-state");
   badge.textContent = result.transaction_status || "READY";
@@ -3395,17 +3395,16 @@ function renderSqlSourceList(sources) {
     return;
   }
   container.innerHTML = sources.map((source) => `
-    <article class="sql-source-card ${!["exact", "snapshot"].includes(source.lineage_status) ? "unsupported" : ""}">
+    <article class="sql-source-card ${source.lineage_status !== "exact" ? "unsupported" : ""}">
       <header><strong>${escapeHtml(source.label || source.relation_id)}</strong><span>${escapeHtml(source.relation_kind || "")}</span></header>
       <small>${escapeHtml(source.scope_id || "")} · ${escapeHtml(source.lineage_status || "unsupported")}</small>
       ${source.unsupported_reason ? `<p>${escapeHtml(source.unsupported_reason)}</p>` : ""}
-      ${source.lineage_status === "snapshot" ? `<p>${escapeHtml(source.lineage_reason)}</p>` : ""}
     </article>`).join("");
 }
 
 function renderSqlSourceData(sources) {
   const container = $("#sql-source-data");
-  const exactSources = sources.filter((item) => ["exact", "snapshot"].includes(item.lineage_status) && item.first_page);
+  const exactSources = sources.filter((item) => item.lineage_status === "exact" && item.first_page);
   if (!sources.length) {
     container.innerHTML = sqlEmpty("Chưa có source data.");
     return;
@@ -3418,14 +3417,14 @@ function renderSqlSourceData(sources) {
       <small>Ưu tiên màu: JOIN &gt; WHERE &gt; SELECT</small>
     </div>`;
   container.innerHTML = legend + sources.map((source) => {
-    if (!["exact", "snapshot"].includes(source.lineage_status) || !source.first_page) {
+    if (source.lineage_status !== "exact" || !source.first_page) {
       return `<article class="sql-db-card unsupported"><header><div><strong>${escapeHtml(source.label || source.relation_id)}</strong><small>${escapeHtml(source.scope_id || "")} · ${escapeHtml(source.lineage_status || "unsupported")}</small></div><span>read-only</span></header>${sqlEmpty(source.unsupported_reason || "Không thể truy vết chính xác.")}</article>`;
     }
     rememberSqlRowTokens(source.relation_id, source.first_page.rows || []);
     return `
       <article class="sql-db-card" data-source-card="${escapeHtml(source.relation_id)}">
         <header>
-          <div><strong>${escapeHtml(source.label || source.relation_id)}</strong><small>${escapeHtml(source.scope_id || "")} · ${source.lineage_status === "snapshot" ? "Toàn bảng để tái hiện" : "exact"}</small></div>
+          <div><strong>${escapeHtml(source.label || source.relation_id)}</strong><small>${escapeHtml(source.scope_id || "")} · exact</small></div>
           <div class="sql-card-actions">
             <span>${Number(source.row_count || 0)} rows</span>
             <button class="secondary-button small" type="button" data-sql-export="${escapeHtml(source.relation_id)}">Export CSV</button>
@@ -3715,7 +3714,7 @@ async function exportSqlSources(relationIds = null) {
     showToast("Vui lòng chọn output folder để export CSV.", "error");
     return;
   }
-  if (!await confirmAction("Export source data SQL?", "CSV sẽ chứa dữ liệu Source Data đã lấy, không thêm negative record. Source có nhãn toàn bảng sẽ xuất tất cả record đã đọc của table đó.")) return;
+  if (!await confirmAction("Export source data SQL?", "CSV sẽ chứa các record Source Data đã truy vết theo key của câu SQL, không thêm negative record.")) return;
   startAction("db_sql_export", {
     workspace_id: state.sqlWorkspace.workspaceId,
     settings: getDbSettings("main"),

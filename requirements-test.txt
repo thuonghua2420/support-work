@@ -1,0 +1,2 @@
+# Optional embedded engine for SQL lineage integration tests. Python 3.13 on Windows.
+duckdb>=1.4,<2

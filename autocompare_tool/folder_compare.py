@@ -4,7 +4,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from .app_config import AppConfig, load_app_config
+from .app_config import (
+    AppConfig,
+    WORKFLOW_AFTER_HTC_VS_HTM,
+    excel_headers_for_workflow,
+    load_app_config,
+)
 from .excel_writer import WorkbookFixmeEntry, write_compare_workbook_for_pairs, write_compare_workbook_with_fixmes
 
 Logger = Callable[[str], None]
@@ -54,7 +59,7 @@ def compare_csv_folders(
         left,
         right,
         output,
-        excel_headers=app_config.excel_headers,
+        excel_headers=excel_headers_for_workflow(app_config, WORKFLOW_AFTER_HTC_VS_HTM),
         case_folder_name=f"{left.name} - {right.name}",
         include_left_only_files=True,
         recursive=True,
@@ -124,7 +129,7 @@ def compare_csv_folder_pairs(
         result = write_compare_workbook_for_pairs(
             [(left_csv, right_csv, (right_name or left_name))],
             output / output_name,
-            excel_headers=app_config.excel_headers,
+            excel_headers=excel_headers_for_workflow(app_config, WORKFLOW_AFTER_HTC_VS_HTM),
             case_folder_name=f"{left.name} - {right.name}",
         )
         workbook_count += 1
