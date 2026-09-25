@@ -95,6 +95,34 @@ class CompareWorkbookViewTests(unittest.TestCase):
 
         self.assertEqual("#000000", sheet["rows"][2]["cells"][2]["style"]["color"])
 
+    def test_sheet_snapshot_marks_unmatched_record_pairs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            before = root / "before"
+            after = root / "after"
+            before.mkdir()
+            after.mkdir()
+            _write_text(before / "table.csv", "id,name\n1,A\n2,B\n")
+            _write_text(after / "table.csv", "id,name\n1,A\n")
+            output = root / "compare.xlsx"
+            headers = ExcelHeaderConfig("Diff", "Before column", "After column", "Before", "After", "FIXME", "No CSV")
+            write_result = write_compare_workbook_with_fixmes(
+                before,
+                after,
+                output,
+                excel_headers=headers,
+                case_folder_name="UT01",
+                include_left_only_files=True,
+            )
+            sheet = read_compare_sheet(
+                CompareWorkbookReference("UT01", output, output.name),
+                "table",
+                write_result.fixme_entries,
+            )
+
+        self.assertTrue(sheet["record_count_mismatch"])
+        self.assertEqual([5], sheet["record_count_mismatch_pair_starts"])
+
     def test_scan_compare_workbook_fixmes_reports_remaining_fixme_cells(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "compare.xlsx"

@@ -99,6 +99,9 @@ def read_compare_sheet(
         max_column = worksheet.max_column or 1
         fixme_by_cell = _fixme_indices_by_cell(reference.workbook_path, sheet_name, fixme_entries)
         column_widths = [_column_pixel_width(worksheet, column_index) for column_index in range(1, max_column + 1)]
+        record_count_mismatch_pair_starts = _record_count_mismatch_pair_starts(
+            worksheet, max_row, max_column
+        )
 
         rows: list[dict[str, Any]] = []
         for row_index in range(1, max_row + 1):
@@ -132,6 +135,8 @@ def read_compare_sheet(
             "sheet_name": sheet_name,
             "row_count": max_row,
             "column_count": max_column,
+            "record_count_mismatch": bool(record_count_mismatch_pair_starts),
+            "record_count_mismatch_pair_starts": record_count_mismatch_pair_starts,
             "column_letters": [get_column_letter(index) for index in range(1, max_column + 1)],
             "column_widths": column_widths,
             "rows": rows,
@@ -206,6 +211,37 @@ def _column_pixel_width(worksheet: Any, column_index: int) -> int:
 def _row_pixel_height(worksheet: Any, row_index: int) -> int:
     height = worksheet.row_dimensions[row_index].height or worksheet.sheet_format.defaultRowHeight or 15
     return max(21, min(180, int(float(height) * 1.34)))
+
+
+def _record_count_mismatch_pair_starts(worksheet: Any, max_row: int, max_column: int) -> list[int]:
+    common_field_rows = [
+        row_index
+        for row_index in range(3, max_row + 1)
+        if _display_value(worksheet.cell(row_index, 1).value).strip()
+        and _display_value(worksheet.cell(row_index, 2).value).strip()
+    ]
+    if not common_field_rows:
+        return []
+
+    mismatch_pairs: list[int] = []
+    for pair_start in range(3, max_column, 2):
+        if not _display_value(worksheet.cell(2, pair_start).value).strip():
+            continue
+        if not _display_value(worksheet.cell(2, pair_start + 1).value).strip():
+            continue
+        left_values = [
+            _display_value(worksheet.cell(row_index, pair_start).value)
+            for row_index in common_field_rows
+        ]
+        right_values = [
+            _display_value(worksheet.cell(row_index, pair_start + 1).value)
+            for row_index in common_field_rows
+        ]
+        left_is_missing = all(value == "" for value in left_values)
+        right_is_missing = all(value == "" for value in right_values)
+        if left_is_missing != right_is_missing:
+            mismatch_pairs.append(pair_start)
+    return mismatch_pairs
 
 
 def _display_value(value: Any) -> str:

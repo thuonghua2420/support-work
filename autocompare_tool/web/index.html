@@ -152,6 +152,10 @@
                         <input id="compare-filter-differences" type="checkbox">
                         <span>Filter sai khác</span>
                       </label>
+                      <label class="compare-diff-filter-control hidden" id="compare-filter-record-count-control" title="Bỏ qua sai khác thuộc record chỉ có ở một phía">
+                        <input id="compare-filter-record-count" type="checkbox">
+                        <span>Bỏ qua lệch số record</span>
+                      </label>
                       <div class="compare-scroll-pad" id="compare-scroll-pad" aria-label="Di chuyển vị trí sheet">
                         <button class="compare-scroll-button up" type="button" data-compare-scroll="up" title="Di chuyển lên" aria-label="Di chuyển lên">↑</button>
                         <button class="compare-scroll-button left" type="button" data-compare-scroll="left" title="Di chuyển sang trái" aria-label="Di chuyển sang trái">←</button>
@@ -318,7 +322,7 @@
                 <div class="sql-action-group">
                   <button class="secondary-button small" id="copy-current-sql" type="button">Sao chép SQL</button>
                   <button class="secondary-button small" id="sql-format" type="button">Format SQL</button>
-                  <button class="primary-button small" id="sql-analyze" type="button">Phân tích toàn bộ <b>→</b></button>
+                  <button class="secondary-button small" id="sql-analyze" type="button">Phân tích toàn bộ <b>→</b></button>
                 </div>
                 <div class="sql-action-group sql-db-action-group" id="sql-db-actions"></div>
               </div>
@@ -426,6 +430,7 @@
                       <div class="csv-import-actions">
                         <span class="soft-badge" id="db-scan-count">0 table</span>
                         <button class="secondary-button" id="db-scan-csv" type="button">Quét file CSV</button>
+                        <button class="secondary-button" id="db-copy-all-tables" type="button" disabled>Copy all table</button>
                         <button class="secondary-button" id="db-import" type="button">Import All</button>
                         <button class="secondary-button" id="db-import-selected" type="button" disabled>Import Single</button>
                       </div>

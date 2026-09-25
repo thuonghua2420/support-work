@@ -102,12 +102,13 @@ function prepareCompactWorkspaces() {
   details.append(loader);
 
   const icons = {
-    "copy-current-sql": ["copy", "Sao chép SQL", true],
+    "copy-current-sql": ["copy", "Copy SQL", false],
     "sql-format": ["align-left", "Format SQL", false],
     "sql-analyze": ["scan-search", "Phân tích", false],
     "sql-run-current": ["play", "Chạy hiện tại", false],
     "sql-run-all": ["list-start", "Chạy toàn bộ", false],
     "db-scan-csv": ["list-checks", "Quét file CSV", false],
+    "db-copy-all-tables": ["copy", "Copy all table", false],
     "db-import": ["upload", "Import All", false],
     "db-import-selected": ["upload-cloud", "Import Single", false],
     "db-export": ["download", "Export CSV", false],

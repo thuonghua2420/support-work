@@ -379,7 +379,16 @@ class AutoCompareWebApplication:
         return settings
 
     def enable_sql_write_mode(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if payload.get("confirmed") is not True:
+            raise PermissionError("Cần xác nhận trên giao diện trước khi chạy CUD/DDL.")
         return self.sql_workspace.enable_write_mode(self._db_settings_for_role(payload.get("settings"), "main"))
+
+    def inspect_sql_execution(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.sql_workspace.inspect_execution(
+            _text(payload, "sql"),
+            self._db_settings_for_role(payload.get("settings"), "main"),
+            run_mode=str(payload.get("run_mode", "all")),
+        )
 
     def switch_database_session_cache(self) -> dict[str, Any]:
         with self._state_lock:
@@ -1086,6 +1095,9 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/sql-workspace/write-mode/enable":
                 self._send_json(self.app.enable_sql_write_mode(payload))
+                return
+            if parsed.path == "/api/sql-workspace/inspect-execution":
+                self._send_json(self.app.inspect_sql_execution(payload))
                 return
             if parsed.path == "/api/sql-workspace/write-mode/disable":
                 self._send_json(self.app.sql_workspace.disable_write_mode(str(payload.get("write_token", ""))))

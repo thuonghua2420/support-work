@@ -109,6 +109,15 @@ class _WriteToken:
     expires_at: float
 
 
+@dataclass
+class _SqlExecutionPlan:
+    statement_sqls: list[str]
+    statement_exprs: list[exp.Expression | None]
+    parse_error: str
+    raw_mode: bool
+    write_required: bool
+
+
 class SqlDatabaseWorkspaceManager:
     """Business logic for the Database / SQL Workspace page.
 
@@ -162,6 +171,61 @@ class SqlDatabaseWorkspaceManager:
                 self._write_tokens.pop(str(token), None)
         return {"disabled": True}
 
+    def inspect_execution(
+        self,
+        sql_text: str,
+        settings: DatabaseConnectionSettings,
+        *,
+        run_mode: str = "all",
+    ) -> dict[str, Any]:
+        validated = validate_connection_settings(settings)
+        dialect = database_sqlglot_dialect(validated.database_type)
+        plan = self._prepare_execution(sql_text, dialect, run_mode)
+        return {
+            "statement_count": len(plan.statement_sqls),
+            "write_required": plan.write_required,
+            "raw_mode": plan.raw_mode,
+        }
+
+    @staticmethod
+    def _prepare_execution(sql_text: str, dialect: str, run_mode: str) -> _SqlExecutionPlan:
+        normalized_sql = str(sql_text or "").strip()
+        if not normalized_sql:
+            raise ValueError("Vui lòng nhập câu SQL cần xử lý.")
+
+        expressions: list[exp.Expression] = []
+        parse_error = ""
+        try:
+            expressions = parse_sql_expressions(normalized_sql, dialect)
+        except Exception as exc:
+            parse_error = str(exc)
+
+        normalized_mode = str(run_mode or "all").strip().lower()
+        if normalized_mode not in {"all", "current"}:
+            raise ValueError(f"Chế độ chạy SQL không hợp lệ: {normalized_mode}")
+        if parse_error and normalized_mode == "all":
+            raise ValueError("Run all yêu cầu parser tách statement thành công: " + parse_error)
+
+        raw_mode = bool(parse_error)
+        if raw_mode:
+            statement_sqls = [normalized_sql]
+            statement_exprs: list[exp.Expression | None] = [None]
+        else:
+            statement_sqls = [render_sql_expression(expression, dialect) for expression in expressions]
+            statement_exprs = list(expressions)
+        write_required = raw_mode or any(
+            not is_read_statement(expression)
+            for expression in statement_exprs
+            if expression is not None
+        )
+        return _SqlExecutionPlan(
+            statement_sqls=statement_sqls,
+            statement_exprs=statement_exprs,
+            parse_error=parse_error,
+            raw_mode=raw_mode,
+            write_required=write_required,
+        )
+
     def execute(
         self,
         sql_text: str,
@@ -178,48 +242,25 @@ class SqlDatabaseWorkspaceManager:
         validated = validate_connection_settings(settings)
         dialect = database_sqlglot_dialect(validated.database_type)
         fingerprint = connection_fingerprint(validated)
-        normalized_sql = str(sql_text or "").strip()
-        if not normalized_sql:
-            raise ValueError("Vui lòng nhập câu SQL cần xử lý.")
-
-        expressions: list[exp.Expression] = []
-        parse_error = ""
-        try:
-            expressions = parse_sql_expressions(normalized_sql, dialect)
-        except Exception as exc:
-            parse_error = str(exc)
-
-        run_mode = str(run_mode or "all").strip().lower()
-        if run_mode not in {"all", "current"}:
-            raise ValueError(f"Chế độ chạy SQL không hợp lệ: {run_mode}")
-        if parse_error and run_mode == "all":
-            raise ValueError("Run all yêu cầu parser tách statement thành công: " + parse_error)
-
-        raw_mode = bool(parse_error)
-        if raw_mode and not self._is_write_token_valid(write_token, fingerprint):
+        plan = self._prepare_execution(sql_text, dialect, run_mode)
+        if plan.raw_mode and not self._is_write_token_valid(write_token, fingerprint):
             raise PermissionError(
                 "SQL không parse được; chỉ cho chạy raw SQL khi Write mode đang bật và token còn hợp lệ."
             )
-
-        statement_sqls: list[str]
-        statement_exprs: list[exp.Expression | None]
-        if raw_mode:
-            statement_sqls = [normalized_sql]
-            statement_exprs = [None]
-        else:
-            statement_sqls = [render_sql_expression(expression, dialect) for expression in expressions]
-            statement_exprs = list(expressions)
-
-        write_required = raw_mode or any(not is_read_statement(expression) for expression in statement_exprs if expression)
-        if write_required and not self._is_write_token_valid(write_token, fingerprint):
+        if plan.write_required and not self._is_write_token_valid(write_token, fingerprint):
             raise PermissionError("DDL/DML chỉ được chạy khi Write mode hợp lệ.")
+
+        statement_sqls = plan.statement_sqls
+        statement_exprs = plan.statement_exprs
+        normalized_sql = str(sql_text or "").strip()
+        expressions = [expression for expression in statement_exprs if expression is not None]
 
         workspace = self._create_workspace(validated, fingerprint, dialect)
         adapter = get_adapter(validated.normalized_type)
         connection = adapter.connect(validated)
         logger(
             f"SQL Workspace: chạy {len(statement_sqls)} statement trên {validated.database_type}; "
-            f"{'Write mode' if write_required else 'read-only'}."
+            f"{'Write mode' if plan.write_required else 'read-only'}."
         )
 
         committed = False
@@ -243,14 +284,14 @@ class SqlDatabaseWorkspaceManager:
                     failed = True
                     break
 
-            if not raw_mode and not failed:
+            if not plan.raw_mode and not failed:
                 _check_cancel(cancel)
                 self._analyze_and_spool_sources(workspace, adapter, connection, normalized_sql, expressions, dialect, cancel)
 
             if failed:
                 _safe_rollback(connection)
                 rolled_back = True
-            elif write_required:
+            elif plan.write_required:
                 connection.commit()
                 committed = True
             else:
@@ -271,7 +312,7 @@ class SqlDatabaseWorkspaceManager:
             statement["transaction_status"] = transaction_status
 
         response = self._workspace_response(workspace)
-        response["parse_error"] = parse_error
+        response["parse_error"] = plan.parse_error
         response["transaction_status"] = transaction_status
         return response
 

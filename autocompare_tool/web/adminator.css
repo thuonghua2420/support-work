@@ -317,7 +317,7 @@ body:has(.panel-expanded) { overflow: hidden; }
 .import-table-picker .table-picker-header > span { color: var(--text); font-size: 12px; font-weight: 500; }
 .import-table-picker .table-picker-header small { color: var(--muted); font-size: 10px; }
 .csv-export-panel label.field > span { min-height: 18px; line-height: 18px; }
-.import-table-grid { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 5px; min-height: 183px; max-height: 183px; overflow: auto; padding: 6px; border: 1px solid #cbd7e5; border-radius: 4px; background: #fff; }
+.import-table-grid { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 5px; height: 380px; min-height: 380px; max-height: 380px; overflow: auto; padding: 6px; border: 1px solid #cbd7e5; border-radius: 4px; background: #fff; }
 .import-table-grid p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 12px; }
 .import-table-chip { display: inline-flex; align-items: baseline; max-width: 100%; min-height: 24px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 4px; background: #f8fafc; color: var(--text); text-align: left; cursor: pointer; }
 .import-table-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }
@@ -325,20 +325,29 @@ body:has(.panel-expanded) { overflow: hidden; }
 .import-table-chip:hover { border-color: #93b4ea; background: #f3f7ff; }
 .import-table-chip.selected { border-color: var(--primary); background: #eaf2ff; box-shadow: inset 0 0 0 1px var(--primary); color: var(--primary); }
 .import-table-chip.selected small { color: #315c9f; }
-.csv-export-panel #db-export-tables { min-height: 183px; border-color: #cbd7e5; border-radius: 4px; }
+.csv-export-panel #db-export-tables { height: 380px; min-height: 380px; max-height: 380px; border-color: #cbd7e5; border-radius: 4px; }
 #db-csv-form, #db-sync-form { padding: 18px 20px; }
 #db-csv-form .step-number, #db-sync-form .step-number { display: none; }
 #db-csv-form .card-heading, #db-sync-form .card-heading { margin-bottom: 12px; }
 #page-database .db-connection-chip { padding: 4px 8px; }
 #page-database .table-picker { margin-block: 10px; }
 #page-database .table-source-picker, #page-database .selected-tables { grid-template-rows: auto minmax(120px, 180px); }
-#page-database .sql-editor-toolbar { padding: 10px 14px; gap: 8px; }
+#page-database .sql-editor-toolbar { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; padding: 10px 14px; gap: 8px; }
 #page-database .sql-editor-toolbar small { display: none; }
+#page-database .sql-editor-header-controls { justify-content: flex-start; }
 #page-database .sql-toolbar-actions { flex-direction: row; align-items: center; justify-content: flex-start; padding-top: 8px; gap: 6px; }
 #page-database .sql-action-group { display: contents; }
 #page-database .sql-toolbar-actions button { width: auto; min-height: 32px; padding: 5px 9px; margin: 0; }
 #page-database #sql-input { height: 320px; min-height: 240px; }
-#page-database .sql-toolbar-actions .icon-button { width: 32px; height: 32px; flex-basis: 32px; }
+#page-database .db-connection-hub > #db-open-connections { width: auto; min-width: max-content; white-space: nowrap; }
+.sql-page-toolbar { min-width: 0; }
+#page-database .sql-page-toolbar .sql-toolbar-actions { justify-content: flex-end; flex-wrap: nowrap; width: 100%; padding-top: 0; border-top: 0; }
+#page-database .sql-page-toolbar .sql-toolbar-actions button { min-width: 104px; }
+.sql-workspace-tabs { margin: 0 0 12px; }
+.sql-workspace-tabs .tab { min-width: 116px; text-align: center; }
+.sql-workspace-view-panel:not(.active) { display: none; }
+#sql-analysis-panel > .sql-analysis { margin-top: 0; }
+#sql-results-panel > .sql-workspace-export { margin-top: 0; }
 .compact-tool-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 .compact-tool-button .lucide { width: 16px; height: 16px; flex-basis: 16px; }
 .sql-excel-details { border-bottom: 1px solid var(--line); }
@@ -359,6 +368,8 @@ body:has(.panel-expanded) { overflow: hidden; }
   .csv-export-panel { padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--line); }
   .csv-zone-heading { flex-wrap: wrap; }
   .csv-import-actions { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-start; }
+  #page-database .sql-editor-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+  #page-database .sql-page-toolbar { grid-column: 1 / -1; grid-row: 2; }
 }
 @media (max-width: 600px) {
   #compare-form, #db-csv-form, #db-sync-form { padding: 14px 16px; }
@@ -366,6 +377,10 @@ body:has(.panel-expanded) { overflow: hidden; }
   #compare-form .compare-key-toolbar select { flex-basis: 100%; }
   #page-database .sql-toolbar-actions { gap: 6px; }
   #page-database .sql-toolbar-actions button { flex: 0 1 auto; }
+  #page-database .db-connection-hub > #db-open-connections { width: 100%; }
+  .sql-page-toolbar { width: 100%; }
+  #page-database .sql-page-toolbar .sql-toolbar-actions { flex-wrap: wrap; justify-content: flex-start; }
+  #page-database .sql-page-toolbar .sql-toolbar-actions button { min-width: 0; }
 }
 
 /* Keep workbook actions in the otherwise unused page-intro space. */
@@ -396,3 +411,25 @@ body:has(.panel-expanded) { overflow: hidden; }
   .compare-page-toolbar > .compare-bulk-toolbar select { width: 100%; }
   #compare-preview-card { padding-top: 8px; }
 }
+
+/* Page title is already shown in the application topbar; reclaim duplicate header space. */
+#page-folder-compare > .page-intro,
+#page-file-tools > .page-intro,
+#page-copy-ut > .page-intro,
+#page-excel-format > .page-intro { display: none; }
+
+#page-database > .page-intro { display: none; }
+.database-tabbar { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.database-tabbar > .database-tabs { flex: 1 1 auto; min-width: 0; margin: 0; border-bottom: 0; }
+.database-tabbar > .db-connection-hub { flex: 0 0 auto; align-self: center; margin: 0 0 4px auto; }
+#page-database .sql-workspace-tabs { margin-top: 0; margin-bottom: 8px; }
+
+@media (max-width: 1000px) {
+  .database-tabbar { flex-wrap: wrap; gap: 4px 12px; }
+  .database-tabbar > .database-tabs { flex-basis: 100%; order: 2; }
+  .database-tabbar > .db-connection-hub { margin: 0 0 2px auto; }
+}
+
+#page-compare > .page-intro > :not(.compare-page-toolbar) { display: none; }
+#page-compare > .page-intro { min-height: 0; justify-content: flex-end; margin-bottom: 6px; }
+#page-compare > .page-intro > .compare-page-toolbar { position: static; width: min(900px, 100%); margin-left: auto; }

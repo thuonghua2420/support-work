@@ -14,6 +14,7 @@ const state = {
   folderComparePairs: [],
   folderPairDrag: null,
   compareDifferencesOnly: false,
+  compareExcludeRecordCountDifferences: false,
   pendingCompareCell: "",
   compareView: { cases: [], activeCaseId: "", activeWorkbookId: "", activeSheetName: "", sheet: null, loadingKey: "", sheetCache: {}, sheetHtmlCache: {}, sheetPending: {}, preloadStarted: false, viewToken: "initial" },
   job: null,
@@ -285,6 +286,15 @@ function prepareDatabaseWorkspaceLayout() {
     intro.appendChild(hub);
   }
 
+  const connectionHub = $("#db-connection-hub", databasePage);
+  if (connectionHub && !$("#database-tabbar", databasePage)) {
+    const tabbar = document.createElement("div");
+    tabbar.id = "database-tabbar";
+    tabbar.className = "database-tabbar";
+    tabs.before(tabbar);
+    tabbar.append(tabs, connectionHub);
+  }
+
   const dialog = document.createElement("dialog");
   dialog.className = "modal db-connection-modal";
   dialog.id = "db-connection-dialog";
@@ -341,9 +351,18 @@ function enhanceSqlWorkspacePanel(panel) {
   const actions = $("#sql-db-actions", panel) || $(".sql-toolbar-actions", panel);
   if (actions && !$("#sql-run-current")) {
     actions.insertAdjacentHTML("beforeend", `
-      <button class="secondary-button small" id="sql-run-current" type="button">Chạy hiện tại</button>
-      <button class="secondary-button small" id="sql-run-all" type="button">Chạy toàn bộ</button>
-      <button class="ghost-button small" id="sql-write-mode" type="button">Ghi DB OFF</button>`);
+      <button class="primary-button small" id="sql-run-all" type="button">Chạy toàn bộ</button>
+      <button class="primary-button small" id="sql-run-current" type="button">Chạy hiện tại</button>`);
+  }
+  const toolbarActions = $(".sql-toolbar-actions", panel);
+  const editorToolbar = $(".sql-editor-toolbar", panel);
+  if (toolbarActions && editorToolbar && !$("#sql-page-toolbar")) {
+    const toolbar = document.createElement("div");
+    toolbar.id = "sql-page-toolbar";
+    toolbar.className = "sql-page-toolbar hidden";
+    toolbar.setAttribute("aria-label", "Thao tác SQL Workspace");
+    toolbar.appendChild(toolbarActions);
+    editorToolbar.appendChild(toolbar);
   }
   panel.insertAdjacentHTML("beforeend", `
     <section class="card sql-workspace-export">
@@ -358,13 +377,66 @@ function enhanceSqlWorkspacePanel(panel) {
       </div>
       <section class="card sql-db-panel sql-source-data-panel"><div class="card-heading"><div><span class="sql-result-icon condition-icon">D</span><h3>Source Data</h3></div></div><div id="sql-source-data" class="sql-db-stack"></div></section>
     </section>`);
+  prepareSqlWorkspaceTabs(panel);
+}
+
+function prepareSqlWorkspaceTabs(panel) {
+  const editor = $("#sql-studio-form", panel);
+  const analysis = $("#sql-analysis", panel);
+  const exportPanel = $(".sql-workspace-export", panel);
+  const runOutput = $("#sql-workspace-output", panel);
+  if (!editor || !analysis || !exportPanel || !runOutput || $("#sql-workspace-tabs", panel)) return;
+
+  const tabs = document.createElement("div");
+  tabs.id = "sql-workspace-tabs";
+  tabs.className = "tabs sql-workspace-tabs";
+  tabs.setAttribute("role", "tablist");
+  tabs.setAttribute("aria-label", "Nội dung SQL Workspace");
+  tabs.innerHTML = `
+    <button class="tab active" id="sql-input-tab" data-tab-group="sql-workspace-view" data-tab="input" type="button" role="tab" aria-controls="sql-input-panel" aria-selected="true">Input SQL</button>
+    <button class="tab" id="sql-results-tab" data-tab-group="sql-workspace-view" data-tab="results" type="button" role="tab" aria-controls="sql-results-panel" aria-selected="false">Results SQL</button>
+    <button class="tab" id="sql-analysis-tab" data-tab-group="sql-workspace-view" data-tab="analysis" type="button" role="tab" aria-controls="sql-analysis-panel" aria-selected="false">Analysis SQL</button>`;
+
+  const inputPanel = document.createElement("div");
+  inputPanel.id = "sql-input-panel";
+  inputPanel.className = "sql-workspace-view-panel active";
+  inputPanel.dataset.tabPanel = "sql-workspace-view:input";
+  inputPanel.setAttribute("role", "tabpanel");
+  inputPanel.setAttribute("aria-labelledby", "sql-input-tab");
+  inputPanel.appendChild(editor);
+
+  const analysisPanel = document.createElement("div");
+  analysisPanel.id = "sql-analysis-panel";
+  analysisPanel.className = "sql-workspace-view-panel";
+  analysisPanel.dataset.tabPanel = "sql-workspace-view:analysis";
+  analysisPanel.setAttribute("role", "tabpanel");
+  analysisPanel.setAttribute("aria-labelledby", "sql-analysis-tab");
+  analysisPanel.appendChild(analysis);
+
+  const resultsPanel = document.createElement("div");
+  resultsPanel.id = "sql-results-panel";
+  resultsPanel.className = "sql-workspace-view-panel";
+  resultsPanel.dataset.tabPanel = "sql-workspace-view:results";
+  resultsPanel.setAttribute("role", "tabpanel");
+  resultsPanel.setAttribute("aria-labelledby", "sql-results-tab");
+  resultsPanel.append(exportPanel, runOutput);
+
+  panel.append(tabs, inputPanel, resultsPanel, analysisPanel);
+}
+
+function activateSqlWorkspaceTab(tab) {
+  $(`.tab[data-tab-group="sql-workspace-view"][data-tab="${tab}"]`)?.click();
 }
 
 function bindTabs() {
   $$(".tab").forEach((button) => button.addEventListener("click", () => {
     const group = button.dataset.tabGroup;
     const tab = button.dataset.tab;
-    $$(`.tab[data-tab-group="${group}"]`).forEach((item) => item.classList.toggle("active", item === button));
+    $$(`.tab[data-tab-group="${group}"]`).forEach((item) => {
+      const active = item === button;
+      item.classList.toggle("active", active);
+      if (item.getAttribute("role") === "tab") item.setAttribute("aria-selected", String(active));
+    });
     $$(`[data-tab-panel^="${group}:"]`).forEach((panel) => panel.classList.toggle("active", panel.dataset.tabPanel === `${group}:${tab}`));
     syncDatabaseCommonLayout(group, tab);
   }));
@@ -374,6 +446,7 @@ function bindTabs() {
 function syncDatabaseCommonLayout(group, tab) {
   if (group !== "database") return;
   $("#db-connection-hub")?.classList.toggle("sync-mode", tab === "sync");
+  $("#sql-page-toolbar")?.classList.toggle("hidden", tab !== "sql-workspace");
 }
 
 function bindActivityPanel() {
@@ -819,7 +892,6 @@ function bindForms() {
   $("#copy-sql-tables")?.addEventListener("click", copyAnalyzedSqlTables);
   $("#sql-run-current")?.addEventListener("click", () => runSqlExecute("current"));
   $("#sql-run-all")?.addEventListener("click", () => runSqlExecute("all"));
-  $("#sql-write-mode")?.addEventListener("click", toggleSqlWriteMode);
   $("#sql-export-all")?.addEventListener("click", () => exportSqlSources());
 
   $("#rename-exact-form").addEventListener("submit", (event) => {
@@ -870,6 +942,7 @@ function bindForms() {
   $("#db-scan-csv").addEventListener("click", () => {
     startAction("db_scan_csv", { csv_path: valueOf("db-csv-path") });
   });
+  $("#db-copy-all-tables").addEventListener("click", copyAllImportCsvTables);
   $("#db-import").addEventListener("click", async () => {
     if (!requireVerified("main")) return;
     const importMode = selectedImportMode();
@@ -908,6 +981,17 @@ function bindForms() {
     const button = event.target.closest("[data-import-table]");
     if (!button) return;
     toggleImportCsvTable(button.dataset.importTable || "");
+  });
+  $("#db-import-tables").addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLocaleLowerCase("vi") !== "a") return;
+    if (!selectedImportTables().length || !state.importCsvTables.length) return;
+    event.preventDefault();
+    state.selectedImportCsvTables = state.importCsvTables
+      .map((item) => String(item.table_name || ""))
+      .filter(Boolean);
+    renderImportCsvTables();
+    saveUiCacheDebounced();
+    showToast(`Đã chọn tất cả ${state.selectedImportCsvTables.length} table CSV.`, "success");
   });
   $("#db-csv-path").addEventListener("input", () => {
     state.importCsvTables = [];
@@ -1008,6 +1092,7 @@ function bindForms() {
   $("#compare-bulk-assign")?.addEventListener("click", assignCompareBulkNote);
   $("#compare-bulk-clear")?.addEventListener("click", clearCompareRowSelection);
   $("#compare-filter-differences")?.addEventListener("change", updateCompareDifferenceFilter);
+  $("#compare-filter-record-count")?.addEventListener("change", updateCompareRecordCountDifferenceFilter);
   $("#compare-scroll-pad")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-compare-scroll]");
     if (button) scrollComparePreview(button.dataset.compareScroll);
@@ -1468,8 +1553,26 @@ function renderImportCsvTables() {
 
 function syncImportTableControls() {
   const button = $("#db-import-selected");
-  if (!button) return;
-  button.disabled = !selectedImportTables().length || !state.importCsvTables.length || document.body.classList.contains("is-busy");
+  const copyButton = $("#db-copy-all-tables");
+  const busy = document.body.classList.contains("is-busy");
+  if (button) button.disabled = !selectedImportTables().length || !state.importCsvTables.length || busy;
+  if (copyButton) copyButton.disabled = !state.importCsvTables.length || busy;
+}
+
+async function copyAllImportCsvTables() {
+  const names = (state.importCsvTables || [])
+    .map((item) => String(item.table_name || ""))
+    .filter(Boolean);
+  if (!names.length) {
+    showToast("Chưa có table CSV để sao chép.", "error");
+    return;
+  }
+  try {
+    await writeClipboardText(names.join("\n"));
+    showToast(`Đã sao chép ${names.length} table.`, "success");
+  } catch (error) {
+    showToast(error.message || "Không thể sao chép danh sách table.", "error");
+  }
 }
 
 function toggleImportCsvTable(name) {
@@ -1483,6 +1586,9 @@ function toggleImportCsvTable(name) {
     state.selectedImportCsvTables.push(canonical);
   }
   renderImportCsvTables();
+  const focusedButton = $$("[data-import-table]", $("#db-import-tables"))
+    .find((button) => String(button.dataset.importTable || "").toLocaleLowerCase("vi") === key);
+  focusedButton?.focus();
   saveUiCacheDebounced();
 }
 
@@ -2172,9 +2278,12 @@ function renderCompareSheet() {
   const sheet = state.compareView.sheet;
   const active = ensureActiveCompareSelection();
   if (!sheet || sheet.key !== `${active.workbook?.id}\u001f${active.sheet?.name}`) return;
+  if (!compareRecordCountMismatchPairStarts(sheet).length) {
+    state.compareExcludeRecordCountDifferences = false;
+  }
   const table = $("#compare-preview-table");
   state.compareView.sheetHtmlCache = state.compareView.sheetHtmlCache || {};
-  const htmlKey = `${sheet.key}\u001f${state.compareDifferencesOnly ? "diff" : "all"}`;
+  const htmlKey = `${sheet.key}\u001f${state.compareDifferencesOnly ? "diff" : "all"}\u001f${state.compareExcludeRecordCountDifferences ? "without-count" : "with-count"}`;
   const html = state.compareView.sheetHtmlCache[htmlKey] || buildCompareSheetHtml(sheet);
   state.compareView.sheetHtmlCache[htmlKey] = html;
   const renderKey = `${state.compareView.viewToken || ""}\u001f${htmlKey}`;
@@ -2204,20 +2313,31 @@ function renderCompareSheet() {
 function buildCompareSheetHtml(sheet) {
   const widths = Array.isArray(sheet.column_widths) ? sheet.column_widths : [];
   const letters = Array.isArray(sheet.column_letters) ? sheet.column_letters : [];
+  const hiddenColumns = new Set();
+  if (state.compareExcludeRecordCountDifferences) {
+    compareRecordCountMismatchPairStarts(sheet).forEach((pairStart) => {
+      hiddenColumns.add(pairStart - 1);
+      hiddenColumns.add(pairStart);
+    });
+  }
+  const visibleColumnIndexes = widths
+    .map((_width, index) => index)
+    .filter((index) => !hiddenColumns.has(index));
+  const filterDifferences = state.compareDifferencesOnly || state.compareExcludeRecordCountDifferences;
   const rows = (Array.isArray(sheet.rows) ? sheet.rows : []).filter((row) =>
-    !state.compareDifferencesOnly || Number(row.number) <= 2 || compareRowFixmeIndices(row).length > 0
+    !filterDifferences || Number(row.number) <= 2 || compareRowFixmeIndices(row).length > 0
   );
   return `
     <colgroup>
       <col class="compare-row-number-col">
-      ${widths.map(() => `<col class="compare-value-col">`).join("")}
+      ${visibleColumnIndexes.map(() => `<col class="compare-value-col">`).join("")}
       <col class="compare-check-col">
     </colgroup>
-    <thead><tr><th class="compare-corner"></th>${letters.map((letter, index) => `<th class="${compareColumnStickyClass(index)}">${escapeHtml(letter)}</th>`).join("")}<th class="compare-check-header"></th></tr></thead>
+    <thead><tr><th class="compare-corner"></th>${visibleColumnIndexes.map((index) => `<th class="${compareColumnStickyClass(index)}">${escapeHtml(letters[index] || "")}</th>`).join("")}<th class="compare-check-header"></th></tr></thead>
     <tbody>${rows.map((row) => `
       <tr>
         <th class="compare-row-number">${escapeHtml(row.number)}</th>
-        ${(row.cells || []).map((cell, index) => compareCellHtml(cell, row, index)).join("")}
+        ${visibleColumnIndexes.map((index) => compareCellHtml((row.cells || [])[index], row, index)).join("")}
         ${compareCheckCellHtml(row)}
       </tr>`).join("")}</tbody>`;
 }
@@ -2251,7 +2371,7 @@ function compareColumnStickyClass(index) {
 }
 
 function compareCellHtml(cell, row, columnIndex = -1) {
-  const fixmeIndices = Array.isArray(cell.fixme_indices) ? cell.fixme_indices : [];
+  const fixmeIndices = compareVisibleFixmeIndices(Array.isArray(cell.fixme_indices) ? cell.fixme_indices : []);
   const classes = ["compare-cell", compareColumnStickyClass(columnIndex), ...compareCellColorClasses(cell, row)].filter(Boolean);
   if (Number(cell?.row || row?.number || 0) === 2) classes.push("compare-header-cell");
   if (compareCellBelongsToDiffPair(cell, row)) classes.push("compare-diff-cell");
@@ -2277,10 +2397,20 @@ function updateCompareDifferenceFilter(event) {
   renderCompareSheet();
 }
 
+function updateCompareRecordCountDifferenceFilter(event) {
+  state.compareExcludeRecordCountDifferences = event.target.checked;
+  renderCompareSheet();
+}
+
 function syncCompareDifferenceFilterButton() {
   const button = $("#compare-filter-differences");
-  if (!button) return;
-  button.checked = state.compareDifferencesOnly;
+  if (button) button.checked = state.compareDifferencesOnly;
+  const recordCountButton = $("#compare-filter-record-count");
+  if (recordCountButton) recordCountButton.checked = state.compareExcludeRecordCountDifferences;
+  $("#compare-filter-record-count-control")?.classList.toggle(
+    "hidden",
+    !compareRecordCountMismatchPairStarts().length,
+  );
 }
 
 function focusPendingCompareCell() {
@@ -2310,7 +2440,25 @@ function compareRowFixmeIndices(row) {
   (row?.cells || []).forEach((cell) => {
     if (Array.isArray(cell.fixme_indices)) indices.push(...cell.fixme_indices);
   });
-  return uniqueStrings(indices.map(String));
+  return compareVisibleFixmeIndices(uniqueStrings(indices.map(String)));
+}
+
+function compareVisibleFixmeIndices(indices) {
+  const normalized = uniqueStrings((indices || []).map(String));
+  if (!state.compareExcludeRecordCountDifferences) return normalized;
+  const ignoredRecords = new Set(
+    compareRecordCountMismatchPairStarts().map((pairStart) => Math.floor((pairStart - 3) / 2) + 1),
+  );
+  return normalized.filter((index) => {
+    const recordNumber = Number(state.fixmes[Number(index)]?.record_number || 0);
+    return !ignoredRecords.has(recordNumber);
+  });
+}
+
+function compareRecordCountMismatchPairStarts(sheet = state.compareView.sheet) {
+  return uniqueStrings((sheet?.record_count_mismatch_pair_starts || []).map(String))
+    .map(Number)
+    .filter((column) => Number.isInteger(column) && column >= 3);
 }
 
 function compareCellColorClasses(cell, row) {
@@ -2921,6 +3069,14 @@ function updateJobState(job) {
     return;
   }
   setBusy(false);
+  if (job.action === "db_sql_execute" && state.sqlWorkspace.writeToken) {
+    const writeToken = state.sqlWorkspace.writeToken;
+    disableSqlWriteModeLocal();
+    api("/api/sql-workspace/write-mode/disable", {
+      method: "POST",
+      body: { write_token: writeToken },
+    }).catch(() => {});
+  }
   if (state.handledJobs.has(job.id)) {
     const finishedKind = job.state === "succeeded" ? "success" : (job.state === "cancelled" ? "idle" : "error");
     const finishedText = job.state === "succeeded" ? "Hoàn tất" : (job.state === "cancelled" ? "Đã hủy" : "Thất bại");
@@ -3017,7 +3173,11 @@ function consumeJobResult(job) {
       saveUiCacheDebounced();
     }
     $("#sql-statement-count").textContent = `${result.statement_count || 0} statement`;
-    if (job.action === "sql_analyze") renderSqlAnalysis(result);
+    if (job.action === "sql_analyze") {
+      renderSqlAnalysis(result);
+      $("#sql-analysis").open = true;
+      activateSqlWorkspaceTab("analysis");
+    }
     else {
       const analysisPanel = $("#sql-analysis");
       analysisPanel.classList.add("hidden");
@@ -3034,6 +3194,7 @@ function consumeJobResult(job) {
       analysisPanel.open = false;
       clearSqlAnalysisTables();
     }
+    activateSqlWorkspaceTab("results");
   }
   if (job.action === "db_sql_update") {
     state.sqlWorkspace.dirty = {};
@@ -3101,6 +3262,7 @@ function navigateToFixmeLocation(location) {
     return;
   }
   state.compareDifferencesOnly = false;
+  state.compareExcludeRecordCountDifferences = false;
   state.pendingCompareCell = String(location.cell || "").toUpperCase();
   state.compareView.activeCaseId = caseItem.id;
   state.compareView.activeWorkbookId = workbook.id;
@@ -3141,7 +3303,7 @@ function runSqlExcelLoad() {
   });
 }
 
-function runSqlExecute(mode) {
+async function runSqlExecute(mode) {
   if (!requireVerified("main")) return;
   const editor = $("#sql-input");
   const sql = mode === "current" ? currentSqlSelection(editor) : valueOf("sql-input");
@@ -3150,43 +3312,28 @@ function runSqlExecute(mode) {
     editor.focus();
     return;
   }
-  startAction("db_sql_execute", {
-    sql,
-    settings: getDbSettings("main"),
-    run_mode: mode,
-    write_token: state.sqlWorkspace.writeToken || "",
-  });
-}
-
-async function toggleSqlWriteMode() {
-  if (state.sqlWorkspace.writeToken) {
-    try {
-      await api("/api/sql-workspace/write-mode/disable", {
-        method: "POST",
-        body: { write_token: state.sqlWorkspace.writeToken },
-      });
-    } catch (_error) {
-      // Local token is temporary; clearing it is enough when the server already dropped it.
-    }
-    disableSqlWriteModeLocal();
-    showToast("Đã tắt chế độ ghi DB.", "success");
-    return;
-  }
-  if (!requireVerified("main")) return;
-  const confirmed = await confirmAction(
-    "Bật chế độ ghi DB cho SQL editor?",
-    "DDL/DML sẽ được phép chạy trong 30 phút cho Database 1 hiện tại. Chạy toàn bộ sẽ rollback nếu có lỗi khi database hỗ trợ transaction; một số DDL/MySQL/Oracle có thể implicit commit."
-  );
-  if (!confirmed) return;
   try {
-    const result = await api("/api/sql-workspace/write-mode/enable", {
+    const settings = getDbSettings("main");
+    const inspection = await api("/api/sql-workspace/inspect-execution", {
       method: "POST",
-      body: { settings: getDbSettings("main") },
+      body: { sql, settings, run_mode: mode },
     });
-    state.sqlWorkspace.writeToken = result.write_token || "";
-    state.sqlWorkspace.writeExpiresAt = result.expires_at || "";
-    updateSqlWriteModeButton();
-    showToast("Chế độ ghi DB đã bật.", "success");
+    let writeToken = "";
+    if (inspection.write_required) {
+      const confirmed = await confirmAction(
+        "Chạy câu lệnh thay đổi CSDL?",
+        `${inspection.statement_count || 1} statement có CUD/DDL sẽ được chạy trên Database 1. Chạy toàn bộ sẽ rollback khi có lỗi nếu database hỗ trợ transaction; một số DDL/MySQL/Oracle có thể implicit commit.`
+      );
+      if (!confirmed) return;
+      const permission = await api("/api/sql-workspace/write-mode/enable", {
+        method: "POST",
+        body: { settings, confirmed: true },
+      });
+      writeToken = permission.write_token || "";
+      state.sqlWorkspace.writeToken = writeToken;
+      state.sqlWorkspace.writeExpiresAt = permission.expires_at || "";
+    }
+    startAction("db_sql_execute", { sql, settings, run_mode: mode, write_token: writeToken });
   } catch (error) {
     showToast(error.message, "error", 7000);
   }
@@ -3195,16 +3342,6 @@ async function toggleSqlWriteMode() {
 function disableSqlWriteModeLocal() {
   state.sqlWorkspace.writeToken = "";
   state.sqlWorkspace.writeExpiresAt = "";
-  updateSqlWriteModeButton();
-}
-
-function updateSqlWriteModeButton() {
-  const button = $("#sql-write-mode");
-  if (!button) return;
-  const enabled = Boolean(state.sqlWorkspace.writeToken);
-  button.classList.toggle("danger-button", enabled);
-  button.classList.toggle("ghost-button", !enabled);
-  button.textContent = enabled ? "Ghi DB ON" : "Ghi DB OFF";
 }
 
 function markSqlWorkspaceStale() {
@@ -3881,7 +4018,7 @@ function setBusy(busy) {
     cancelButton.disabled = !canCancel || Boolean(state.job?.cancel_requested);
     cancelButton.textContent = state.job?.cancel_requested ? "Đang hủy..." : "Hủy tác vụ";
   }
-  $$('button[type="submit"], #db-scan-csv, #db-import, #db-import-selected, #db-export, #db-switch-connections, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-copy-source], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, #compare-bulk-assign, #compare-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes, #apply-fixmes-preview, #refresh-compare-preview, #check-fixmes, #load-folder-pairs').forEach((button) => {
+  $$('button[type="submit"], #db-scan-csv, #db-copy-all-tables, #db-import, #db-import-selected, #db-export, #db-switch-connections, #find-empty, #delete-empty, #sql-format, #sql-analyze, #sql-load-excel, #sql-run-current, #sql-run-all, #sql-export-all, [data-sql-export], [data-sql-copy-source], [data-sql-update], #save-excel-format-preset, #delete-excel-format-preset, #fixme-select-filtered, #fixme-clear-selection, #fixme-bulk-assign, #fixme-bulk-clear, #compare-bulk-assign, #compare-bulk-clear, [data-db-test], [data-db-load], #apply-fixmes, #apply-fixmes-preview, #refresh-compare-preview, #check-fixmes, #load-folder-pairs').forEach((button) => {
     button.disabled = busy || (button.id === "delete-excel-format-preset" && !valueOf("excel-format-preset"));
   });
   updateFixmeToolbarState();

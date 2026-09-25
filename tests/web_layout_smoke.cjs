@@ -27,6 +27,7 @@ const path = require('node:path');
       for (const key of ['compare', 'folder-compare', 'file-tools', 'copy-ut', 'excel-format', 'database']) {
         if (width <= 900) await page.locator('#menu-toggle').click();
         await page.locator(`.nav-item[data-page="${key}"]`).click();
+        assert.ok(!(await page.locator(`#page-${key} > .page-intro h2`).isVisible()), `${key} duplicate page heading is visible`);
         await page.screenshot({ path: path.join(output, `${width}-${key}.png`), fullPage: true });
         const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth,
           overflow: [...document.querySelectorAll('body *')].filter(el => el.getBoundingClientRect().right > innerWidth + 1 && el.getBoundingClientRect().width).slice(0, 8).map(el => el.outerHTML.slice(0, 250)) }));
@@ -37,6 +38,9 @@ const path = require('node:path');
         await tab.click();
         const key = await tab.getAttribute('data-tab');
         if (key === 'csv') {
+          assert.ok(await page.locator('#db-import-tables').evaluate(el => Math.round(el.getBoundingClientRect().height) === 380));
+          assert.ok(await page.locator('#db-export-tables').evaluate(el => Math.round(el.getBoundingClientRect().height) === 380));
+          assert.equal(await page.locator('#db-copy-all-tables').count(), 1);
           for (const mode of ['delete_matching_keys', 'truncate_table', 'append']) {
             await page.locator(`input[name="db-import-mode"][value="${mode}"]`).check();
             assert.ok(await page.locator(`input[name="db-import-mode"][value="${mode}"]`).isChecked());
@@ -46,8 +50,30 @@ const path = require('node:path');
           assert.ok(optionHeights.every(height => height <= 36), `Import options too tall at ${width}`);
         }
         if (key === 'sql-workspace') {
+          assert.equal(await page.locator('#db-connection-hub').evaluate(el => el.parentElement?.id), 'database-tabbar');
+          const tabGap = await page.evaluate(() => {
+            const outer = document.querySelector('#page-database > .database-tabs').getBoundingClientRect();
+            const inner = document.querySelector('#sql-workspace-tabs').getBoundingClientRect();
+            return Math.round(inner.top - outer.bottom);
+          });
+          assert.ok(tabGap <= 8, `SQL nested tabs gap is ${tabGap}px at ${width}`);
           const tools = page.locator('.sql-toolbar-actions button');
-          assert.equal(await tools.count(), 6);
+          assert.equal(await tools.count(), 5);
+          assert.equal(await page.locator('#sql-write-mode').count(), 0);
+          assert.equal((await page.locator('#copy-current-sql').innerText()).trim(), 'Copy SQL');
+          assert.ok(await page.locator('#sql-page-toolbar').isVisible());
+          assert.equal(await page.locator('#sql-page-toolbar').evaluate(el => el.parentElement?.classList.contains('sql-editor-toolbar')), true);
+          assert.equal(await page.locator('#sql-page-toolbar').evaluate(el => el.previousElementSibling?.classList.contains('sql-editor-header-controls')), true);
+          assert.deepEqual(
+            await page.locator('#sql-workspace-tabs .tab').allTextContents(),
+            ['Input SQL', 'Results SQL', 'Analysis SQL'],
+          );
+          assert.ok(await page.locator('#sql-input-panel').isVisible());
+          await page.locator('#sql-results-tab').click();
+          assert.ok(await page.locator('#sql-results-panel').isVisible());
+          assert.ok(!(await page.locator('#sql-input-panel').isVisible()));
+          await page.locator('#sql-analysis-tab').click();
+          await page.locator('#sql-input-tab').click();
           const rows = await tools.evaluateAll(els => new Set(els.map(el => Math.round(el.getBoundingClientRect().top))).size);
           assert.ok(rows <= (width < 600 ? 3 : 2), `SQL tools spread across ${rows} rows at ${width}`);
           await page.locator('.sql-excel-details summary').click();

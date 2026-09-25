@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
-from autocompare_tool.database_io import DatabaseColumn, SqlServerAdapter, TableMetadata
-from autocompare_tool.sql_database_workspace import _decorate_column_usage, _diagnostic_source_sql, _display_value, is_read_statement
+from autocompare_tool.app_config import DatabaseWorkspaceConfig
+from autocompare_tool.database_io import DatabaseColumn, DatabaseConnectionSettings, SqlServerAdapter, TableMetadata
+from autocompare_tool.sql_database_workspace import (
+    SqlDatabaseWorkspaceManager,
+    _decorate_column_usage,
+    _diagnostic_source_sql,
+    _display_value,
+    is_read_statement,
+)
 from autocompare_tool.sql_tools import analyze_sql, parse_sql_expressions
 
 
@@ -14,6 +22,66 @@ class SqlDatabaseWorkspaceTests(unittest.TestCase):
 
         self.assertTrue(is_read_statement(select_expr))
         self.assertFalse(is_read_statement(update_expr))
+
+    def test_execution_inspection_distinguishes_select_from_cud(self) -> None:
+        read_plan = SqlDatabaseWorkspaceManager._prepare_execution(
+            "SELECT id FROM dbo.customers", "tsql", "all"
+        )
+        write_plan = SqlDatabaseWorkspaceManager._prepare_execution(
+            "UPDATE dbo.customers SET name = 'A'", "tsql", "current"
+        )
+
+        self.assertFalse(read_plan.write_required)
+        self.assertEqual("", read_plan.parse_error)
+        self.assertTrue(write_plan.write_required)
+        self.assertEqual(1, len(write_plan.statement_sqls))
+
+    def test_execute_read_only_returns_empty_parse_error(self) -> None:
+        class Cursor:
+            description = None
+            rowcount = -1
+
+        class Connection:
+            def cursor(self):
+                return Cursor()
+
+            def rollback(self):
+                return None
+
+            def close(self):
+                return None
+
+        class Adapter:
+            def connect(self, _settings):
+                return Connection()
+
+            def execute(self, _cursor, _sql):
+                return None
+
+        config = DatabaseWorkspaceConfig(
+            page_size=20,
+            max_page_size=100,
+            query_timeout_seconds=30,
+            write_mode_timeout_minutes=5,
+            export_batch_size=50,
+            workspace_spool_limit_mb=10,
+        )
+        manager = SqlDatabaseWorkspaceManager(config)
+        self.addCleanup(manager.close)
+        settings = DatabaseConnectionSettings(
+            database_type="SQL Server",
+            host="localhost",
+            database="sample",
+            schema="dbo",
+            trusted_connection=True,
+            driver="ODBC Driver 17 for SQL Server",
+        )
+
+        with patch("autocompare_tool.sql_database_workspace.get_adapter", return_value=Adapter()):
+            result = manager.execute("SELECT 1", settings)
+
+        self.assertEqual("", result["parse_error"])
+        self.assertEqual("read_only", result["transaction_status"])
 
     def test_join_group_is_transitive_and_takes_color_priority(self) -> None:
         expression = parse_sql_expressions(

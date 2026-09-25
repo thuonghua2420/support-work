@@ -32,6 +32,7 @@
 - Supported encodings: `utf-8-sig`, `utf-8`, `cp932`.
 - Preserve DBeaver-style NULL versus empty string in compare inputs: unquoted blank data cell is `NULL`, quoted empty string is `""`.
 - Compare workbooks display `NULL` values as literal `NULL`; empty strings remain visually blank.
+- Workbook preview exposes a separate record-count filter only when a record pair is present on one CSV side but missing on the other. That filter hides the unmatched before/after column pairs plus rows whose only FIXME entries belong to those pairs, and bulk note controls must target only the remaining visible differences.
 - Pair records by the first CSV column when key values line up. If before/after files have the same record count but the first-column key sequence or key header differs, compare rows by top-down record order because leading identity or timestamp columns may legitimately differ.
 - Compare must never automatically filter/delete records, CSV files or before folders, including equal-table cleanup. Keep equal sheets. After HTC/HTM row counts must never change.
 - Copy Input to both before folders only when `copy_input` is enabled and at least one before-after workflow is selected. Copy overwrites matching filenames without clearing or pruning. Otherwise compare existing folders; after-after needs no Input/before folders.
@@ -57,9 +58,11 @@
 - Use `sql_database_workspace.py` for live SQL execution/source data/export/update; keep `sql_tools.py` parser-only and web assets as render/orchestration only.
 - Use `sql_excel_loader.py` for reading numbered SQL lists from Excel sheets; the web layer should only pass file path, sheet name, and dialect.
 - Real DB writes must be triggered only from an explicit user action and confirmation.
+- SQL Workspace classifies each execution before it starts: read-only SQL runs directly, while CUD/DDL and unparsed raw SQL request confirmation and receive a short-lived server token for that execution without exposing a persistent write-mode toggle.
 - Normalize scans all CSV files recursively under the selected folder.
 - Import scans only CSV files directly inside the selected folder; nested folders are ignored.
 - The web CSV import page can scan direct CSV files and pass selected table names to `import_csv_folder`; import-all must keep the same behavior as an empty selection.
+- After at least one scanned CSV table is selected, Ctrl+A in the table picker selects every scanned table; the copy-all action writes all scanned table names to the clipboard one per line.
 - Map table name from CSV file stem.
 - Skip missing tables; do not mark them as errors.
 - CSV headers must map to DB columns; unknown CSV columns are errors.

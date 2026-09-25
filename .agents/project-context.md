@@ -173,6 +173,8 @@ Behavior:
 - SQL format, analysis, and Excel SQL loading use one shared editor; formatted SQL overwrites the editor content instead of appearing in a separate output panel.
 - SQL analysis shows every table/reference occurrence so aliases, CTE references, and query scopes remain visible.
 - The table-analysis copy button exports only unique physical database table names in analysis order, formatted as `Table1, Table2, Table3`; CTE and derived-query references are excluded.
+- SQL Workspace runs SELECT statements directly. CUD/DDL is available by default but requires an explicit confirmation for each execution; the UI obtains and releases a temporary server-side write token automatically.
+- SQL Workspace uses three nested tabs: `Input SQL` for the editor and commands, `Results SQL` for database query/source output, and `Analysis SQL` for parser diagnostics. Analyze and run actions automatically activate their matching result tab.
 
 ## Domain Terms
 
