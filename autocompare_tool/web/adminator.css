@@ -127,7 +127,13 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
 .excel-section .notice { margin-top: 20px; }
 [data-tab-panel="database:sql-workspace"] > .page-intro { display: none; }
 .sql-action-group { border: 0; padding: 0; border-radius: 0; background: none; }
-.sql-editor-wrap, #sql-input, #sql-input:focus { background: #fff; color: var(--ink); }
+.sql-editor-wrap, .sql-highlight-layer { background: #fff; color: var(--ink); }
+#sql-input, #sql-input:focus { color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--ink); background: transparent; }
+.sql-highlight-layer .sql-token-keyword { color: #155cc4; }
+.sql-highlight-layer .sql-token-string { color: #087942; }
+.sql-highlight-layer .sql-token-number { color: #9a5a00; }
+.sql-highlight-layer .sql-token-comment { color: #718096; }
+.sql-highlight-layer .sql-token-identifier { color: #6d3bb5; }
 .sql-gutter { background: var(--blue-soft); color: var(--blue); border-color: var(--line); }
 #sql-input { min-height: 320px; }
 .db-connection-chip { border-radius: 4px; padding: 8px 12px; box-shadow: none; background: white; }
@@ -414,6 +420,7 @@ body:has(.panel-expanded) { overflow: hidden; }
 
 /* Page title is already shown in the application topbar; reclaim duplicate header space. */
 #page-folder-compare > .page-intro,
+#page-excel-compare > .page-intro,
 #page-file-tools > .page-intro,
 #page-copy-ut > .page-intro,
 #page-excel-format > .page-intro { display: none; }

@@ -24,6 +24,9 @@
         <button class="nav-item" data-page="folder-compare" type="button">
           <span class="nav-icon">⇄</span><span><strong>Compare Csv With Path</strong><small>Compare CSV bất kỳ</small></span>
         </button>
+        <button class="nav-item" data-page="excel-compare" type="button">
+          <span class="nav-icon">X</span><span><strong>Compare Excel</strong><small>So sánh value từng cell</small></span>
+        </button>
         <button class="nav-item" data-page="file-tools" type="button">
           <span class="nav-icon">◇</span><span><strong>File/Folder</strong><small>Đổi tên, xóa, di chuyển</small></span>
         </button>
@@ -209,6 +212,23 @@
           </form>
         </section>
 
+        <section class="page" id="page-excel-compare" data-title="Compare Excel" data-eyebrow="WORKSPACE / EXCEL COMPARE">
+          <div class="page-intro">
+            <div><span class="section-kicker">Cell by cell</span><h2>Compare 2 file Excel</h2><p>Ghép sheet theo tên, sau đó theo thứ tự tab và chỉ ghi kết quả tại những ô có value sai khác.</p></div>
+            <div class="visual-chip excel-compare-flow"><b>Old</b><span>⇄</span><b>New</b><i>→ XLSX</i></div>
+          </div>
+          <form class="card form-card" id="excel-compare-form">
+            <div class="card-heading"><div><span class="step-number">01</span><h3>Chọn workbook</h3></div><span class="soft-badge">XLSX / XLSM</span></div>
+            <div class="two-column">
+              <label class="field"><span>File Excel cũ</span><span class="path-control"><input id="excel-compare-old" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="excel-compare-old" data-browse-kind="file" data-browse-ext="xlsx,xlsm,xltx,xltm">Chọn file</button></span><small>Workbook baseline / Old</small></label>
+              <label class="field"><span>File Excel mới</span><span class="path-control"><input id="excel-compare-new" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="excel-compare-new" data-browse-kind="file" data-browse-ext="xlsx,xlsm,xltx,xltm">Chọn file</button></span><small>Workbook actual / New</small></label>
+            </div>
+            <label class="field field-wide"><span>File Excel kết quả</span><span class="path-control"><input id="excel-compare-output" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="excel-compare-output" data-browse-kind="save" data-browse-ext="xlsx">Chọn</button></span><small>Mỗi sheet tạo thành bộ ba: <code>_Old</code>, <code>_New</code> và <code>_compare</code>.</small></label>
+            <div class="excel-compare-result hidden" id="excel-compare-result" aria-live="polite"></div>
+            <div class="form-actions"><span class="hint">Ô giống nhau để trống; ô khác nhau ghi <code>Old:value # New:value</code>.</span><button class="primary-button" type="submit">Tạo file compare <b>→</b></button></div>
+          </form>
+        </section>
+
         <section class="page" id="page-file-tools" data-title="File/Folder" data-eyebrow="WORKSPACE / FILE UTILITIES">
           <div class="page-intro slim"><div><span class="section-kicker">Thao tác hàng loạt</span><h2>Thao tác File/Folder</h2><p>Mỗi công cụ chỉ xử lý nội dung bên dưới folder gốc đã chọn.</p></div></div>
           <div class="card root-strip"><label class="field"><span>Folder thao tác dùng chung</span><span class="path-control"><input id="utility-root"><button class="browse-button" type="button" data-browse-target="utility-root" data-browse-kind="directory">Chọn folder</button></span></label></div>
@@ -333,7 +353,7 @@
               <button class="secondary-button" id="sql-load-excel" type="button">Load sheet &amp; format</button>
               <small>Đọc số thứ tự ở cột A; SQL chỉ lấy từ cột B. Nếu cột C cùng row có nội dung, hệ thống sẽ chèn nội dung đó thành comment cho dòng SQL tương ứng.</small>
             </div>
-            <div class="sql-editor-wrap"><span class="sql-gutter" aria-hidden="true">SQL</span><textarea id="sql-input" rows="18" spellcheck="false" placeholder="Dán câu SQL vào đây..." required></textarea></div>
+            <div class="sql-editor-wrap"><span class="sql-gutter" aria-hidden="true">SQL</span><pre class="sql-highlight-layer" id="sql-highlight-layer" aria-hidden="true"></pre><textarea id="sql-input" rows="18" spellcheck="false" placeholder="Dán câu SQL vào đây..." required></textarea></div>
           </form>
 
           <details class="card sql-analysis hidden" id="sql-analysis">

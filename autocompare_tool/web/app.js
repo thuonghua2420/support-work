@@ -62,6 +62,7 @@ const ACTIVITY_LOG_READY_TEXT = "AutoCompare đã sẵn sàng.";
 const ACTIVITY_LOG_SEPARATOR = "-----------------------------------------";
 const CANCELLABLE_ACTIONS = new Set([
   "compare_keys_extract",
+  "excel_compare",
   "db_test",
   "db_list_databases",
   "db_list_tables",
@@ -370,11 +371,8 @@ function enhanceSqlWorkspacePanel(panel) {
       <label class="field field-wide"><span>Output folder</span><span class="path-control"><input id="sql-export-folder"><button class="browse-button" type="button" data-browse-target="sql-export-folder" data-browse-kind="directory">Chọn</button></span></label>
     </section>
     <section class="sql-workspace-output hidden" id="sql-workspace-output">
-      <div class="sql-analysis-heading"><div><span class="section-kicker">Database workspace</span><h3>Query Results & Source Data</h3></div><span class="soft-badge" id="sql-workspace-state">STALE</span></div>
-      <div class="sql-db-grid">
-        <section class="card sql-db-panel"><div class="card-heading"><div><span class="sql-result-icon">R</span><h3>Query Results</h3></div></div><div id="sql-query-results" class="sql-db-stack"></div></section>
-        <section class="card sql-db-panel"><div class="card-heading"><div><span class="sql-result-icon table-icon">S</span><h3>Sources</h3></div></div><div id="sql-source-list" class="sql-db-stack"></div></section>
-      </div>
+      <div class="sql-analysis-heading"><div><span class="section-kicker">Database workspace</span><h3>Query Results</h3></div><span class="soft-badge" id="sql-workspace-state">STALE</span></div>
+      <section class="card sql-db-panel"><div class="card-heading"><div><span class="sql-result-icon">R</span><h3>Query Results</h3></div></div><div id="sql-query-results" class="sql-db-stack"></div></section>
       <section class="card sql-db-panel sql-source-data-panel"><div class="card-heading"><div><span class="sql-result-icon condition-icon">D</span><h3>Source Data</h3></div></div><div id="sql-source-data" class="sql-db-stack"></div></section>
     </section>`);
   prepareSqlWorkspaceTabs(panel);
@@ -559,6 +557,7 @@ function finalizeRestoredUiCache() {
   renderTables();
   renderDatabaseHistorySelects();
   if (valueOf("sql-input")) markSqlWorkspaceStale();
+  renderSqlEditorHighlight();
 }
 
 function restoreDatabaseSessionConnections() {
@@ -837,6 +836,15 @@ function bindForms() {
       pairs: ["separate", "paired_single"].includes(exportMode) ? collectFolderComparePairs() : [],
     });
   });
+  $("#excel-compare-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    $("#excel-compare-result")?.classList.add("hidden");
+    startAction("excel_compare", {
+      old_path: valueOf("excel-compare-old"),
+      new_path: valueOf("excel-compare-new"),
+      output_path: valueOf("excel-compare-output"),
+    });
+  });
   $$('input[name="folder-export-mode"]').forEach((control) => control.addEventListener("change", updateFolderCompareMode));
   $("#load-folder-pairs")?.addEventListener("click", loadFolderComparePairs);
   ["folder-left", "folder-right"].forEach((id) => $(`#${id}`)?.addEventListener("change", resetFolderComparePairs));
@@ -885,9 +893,16 @@ function bindForms() {
   $("#sql-load-excel").addEventListener("click", runSqlExcelLoad);
   $("#sql-input").addEventListener("input", () => {
     clearSqlAnalysisTables();
-    $("#sql-statement-count").textContent = "0 statement";
+    const statementCount = splitSqlStatements($("#sql-input").value).length;
+    $("#sql-statement-count").textContent = `${statementCount} statement`;
     markSqlWorkspaceStale();
+    renderSqlEditorHighlight();
   });
+  $("#sql-input").addEventListener("scroll", syncSqlEditorHighlightScroll);
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(renderSqlEditorHighlight).observe($("#sql-input"));
+  }
+  renderSqlEditorHighlight();
   $("#copy-current-sql").addEventListener("click", copyCurrentSql);
   $("#copy-sql-tables")?.addEventListener("click", copyAnalyzedSqlTables);
   $("#sql-run-current")?.addEventListener("click", () => runSqlExecute("current"));
@@ -1293,6 +1308,7 @@ function hydrateDefaults() {
   $("#db-csv-path").value = cwd;
   $("#sql-export-folder").value = cwd;
   $("#folder-output").value = joinPath(cwd, state.bootstrap.folder_compare_file);
+  $("#excel-compare-output").value = joinPath(cwd, "Compare_Excel.xlsx");
   $("#workflow-count").textContent = String(state.bootstrap.compare_workflows.filter((item) => item.default_enabled).length);
 }
 
@@ -3164,11 +3180,13 @@ function consumeJobResult(job) {
   if (job.action === "sql_format" || job.action === "sql_analyze" || job.action === "sql_load_excel") {
     if (job.action === "sql_load_excel" && result.source_sql) {
       $("#sql-input").value = result.source_sql;
+      renderSqlEditorHighlight();
       markSqlWorkspaceStale();
       saveUiCacheDebounced();
     }
     if (result.formatted_sql) {
       $("#sql-input").value = result.formatted_sql;
+      renderSqlEditorHighlight();
       markSqlWorkspaceStale();
       saveUiCacheDebounced();
     }
@@ -3195,6 +3213,13 @@ function consumeJobResult(job) {
       clearSqlAnalysisTables();
     }
     activateSqlWorkspaceTab("results");
+  }
+  if (job.action === "excel_compare") {
+    const panel = $("#excel-compare-result");
+    if (panel) {
+      panel.innerHTML = `<strong>Đã tạo file compare Excel</strong><span>${escapeHtml(result.output_path || "")}</span><br><span>${Number(result.sheet_pair_count || 0)} bộ sheet · ${Number(result.difference_count || 0)} ô sai khác</span>`;
+      panel.classList.remove("hidden");
+    }
   }
   if (job.action === "db_sql_update") {
     state.sqlWorkspace.dirty = {};
@@ -3400,6 +3425,97 @@ function splitSqlStatements(sql) {
   return ranges;
 }
 
+const SQL_HIGHLIGHT_KEYWORDS = new Set([
+  "ADD", "ALTER", "AND", "AS", "ASC", "BEGIN", "BETWEEN", "BY", "CASE", "COMMIT",
+  "CREATE", "CROSS", "DELETE", "DESC", "DISTINCT", "DROP", "ELSE", "END", "EXCEPT",
+  "EXISTS", "FROM", "FULL", "GROUP", "HAVING", "IN", "INNER", "INSERT", "INTERSECT",
+  "INTO", "IS", "JOIN", "LEFT", "LIKE", "LIMIT", "MERGE", "NOT", "NULL", "OFFSET",
+  "ON", "OR", "ORDER", "OUTER", "OVER", "PARTITION", "RETURNING", "RIGHT", "ROLLBACK",
+  "SELECT", "SET", "THEN", "TOP", "TRUNCATE", "UNION", "UPDATE", "VALUES", "WHEN",
+  "WHERE", "WINDOW", "WITH",
+]);
+
+function renderSqlEditorHighlight() {
+  const editor = $("#sql-input");
+  const layer = $("#sql-highlight-layer");
+  if (!editor || !layer) return;
+  layer.innerHTML = highlightSqlText(editor.value || "") || " ";
+  const count = splitSqlStatements(editor.value || "").length;
+  if ($("#sql-statement-count")) $("#sql-statement-count").textContent = `${count} statement`;
+  layer.style.width = `${editor.clientWidth}px`;
+  layer.style.minHeight = `${Math.max(editor.clientHeight, editor.scrollHeight)}px`;
+  syncSqlEditorHighlightScroll();
+}
+
+function syncSqlEditorHighlightScroll() {
+  const editor = $("#sql-input");
+  const layer = $("#sql-highlight-layer");
+  if (!editor || !layer) return;
+  layer.style.transform = `translate(${-editor.scrollLeft}px, ${-editor.scrollTop}px)`;
+}
+
+function highlightSqlText(sql) {
+  return splitSqlHighlightSegments(String(sql || ""))
+    .map((statement, index) => `<span class="sql-highlight-statement sql-tone-${index % 6}">${highlightSqlStatement(statement)}</span>`)
+    .join("");
+}
+
+function splitSqlHighlightSegments(sql) {
+  if (!sql) return [];
+  const segments = [];
+  let start = 0;
+  let quote = "";
+  let lineComment = false;
+  let blockComment = false;
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+    const next = sql[index + 1] || "";
+    if (lineComment) {
+      if (char === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (char === "*" && next === "/") { blockComment = false; index += 1; }
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        if (next === quote) index += 1;
+        else quote = "";
+      }
+      continue;
+    }
+    if (char === "-" && next === "-") { lineComment = true; index += 1; continue; }
+    if (char === "/" && next === "*") { blockComment = true; index += 1; continue; }
+    if (char === "'" || char === '"' || char === "`") { quote = char; continue; }
+    if (char === ";") {
+      segments.push(sql.slice(start, index + 1));
+      start = index + 1;
+    }
+  }
+  if (start < sql.length) segments.push(sql.slice(start));
+  return segments;
+}
+
+function highlightSqlStatement(statement) {
+  const tokenPattern = /(--[^\r\n]*|\/\*[\s\S]*?\*\/|'(?:''|[^'])*'|"(?:""|[^"])*"|`(?:``|[^`])*`|\[[^\]]*\]|\b\d+(?:\.\d+)?\b|\b[A-Za-z_][A-Za-z0-9_$#]*\b)/g;
+  let html = "";
+  let offset = 0;
+  for (const match of statement.matchAll(tokenPattern)) {
+    html += escapeHtml(statement.slice(offset, match.index));
+    const token = match[0];
+    let className = "";
+    if (token.startsWith("--") || token.startsWith("/*")) className = "sql-token-comment";
+    else if (token.startsWith("'")) className = "sql-token-string";
+    else if (/^["`\[]/.test(token)) className = "sql-token-identifier";
+    else if (/^\d/.test(token)) className = "sql-token-number";
+    else if (SQL_HIGHLIGHT_KEYWORDS.has(token.toUpperCase())) className = "sql-token-keyword";
+    html += className ? `<span class="${className}">${escapeHtml(token)}</span>` : escapeHtml(token);
+    offset = Number(match.index) + token.length;
+  }
+  return html + escapeHtml(statement.slice(offset));
+}
+
 async function copyCurrentSql() {
   const sql = $("#sql-input").value;
   if (!sql.trim()) return;
@@ -3446,7 +3562,8 @@ async function writeClipboardText(text, fallbackElement = null) {
 }
 
 function renderSqlAnalysis(result) {
-  const tables = Array.isArray(result.tables) ? result.tables : [];
+  const rawTables = Array.isArray(result.tables) ? result.tables : [];
+  const tables = groupSqlAnalysisTables(rawTables);
   const conditions = Array.isArray(result.conditions) ? result.conditions : [];
   const ctes = Array.isArray(result.ctes) ? result.ctes : [];
   const subqueries = Array.isArray(result.subqueries) ? result.subqueries : [];
@@ -3468,17 +3585,17 @@ function renderSqlAnalysis(result) {
   $("#sql-subquery-count").textContent = String(subqueries.length);
   $("#sql-projection-count").textContent = String(projections.length);
   $("#sql-clause-count").textContent = String(clauses.length);
-  state.sqlAnalysisTables = sqlDatabaseTableNames(tables);
+  state.sqlAnalysisTables = sqlDatabaseTableNames(rawTables);
   updateCopySqlTablesButton();
 
   $("#sql-table-body").innerHTML = tables.length ? tables.map((item, index) => `
     <tr>
       <td>${index + 1}</td>
       <td><code class="sql-code">${escapeHtml(item.qualified_name)}</code></td>
-      <td>${item.alias ? `<b>${escapeHtml(item.alias)}</b>` : "—"}</td>
-      <td><span class="soft-badge">${escapeHtml(item.role)}</span></td>
+      <td>${sqlPills(item.aliases)}</td>
+      <td>${sqlPills(item.roles)}</td>
       <td>${escapeHtml(sqlSourceTypeLabel(item.source_type))}</td>
-      <td>${sqlScopeHtml(item)}</td>
+      <td>${sqlGroupedScopesHtml(item.scopes)}</td>
     </tr>`).join("") : emptySqlTableRow(6, "Không tìm thấy table/reference trong SQL.");
 
   $("#sql-condition-body").innerHTML = conditions.length ? conditions.map((item, index) => `
@@ -3520,6 +3637,45 @@ function renderSqlAnalysis(result) {
       <small>${escapeHtml(item.scope_name)}</small>
       <code class="sql-code">${escapeHtml(item.expression)}</code>
     </article>`).join("") : sqlEmpty("Không có GROUP BY, ORDER BY hoặc LIMIT.");
+}
+
+function groupSqlAnalysisTables(tables) {
+  const groups = new Map();
+  (Array.isArray(tables) ? tables : []).forEach((item, index) => {
+    const physical = item?.source_type === "TABLE";
+    const tableName = String(item?.qualified_name || item?.name || "").trim();
+    const key = physical
+      ? `table:${tableName.toLocaleLowerCase("vi")}`
+      : `reference:${index}:${String(item?.scope_id || "")}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        ...item,
+        aliases: [],
+        roles: [],
+        scopes: [],
+      });
+    }
+    const group = groups.get(key);
+    pushUniqueText(group.aliases, item.alias);
+    pushUniqueText(group.roles, item.role);
+    const scopeKey = `${item.scope_id || ""}\u001f${item.scope_name || ""}`;
+    if (!group.scopes.some((scope) => scope.key === scopeKey)) {
+      group.scopes.push({ key: scopeKey, id: item.scope_id || "", name: item.scope_name || "Main query", depth: Number(item.depth || 0) });
+    }
+  });
+  return [...groups.values()];
+}
+
+function pushUniqueText(values, value) {
+  const text = String(value || "").trim();
+  if (!text) return;
+  const key = text.toLocaleLowerCase("vi");
+  if (!values.some((item) => String(item).toLocaleLowerCase("vi") === key)) values.push(text);
+}
+
+function sqlGroupedScopesHtml(scopes) {
+  if (!Array.isArray(scopes) || !scopes.length) return "—";
+  return `<span class="sql-pill-list">${scopes.map((scope) => `<span title="${escapeHtml(scope.id)} · depth ${scope.depth}">${escapeHtml(scope.name)}</span>`).join("")}</span>`;
 }
 
 function sqlDatabaseTableNames(tables) {
@@ -3586,38 +3742,38 @@ function renderSqlWorkspace(result) {
   badge.textContent = result.transaction_status || "READY";
   badge.classList.remove("stale");
 
-  renderSqlQueryResults(result.results || []);
-  renderSqlSourceList(result.sources || []);
+  renderSqlQueryResults(result.results || [], result.statements || []);
   renderSqlSourceData(result.sources || []);
 }
 
-function renderSqlQueryResults(results) {
+function renderSqlQueryResults(results, statements = []) {
   const container = $("#sql-query-results");
-  if (!results.length) {
-    container.innerHTML = sqlEmpty("Không có result set.");
+  const resultByStatement = new Map(results.map((item) => [Number(item.statement_index || 0), item]));
+  const entries = statements.length
+    ? statements
+    : results.map((item) => ({ statement_index: item.statement_index, statement_type: "SELECT", sql: "" }));
+  if (!entries.length) {
+    container.innerHTML = sqlEmpty("Không có statement được thực thi.");
     return;
   }
-  container.innerHTML = results.map((item) => `
-    <article class="sql-db-card">
-      <header><strong>${escapeHtml(item.label || item.item_id)}</strong><span>${Number(item.row_count || 0)} rows</span></header>
-      ${renderSqlDataGrid(item.first_page || { columns: item.columns || [], rows: [] }, { editable: false })}
-    </article>`).join("");
+  container.innerHTML = entries.map((statement) => {
+    const statementIndex = Number(statement.statement_index || 0);
+    const item = resultByStatement.get(statementIndex);
+    const status = statement.error
+      ? `<span class="sql-statement-status error">Lỗi</span>`
+      : item
+        ? `<span class="sql-statement-status success">${Number(item.row_count || 0)} rows</span>`
+        : `<span class="sql-statement-status neutral">${Number(statement.affected_rows || 0) >= 0 ? `${Number(statement.affected_rows)} affected` : "Đã chạy"}</span>`;
+    return `
+      <article class="sql-db-card sql-statement-result sql-tone-${Math.max(0, statementIndex - 1) % 6}">
+        <header><div><strong>Statement ${statementIndex}</strong><small>${escapeHtml(statement.statement_type || "SQL")} · ${Number(statement.elapsed_ms || 0)} ms</small></div>${status}</header>
+        ${statement.sql ? `<pre class="sql-executed-statement">${highlightSqlStatement(String(statement.sql))}</pre>` : ""}
+        ${statement.error ? `<div class="sql-statement-error">${escapeHtml(statement.error)}</div>` : ""}
+        ${item ? renderSqlDataGrid(item.first_page || { columns: item.columns || [], rows: [] }, { editable: false, showRowNumbers: true }) : ""}
+      </article>`;
+  }).join("");
   bindSqlPageControls(container);
   bindSqlJoinTooltips(container);
-}
-
-function renderSqlSourceList(sources) {
-  const container = $("#sql-source-list");
-  if (!sources.length) {
-    container.innerHTML = sqlEmpty("Analyze không tìm thấy source.");
-    return;
-  }
-  container.innerHTML = sources.map((source) => `
-    <article class="sql-source-card ${source.lineage_status !== "exact" ? "unsupported" : ""}">
-      <header><strong>${escapeHtml(source.label || source.relation_id)}</strong><span>${escapeHtml(source.relation_kind || "")}</span></header>
-      <small>${escapeHtml(source.scope_id || "")} · ${escapeHtml(source.lineage_status || "unsupported")}</small>
-      ${source.unsupported_reason ? `<p>${escapeHtml(source.unsupported_reason)}</p>` : ""}
-    </article>`).join("");
 }
 
 function renderSqlSourceData(sources) {
@@ -3650,7 +3806,7 @@ function renderSqlSourceData(sources) {
             <button class="primary-button small" type="button" data-sql-update="${escapeHtml(source.relation_id)}" disabled>Update Data</button>
           </div>
         </header>
-        ${renderSqlDataGrid(mergeSqlSourcePageUsage(source.first_page, source.columns || []), { editable: source.updateable, relationId: source.relation_id })}
+        ${renderSqlDataGrid(mergeSqlSourcePageUsage(source.first_page, source.columns || []), { editable: source.updateable, relationId: source.relation_id, showRowNumbers: true })}
       </article>`;
   }).join("");
   $$("[data-sql-export]", container).forEach((button) => {
@@ -3675,6 +3831,7 @@ function renderSqlDataGrid(page, options = {}) {
   const columns = Array.isArray(page.columns) ? page.columns : [];
   const rows = Array.isArray(page.rows) ? page.rows : [];
   if (!columns.length) return sqlEmpty("Không có metadata column.");
+  const rowNumberHeader = options.showRowNumbers ? `<th class="sql-row-number-header" rowspan="2">STT</th>` : "";
   const headerIndexes = columns.map((column) => `<th class="sql-index-header">#${Number(column.index || 0)}</th>`).join("");
   const headerNames = columns.map((column) => {
     return `<th${sqlJoinTooltipAttrs(column)}${sqlUsageStyle(column)} class="${sqlUsageClass(column)}">
@@ -3684,19 +3841,20 @@ function renderSqlDataGrid(page, options = {}) {
   }).join("");
   const body = rows.length ? rows.map((row) => `
     <tr>
+      ${options.showRowNumbers ? `<th class="sql-row-number" scope="row">${Number(row.row_number || 0)}</th>` : ""}
       ${columns.map((column, index) => renderSqlCell(row, column, index, options)).join("")}
-    </tr>`).join("") : `<tr><td colspan="${columns.length}">${sqlEmpty("Không có record trong page này.")}</td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="${columns.length + (options.showRowNumbers ? 1 : 0)}">${sqlEmpty("Không có record trong page này.")}</td></tr>`;
   const pageNumber = Number(page.page || 1);
   const pageSize = Number(page.page_size || rows.length || 100);
   const rowCount = Number(page.row_count || rows.length || 0);
   const maxPage = Math.max(1, Math.ceil(rowCount / Math.max(1, pageSize)));
   const pager = page.item_id && rowCount > pageSize ? `
     <div class="sql-grid-pager">
-      <button class="ghost-button small" type="button" data-sql-page="${escapeHtml(page.item_id)}" data-page="${pageNumber - 1}" data-relation-id="${escapeHtml(options.relationId || "")}" data-editable="${options.editable ? "1" : "0"}" ${pageNumber <= 1 ? "disabled" : ""}>Prev</button>
+      <button class="ghost-button small" type="button" data-sql-page="${escapeHtml(page.item_id)}" data-page="${pageNumber - 1}" data-relation-id="${escapeHtml(options.relationId || "")}" data-editable="${options.editable ? "1" : "0"}" data-row-numbers="${options.showRowNumbers ? "1" : "0"}" ${pageNumber <= 1 ? "disabled" : ""}>Prev</button>
       <span>Page ${pageNumber} / ${maxPage}</span>
-      <button class="ghost-button small" type="button" data-sql-page="${escapeHtml(page.item_id)}" data-page="${pageNumber + 1}" data-relation-id="${escapeHtml(options.relationId || "")}" data-editable="${options.editable ? "1" : "0"}" ${pageNumber >= maxPage ? "disabled" : ""}>Next</button>
+      <button class="ghost-button small" type="button" data-sql-page="${escapeHtml(page.item_id)}" data-page="${pageNumber + 1}" data-relation-id="${escapeHtml(options.relationId || "")}" data-editable="${options.editable ? "1" : "0"}" data-row-numbers="${options.showRowNumbers ? "1" : "0"}" ${pageNumber >= maxPage ? "disabled" : ""}>Next</button>
     </div>` : "";
-  return `<div class="sql-grid-host"><div class="table-wrap sql-source-table-wrap"><table class="sql-source-table"><thead><tr>${headerIndexes}</tr><tr>${headerNames}</tr></thead><tbody>${body}</tbody></table></div>${pager}</div>`;
+  return `<div class="sql-grid-host"><div class="table-wrap sql-source-table-wrap"><table class="sql-source-table"><thead><tr>${rowNumberHeader}${headerIndexes}</tr><tr>${headerNames}</tr></thead><tbody>${body}</tbody></table></div>${pager}</div>`;
 }
 
 function sqlUsageStyle(column) {
@@ -3846,6 +4004,7 @@ function bindSqlPageControls(root) {
       host.outerHTML = renderSqlDataGrid(result, {
         editable: button.dataset.editable === "1",
         relationId,
+        showRowNumbers: button.dataset.rowNumbers === "1",
       });
       const card = relationId ? $(`[data-source-card="${cssEscape(relationId)}"]`) : cardBeforeReplace;
       if (card) {
@@ -3966,6 +4125,7 @@ function summaryMessage(job) {
   const result = job.result || {};
   if (job.action === "compare") return `Đã xử lý ${result.processed_count || 0} case, tạo ${result.workbook_count || 0} workbook và tìm thấy ${result.fixme_count || 0} FIXME.`;
   if (job.action === "folder_compare") return `Đã tạo ${result.workbook_count || 1} workbook / ${result.sheet_count || 0} sheet, tìm thấy ${result.fixme_count || 0} FIXME.`;
+  if (job.action === "excel_compare") return `Đã compare ${result.sheet_pair_count || 0} sheet và tìm thấy ${result.difference_count || 0} ô sai khác.`;
   if (job.action === "check_fixmes") {
     const count = result.fixme_location_count || 0;
     const workbookCount = result.scanned_workbook_count || 0;

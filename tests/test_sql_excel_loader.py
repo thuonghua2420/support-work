@@ -47,7 +47,8 @@ class SqlExcelLoaderTests(unittest.TestCase):
             self.assertEqual("select * from orders\nwhere customer_id = 1", entries[1].sql_text)
             raw_sql = render_raw_sql_entries(entries)
             self.assertIn("-- SQL No.1", raw_sql)
-            self.assertIn("-- lọc theo id", raw_sql)
+            self.assertIn("where id = 1;  -- lọc theo id", raw_sql)
+            self.assertIn("select * from customers  -- lấy danh sách khách hàng", raw_sql)
 
     def test_format_excel_sql_entries_keeps_column_c_notes_as_comments(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -57,6 +58,7 @@ class SqlExcelLoaderTests(unittest.TestCase):
             sheet.title = "SQLList"
             sheet["A1"] = 1
             sheet["B1"] = "select * from customers"
+            sheet["C1"] = "dòng customers"
             sheet["B2"] = "where customer_id = @CustomerId"
             sheet["C2"] = "@CustomerId lấy data từ SQL no.3"
             workbook.save(path)
@@ -65,7 +67,10 @@ class SqlExcelLoaderTests(unittest.TestCase):
             result = format_excel_sql_entries(entries, dialect="tsql")
 
             self.assertIn("-- SQL No.1", result.formatted_sql)
-            self.assertIn("-- @CustomerId lấy data từ SQL no.3", result.formatted_sql)
+            customer_note_line = next(line for line in result.formatted_sql.splitlines() if "-- dòng customers" in line)
+            parameter_note_line = next(line for line in result.formatted_sql.splitlines() if "-- @CustomerId lấy data từ SQL no.3" in line)
+            self.assertIn("FROM customers", customer_note_line)
+            self.assertIn("customer_id = @CustomerId", parameter_note_line)
 
     def test_border_can_end_last_sql_region(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -85,6 +90,29 @@ class SqlExcelLoaderTests(unittest.TestCase):
             entries = load_sql_entries_from_excel(path, "SQLList")
 
             self.assertEqual("select *\nfrom customers", entries[0].sql_text)
+
+    def test_notes_follow_repeated_column_b_fragments_in_excel_row_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "sql.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "SQLList"
+            sheet["A1"] = 1
+            sheet["B1"] = "select id from customers"
+            sheet["C1"] = "customers lần 1"
+            sheet["B2"] = "union all"
+            sheet["B3"] = "select id from customers"
+            sheet["C3"] = "customers lần 2"
+            workbook.save(path)
+
+            entries = load_sql_entries_from_excel(path, "SQLList")
+            result = format_excel_sql_entries(entries, dialect="tsql")
+            note_lines = [line for line in result.formatted_sql.splitlines() if "-- customers lần" in line]
+
+            self.assertEqual(2, len(note_lines))
+            self.assertIn("customers lần 1", note_lines[0])
+            self.assertIn("customers lần 2", note_lines[1])
+            self.assertTrue(all("FROM customers" in line for line in note_lines))
 
 
 if __name__ == "__main__":

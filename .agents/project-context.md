@@ -16,6 +16,7 @@ The web UI is organized by a left-side navigation menu:
 
 - `Compare`: compare workflows and FIXME review.
 - `Compare CSV Folders`: ad-hoc compare for two user-selected CSV folders.
+- `Compare Excel`: cell-by-cell compare for two OOXML workbooks.
 - `File Utilities`: simple bulk file/folder operations.
 - `Copy UT Files`: source/target copy workflow.
 - `Database`: DB connection, CSV normalize/import/export, and database-to-database synchronization.
@@ -66,6 +67,21 @@ Behavior:
 - One-file export recursively includes CSV files that exist only on the left or only on the right side.
 - Per-file export initially pairs exact file-name matches, then aligns remaining left/right files by sorted order so users can adjust timestamped or otherwise different file names before exporting.
 - Returns FIXME entries to the GUI review state.
+
+### Compare Excel
+
+Input:
+
+- An Old workbook and a New workbook in `.xlsx`, `.xlsm`, `.xltx`, or `.xltm` format.
+- An `.xlsx` output path distinct from both source files.
+
+Behavior:
+
+- Pairs worksheets by exact name first, then pairs remaining sheets by tab order; Old workbook order is preserved and unmatched New tail sheets are appended.
+- Creates three output worksheets per pair: `<name>_Old`, `<name>_New`, and `<name>_compare` (truncated and made unique within Excel's 31-character limit).
+- Copies source cell values/formulas and basic worksheet formatting into the Old/New snapshots.
+- Leaves equal compare cells blank. A differing cell contains rich text `Old:<old value> # New:<new value>`, with only `Old:` and `New:` bold.
+- Treats sheets missing from either workbook as blank on that side, so added or removed sheets are not lost.
 
 ### FIXME Review
 
@@ -171,10 +187,13 @@ Behavior:
 Behavior:
 
 - SQL format, analysis, and Excel SQL loading use one shared editor; formatted SQL overwrites the editor content instead of appearing in a separate output panel.
-- SQL analysis shows every table/reference occurrence so aliases, CTE references, and query scopes remain visible.
+- When loading SQL from Excel, a note in column C is attached inline to the formatted SQL fragment originating from column B on the same worksheet row; repeated fragments are matched in worksheet order.
+- SQL analysis keeps every occurrence internally, but the table summary groups physical-table aliases into one row and removes duplicate aliases/scopes from that row.
 - The table-analysis copy button exports only unique physical database table names in analysis order, formatted as `Table1, Table2, Table3`; CTE and derived-query references are excluded.
 - SQL Workspace runs SELECT statements directly. CUD/DDL is available by default but requires an explicit confirmation for each execution; the UI obtains and releases a temporary server-side write token automatically.
 - SQL Workspace uses three nested tabs: `Input SQL` for the editor and commands, `Results SQL` for database query/source output, and `Analysis SQL` for parser diagnostics. Analyze and run actions automatically activate their matching result tab.
+- The SQL editor and execution cards color SQL syntax and use a different accent per statement. Run-all attempts every parsed statement even when an earlier statement fails, while preserving rollback behavior for failed write batches.
+- Query result grids show a stable row ordinal before database columns and preserve the database-provided column-name casing. The redundant Sources summary is hidden; Source Data groups aliases of the same physical table and keeps one row per primary key (or full-row hash when no key exists).
 
 ## Domain Terms
 

@@ -9,6 +9,7 @@ from unittest.mock import patch
 from autocompare_tool.database_io import DatabaseConnectionSettings, DatabaseCsvSummary, DatabaseSyncSummary
 from autocompare_tool.excel_format_presets import ExcelFormatPresetStore
 from autocompare_tool.excel_image_formatter import ExcelImageFormatSummary
+from autocompare_tool.excel_compare import ExcelCompareResult
 from autocompare_tool.excel_writer import WorkbookFixmeEntry
 from autocompare_tool.sql_excel_loader import ExcelSqlEntry
 from autocompare_tool.sql_tools import SqlFormatResult
@@ -158,6 +159,28 @@ class WebApplicationTests(unittest.TestCase):
         self.assertEqual("Calibri", format_mock.call_args.kwargs["font_name"])
         self.assertEqual("12", format_mock.call_args.kwargs["font_size"])
         self.assertEqual("Header\n(Title, A1)", format_mock.call_args.kwargs["font_size_exclusions"])
+
+    def test_excel_compare_action_maps_paths_and_returns_json_safe_result(self) -> None:
+        app = AutoCompareWebApplication()
+        old_path = Path.cwd() / "old.xlsx"
+        new_path = Path.cwd() / "new.xlsx"
+        output_path = Path.cwd() / "Compare_Excel.xlsx"
+        summary = ExcelCompareResult(old_path, new_path, output_path, 2, 5, 0, 0)
+
+        with patch("autocompare_tool.web_app.compare_excel_workbooks", return_value=summary) as compare_mock:
+            operation = app._operation("excel_compare", {
+                "old_path": str(old_path),
+                "new_path": str(new_path),
+                "output_path": str(output_path),
+            })
+            from autocompare_tool.web_app import CancelToken
+            result = operation(lambda _message: None, CancelToken())
+
+        self.assertEqual(str(output_path), result["output_path"])
+        self.assertEqual(5, result["difference_count"])
+        self.assertEqual(str(old_path), compare_mock.call_args.args[0])
+        self.assertEqual(str(new_path), compare_mock.call_args.args[1])
+        self.assertEqual(str(output_path), compare_mock.call_args.args[2])
 
     def test_sql_format_action_maps_sql_and_dialect(self) -> None:
         app = AutoCompareWebApplication()

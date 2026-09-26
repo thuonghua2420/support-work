@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+import time
+from pathlib import Path
 from unittest.mock import patch
 
 from autocompare_tool.app_config import DatabaseWorkspaceConfig
 from autocompare_tool.database_io import DatabaseColumn, DatabaseConnectionSettings, SqlServerAdapter, TableMetadata
 from autocompare_tool.sql_database_workspace import (
     SqlDatabaseWorkspaceManager,
+    _Workspace,
     _decorate_column_usage,
     _diagnostic_source_sql,
     _display_value,
+    _group_source_relations,
+    _init_spool,
+    _merged_source_relation,
+    _read_spool_rows,
+    _spool_cursor_unique,
     is_read_statement,
 )
 from autocompare_tool.sql_tools import analyze_sql, parse_sql_expressions
@@ -82,6 +91,116 @@ class SqlDatabaseWorkspaceTests(unittest.TestCase):
 
         self.assertEqual("", result["parse_error"])
         self.assertEqual("read_only", result["transaction_status"])
+
+    def test_execute_all_continues_after_one_statement_fails(self) -> None:
+        executed: list[str] = []
+
+        class Cursor:
+            description = None
+            rowcount = -1
+
+        class Connection:
+            def cursor(self):
+                return Cursor()
+
+            def rollback(self):
+                return None
+
+            def close(self):
+                return None
+
+        class Adapter:
+            def connect(self, _settings):
+                return Connection()
+
+            def execute(self, _cursor, sql):
+                executed.append(sql)
+                if len(executed) == 10:
+                    raise RuntimeError("statement ten failed")
+
+        config = DatabaseWorkspaceConfig(
+            page_size=20,
+            max_page_size=100,
+            query_timeout_seconds=30,
+            write_mode_timeout_minutes=5,
+            export_batch_size=50,
+            workspace_spool_limit_mb=10,
+        )
+        manager = SqlDatabaseWorkspaceManager(config)
+        self.addCleanup(manager.close)
+        settings = DatabaseConnectionSettings(
+            database_type="SQL Server",
+            host="localhost",
+            database="sample",
+            schema="dbo",
+            trusted_connection=True,
+            driver="ODBC Driver 17 for SQL Server",
+        )
+        sql = ";".join(f"SELECT {index}" for index in range(1, 13))
+
+        with patch("autocompare_tool.sql_database_workspace.get_adapter", return_value=Adapter()):
+            result = manager.execute(sql, settings)
+
+        self.assertEqual(12, len(executed))
+        self.assertEqual(12, len(result["statements"]))
+        self.assertIn("statement ten failed", result["statements"][9]["error"])
+        self.assertEqual(12, result["statements"][-1]["statement_index"])
+
+    def test_source_relations_group_aliases_for_the_same_table(self) -> None:
+        first = _relation("r1", "Customer", "c", [_column("CustomerId")])
+        second = _relation("r2", "Customer", "parent", [_column("CustomerId")])
+        first.update({"source_type": "TABLE", "lineage_status": "exact", "source_sql": "SELECT 1"})
+        second.update({"source_type": "TABLE", "lineage_status": "exact", "source_sql": "SELECT 2"})
+
+        groups = _group_source_relations([first, second])
+        merged = _merged_source_relation(first, groups[0])
+
+        self.assertEqual(1, len(groups))
+        self.assertEqual(["c", "parent"], merged["aliases"])
+        self.assertEqual("c, parent", merged["alias"])
+        self.assertEqual("SELECT 1;\n\nSELECT 2", merged["source_sql"])
+
+    def test_grouped_source_rows_are_unique_by_primary_key(self) -> None:
+        class Cursor:
+            def __init__(self, rows):
+                self.rows = list(rows)
+
+            def fetchmany(self, _size):
+                rows, self.rows = self.rows, []
+                return rows
+
+        settings = DatabaseConnectionSettings(
+            database_type="SQL Server",
+            host="localhost",
+            database="sample",
+            schema="dbo",
+            trusted_connection=True,
+            driver="ODBC Driver 17 for SQL Server",
+        )
+        columns = [
+            DatabaseColumn(name="CustomerId", ordinal=1, data_type="int", is_primary_key=True),
+            DatabaseColumn(name="Name", ordinal=2, data_type="nvarchar"),
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workspace = _Workspace(
+                workspace_id="test",
+                root_path=root,
+                sqlite_path=root / "spool.sqlite3",
+                fingerprint="test",
+                dialect="tsql",
+                created_at=time.time(),
+                expires_at=time.time() + 60,
+                settings=settings,
+            )
+            _init_spool(workspace.sqlite_path)
+            seen: set[str] = set()
+            _spool_cursor_unique(workspace, "source-r1", Cursor([(1, "A"), (2, "B")]), columns, 50, 10, seen)
+            count = _spool_cursor_unique(workspace, "source-r1", Cursor([(2, "B changed"), (3, "C")]), columns, 50, 10, seen)
+            rows = _read_spool_rows(workspace.sqlite_path, "source-r1", 0, 10)
+
+        self.assertEqual(3, count)
+        self.assertEqual(3, len(rows))
 
     def test_join_group_is_transitive_and_takes_color_priority(self) -> None:
         expression = parse_sql_expressions(

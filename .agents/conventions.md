@@ -47,7 +47,7 @@
 - Write with CRLF line endings.
 - Existing normalize writer quotes all non-null data cells.
 - Typed DB export writer leaves numeric cells unquoted and quotes string cells.
-- SQL Workspace database grids display `None` as `[NULL]`; empty strings remain visually blank.
+- SQL Workspace database grids display `None` as `[NULL]`; empty strings remain visually blank. Query Result and Source Data grids add a UI-only row ordinal and must preserve the column-name casing returned by the database driver.
 - Keep headers unquoted unless quoting is required by CSV syntax.
 
 ## DB CSV Rules

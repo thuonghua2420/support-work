@@ -12,6 +12,7 @@ run.bat
       -> processor.py       -> excel_writer.py -> compare.py -> csv_table.py
       -> compare_workbook_view.py -> generated compare .xlsx
       -> folder_compare.py  -> excel_writer.py -> compare.py -> csv_table.py
+      -> excel_compare.py   -> openpyxl cell-by-cell workbook compare
       -> excel_image_formatter.py -> Microsoft Excel Desktop COM
       -> excel_format_presets.py -> excel_format_presets.json
       -> sql_tools.py       -> SQLGlot parser/AST
@@ -155,6 +156,16 @@ Owns:
 Keep:
 
 - Compare workbook text labels in `[excel_headers]` and style colors in `[excel_compare_style]` of `autocompare_config.ini`.
+
+### `autocompare_tool/excel_compare.py`
+
+Owns:
+
+- Validating two OOXML Excel inputs and a distinct `.xlsx` output path.
+- Pairing exact sheet names first, then pairing remaining sheets by tab order and retaining unmatched tail sheets.
+- Copying source cell content and basic formatting into `_Old` and `_New` snapshots.
+- Exact cell value/type comparison and rich-text `_compare` cells with bold `Old:` / `New:` labels.
+- Excel-safe, unique sheet names that keep the required suffix within the 31-character limit.
 
 ### `autocompare_tool/compare_workbook_view.py`
 

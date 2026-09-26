@@ -42,6 +42,7 @@ from .database_io import (
     test_database_connection,
 )
 from .excel_image_formatter import format_excel_images
+from .excel_compare import compare_excel_workbooks
 from .excel_format_presets import ExcelFormatPreset, ExcelFormatPresetStore
 from .excel_writer import WorkbookFixmeEntry
 from .file_utilities import (
@@ -205,6 +206,7 @@ class AutoCompareWebApplication:
         "compare_keys_remove": "Đang xóa key compare đã lưu...",
         "compare": "Đang chạy so sánh UT...",
         "folder_compare": "Đang so sánh hai folder CSV...",
+        "excel_compare": "Đang so sánh hai file Excel...",
         "copy_ut": "Đang sao chép file UT...",
         "format_excel_images": "Đang format ảnh trong Excel...",
         "sql_format": "Đang format câu SQL...",
@@ -591,6 +593,16 @@ class AutoCompareWebApplication:
                 confirmed=payload.get("confirmed") is True,
                 log=log,
                 cancel=cancel.throw_if_cancelled,
+            )
+        if action == "excel_compare":
+            return lambda log, cancel: self._file_summary(
+                compare_excel_workbooks(
+                    _text(payload, "old_path"),
+                    _text(payload, "new_path"),
+                    _text(payload, "output_path"),
+                    log=log,
+                    cancel=cancel.throw_if_cancelled,
+                )
             )
         operations: dict[str, Callable[[Logger], dict[str, Any]]] = {
             "compare": lambda log: self._compare(payload, log),

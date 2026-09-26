@@ -56,9 +56,7 @@ def render_raw_sql_entries(entries: list[ExcelSqlEntry]) -> str:
         lines = [f"-- SQL No.{entry.number}"]
         if entry.sql_lines:
             for sql_line in entry.sql_lines:
-                if sql_line.note:
-                    lines.append(_comment_line(sql_line.note))
-                lines.append(sql_line.sql_text)
+                lines.append(_append_inline_note(sql_line.sql_text, sql_line.note))
             blocks.append(_ensure_semicolon("\n".join(lines)))
         else:
             blocks.append(f"-- SQL No.{entry.number}\n{_ensure_semicolon(entry.sql_text)}")
@@ -182,48 +180,110 @@ def _cell_text(value: object) -> str:
 
 def _ensure_semicolon(sql_text: str) -> str:
     value = sql_text.strip()
+    lines = value.splitlines()
+    if lines and "  -- " in lines[-1]:
+        sql_part, note_part = lines[-1].split("  -- ", 1)
+        lines[-1] = f"{sql_part.rstrip().rstrip(';')};  -- {note_part}"
+        return "\n".join(lines)
     return value if value.endswith(";") else f"{value};"
 
 
 def _insert_note_comments(formatted_sql: str, sql_lines: tuple[ExcelSqlLine, ...]) -> str:
-    notes = [sql_line for sql_line in sql_lines if sql_line.note]
-    if not notes:
+    if not any(sql_line.note for sql_line in sql_lines):
         return formatted_sql
 
     formatted_lines = formatted_sql.splitlines()
-    insertions: dict[int, list[str]] = {}
-    unmatched: list[str] = []
-    used_indexes: set[int] = set()
-    for note in notes:
-        target = _normalize_sql_fragment(note.sql_text)
-        match_index: int | None = None
-        for line_index, line in enumerate(formatted_lines):
-            if line_index in used_indexes:
-                continue
-            candidate = _normalize_sql_fragment(line)
-            if candidate and target and (target in candidate or candidate in target):
-                match_index = line_index
-                break
-        if match_index is None:
-            unmatched.append(_comment_line(note.note))
-        else:
-            used_indexes.add(match_index)
-            insertions.setdefault(match_index, []).append(_comment_line(note.note))
+    formatted_tokens = _sql_tokens_with_lines(formatted_lines)
+    token_cursor = 0
+    last_line_index = 0
+    notes_by_line: dict[int, list[str]] = {}
+
+    # Match every column-B row in order, including rows without notes. This keeps
+    # the token cursor aligned so a later column-C note cannot attach to an earlier
+    # repeated SQL fragment.
+    for sql_line in sql_lines:
+        target_tokens = _sql_tokens(sql_line.sql_text)
+        matched_indexes = _ordered_token_match(formatted_tokens, target_tokens, token_cursor)
+        if matched_indexes:
+            token_cursor = matched_indexes[-1] + 1
+            last_line_index = formatted_tokens[matched_indexes[-1]][1]
+        elif sql_line.note:
+            last_line_index = _fallback_note_line(formatted_lines, sql_line.sql_text, last_line_index)
+        if sql_line.note:
+            notes_by_line.setdefault(last_line_index, []).append(_comment_text(sql_line.note))
 
     rendered: list[str] = []
     for line_index, line in enumerate(formatted_lines):
-        rendered.append(line)
-        rendered.extend(insertions.get(line_index, []))
-    if unmatched:
-        if rendered and rendered[-1].strip():
-            rendered.append("")
-        rendered.extend(unmatched)
+        notes = [note for note in notes_by_line.get(line_index, []) if note]
+        rendered.append(f"{line.rstrip()}  -- {' | '.join(notes)}" if notes else line)
     return "\n".join(rendered)
 
 
-def _comment_line(note: str) -> str:
+SQL_TOKEN_PATTERN = re.compile(
+    r"N?'(?:''|[^'])*'|@[A-Za-z_][A-Za-z0-9_$#]*|\[[^\]]+\]|"
+    r'"(?:""|[^"])*"|`(?:``|[^`])*`|[A-Za-z_][A-Za-z0-9_$#]*|'
+    r"\d+(?:\.\d+)?|<>|!=|<=|>=|:=|[-+*/%=<>,.;()]",
+    re.IGNORECASE,
+)
+
+
+def _sql_tokens(value: str) -> list[str]:
+    return [match.group(0).casefold() for match in SQL_TOKEN_PATTERN.finditer(value)]
+
+
+def _sql_tokens_with_lines(lines: list[str]) -> list[tuple[str, int]]:
+    return [
+        (token, line_index)
+        for line_index, line in enumerate(lines)
+        for token in _sql_tokens(line)
+    ]
+
+
+def _ordered_token_match(
+    formatted_tokens: list[tuple[str, int]],
+    target_tokens: list[str],
+    start_index: int,
+) -> list[int]:
+    if not target_tokens:
+        return []
+    matched: list[int] = []
+    cursor = max(0, start_index)
+    for target in target_tokens:
+        match_index = next(
+            (index for index in range(cursor, len(formatted_tokens)) if formatted_tokens[index][0] == target),
+            None,
+        )
+        if match_index is None:
+            return []
+        matched.append(match_index)
+        cursor = match_index + 1
+    return matched
+
+
+def _fallback_note_line(lines: list[str], sql_text: str, start_line: int) -> int:
+    target = _normalize_sql_fragment(sql_text)
+    for line_index in range(max(0, start_line), len(lines)):
+        candidate = _normalize_sql_fragment(lines[line_index])
+        if candidate and target and (target in candidate or candidate in target):
+            return line_index
+    for line_index in range(len(lines) - 1, -1, -1):
+        if lines[line_index].strip():
+            return line_index
+    return 0
+
+
+def _append_inline_note(sql_text: str, note: str) -> str:
+    if not note:
+        return sql_text
+    lines = sql_text.splitlines() or [sql_text]
+    target_index = next((index for index in range(len(lines) - 1, -1, -1) if lines[index].strip()), len(lines) - 1)
+    lines[target_index] = f"{lines[target_index].rstrip()}  -- {_comment_text(note)}"
+    return "\n".join(lines)
+
+
+def _comment_text(note: str) -> str:
     value = note.strip()
-    return value if value.startswith("--") else f"-- {value}"
+    return value[2:].lstrip() if value.startswith("--") else value
 
 
 def _normalize_sql_fragment(value: str) -> str:

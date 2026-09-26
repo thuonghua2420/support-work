@@ -127,6 +127,7 @@ Giao diện Tkinter cũ vẫn có thể mở tạm thời bằng:
 
 - **So sánh UT**: chọn folder chứa các case `UT*`, chạy các workflow trong `autocompare_config.ini`, tạo Excel tại `Output\Compare`, xem trực tiếp workbook compare trên trình duyệt và review/apply ghi chú FIXME.
 - **So sánh 2 folder CSV**: có thể export một workbook tổng hợp như cũ, hoặc quét CSV trực tiếp trong hai folder, chỉnh pair bằng kéo thả và export từng pair thành từng workbook riêng.
+- **Compare Excel**: so sánh value từng cell giữa hai workbook OOXML. Sheet được ghép theo tên trước, sau đó theo thứ tự tab; mỗi cặp tạo bộ ba `<sheet>_Old`, `<sheet>_New`, `<sheet>_compare`. Sheet compare chỉ ghi các ô sai khác với nhãn `Old:` và `New:` in đậm; sheet không có cặp vẫn được đưa vào kết quả với phía còn lại để trống.
 - **Tiện ích file**: đổi tên, xóa, di chuyển file/folder, đổi tên sheet Excel và tìm/xóa folder trống.
 - **Sao chép file UT**: chạy logic tương thích từ `copy_ut_files.py` và tạo log chi tiết trong `copy_logs`.
 - **Format ảnh Excel**: resize và sắp xếp ảnh theo 6 vùng Evidence (hệ thống cũ/mới × Input/Steps/Output), đồng thời giữ nguyên ảnh, VBA và button.
@@ -162,7 +163,7 @@ Tính năng này cần Microsoft Excel Desktop trên máy Windows. Dùng Excel C
 Tab **SQL Studio** có hai thao tác độc lập và không thực thi SQL trên database:
 
 - **Format SQL**: chuẩn hóa keyword, xuống dòng và thụt lề; hỗ trợ nhiều statement trong cùng input, phân tách bằng dấu `;`.
-- **Load sheet & format**: đọc SQL từ workbook `.xlsx/.xlsm/.xltx/.xltm`. Sheet cần có số thứ tự ở cột A; nội dung SQL chỉ lấy từ cột B và gom từ số thứ tự hiện tại đến số thứ tự tiếp theo. Nếu cột C cùng row có note, note đó được chèn vào output dạng comment `-- ...` cho dòng SQL tương ứng. Output được đánh dấu theo dạng `-- SQL No.1`.
+- **Load sheet & format**: đọc SQL từ workbook `.xlsx/.xlsm/.xltx/.xltm`. Sheet cần có số thứ tự ở cột A; nội dung SQL chỉ lấy từ cột B và gom từ số thứ tự hiện tại đến số thứ tự tiếp theo. Nếu cột C cùng row có note, note đó được chèn inline dạng `-- ...` vào phần SQL được format từ chính ô cột B cùng row. Output được đánh dấu theo dạng `-- SQL No.1`.
 - **Phân tích toàn bộ**: parse SQL thành AST rồi liệt kê từng table/reference cùng alias, vai trò `FROM`/`JOIN`/DML target và scope. Kết quả còn gồm điều kiện `WHERE`, `JOIN ON/USING`, `HAVING`, `QUALIFY`, `MERGE ON`, `START WITH`, `CONNECT BY`, `CASE/IF`, CTE, subquery, SELECT expression, `GROUP BY`, `ORDER BY`, `LIMIT/OFFSET`.
 
 Có thể chọn dialect SQL Server, MySQL, PostgreSQL, Oracle, SQLite, BigQuery, Snowflake, Spark, Databricks hoặc DuckDB. Chế độ tự động dùng SQL phổ thông; với cú pháp riêng của hệ quản trị nên chọn đúng dialect để parser không hiểu nhầm. Ứng dụng không đặt giới hạn riêng về số dòng/độ dài SQL; giới hạn thực tế phụ thuộc bộ nhớ khả dụng của máy và trình duyệt.

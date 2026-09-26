@@ -4,6 +4,7 @@ function prepareAdminatorLayout() {
   const navigation = {
     compare: ["git-compare-arrows", "Compare CSV"],
     "folder-compare": ["folders", "Compare theo folder"],
+    "excel-compare": ["file-diff", "Compare Excel"],
     "file-tools": ["folder-cog", "File / Folder"],
     "copy-ut": ["copy", "Sao chép UT"],
     "excel-format": ["file-spreadsheet", "Format EVD / Excel"],

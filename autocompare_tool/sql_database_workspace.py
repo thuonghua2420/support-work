@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import uuid
+from contextlib import closing
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import date, datetime, time as datetime_time
 from decimal import Decimal, InvalidOperation
@@ -282,7 +283,6 @@ class SqlDatabaseWorkspaceManager:
                 workspace.statements.append(statement_result)
                 if statement_result.get("error"):
                     failed = True
-                    break
 
             if not plan.raw_mode and not failed:
                 _check_cancel(cancel)
@@ -637,49 +637,77 @@ class SqlDatabaseWorkspaceManager:
         relations = _build_relations(workspace, adapter, connection, expressions, analysis, dialect)
         _decorate_column_usage(expressions, relations)
         for relation in relations:
+            workspace.relations[relation["relation_id"]] = relation
+
+        for relation_group in _group_source_relations(relations):
             _check_cancel(cancel)
+            exact_relations = [
+                item
+                for item in relation_group
+                if item.get("lineage_status") in AVAILABLE_SOURCE_STATUSES
+            ]
+            relation = _merged_source_relation(
+                exact_relations[0] if exact_relations else relation_group[0],
+                relation_group,
+            )
             workspace.relations[relation["relation_id"]] = relation
             source = _source_summary_from_relation(relation)
             workspace.sources.append(source)
-            if relation.get("lineage_status") not in AVAILABLE_SOURCE_STATUSES:
+            if not exact_relations:
                 continue
-            try:
-                cursor = connection.cursor()
-                apply_query_timeout(cursor, self.config.query_timeout_seconds)
-                _check_cancel(cancel)
-                adapter.execute(cursor, str(relation["source_sql"]))
-                _check_cancel(cancel)
-                metadata = _metadata_from_relation(relation)
-                if not metadata.columns and cursor.description:
-                    metadata = TableMetadata(
-                        schema=metadata.schema,
-                        name=metadata.name,
-                        columns=_columns_from_description(cursor.description),
-                        relation_type=metadata.relation_type,
+            metadata = _metadata_from_relation(relation)
+            seen_keys: set[str] = set()
+            errors: list[str] = []
+            successful_aliases: list[str] = []
+            item_id = _source_item_id(relation["relation_id"])
+            row_count = 0
+            for source_relation in exact_relations:
+                try:
+                    cursor = connection.cursor()
+                    apply_query_timeout(cursor, self.config.query_timeout_seconds)
+                    _check_cancel(cancel)
+                    adapter.execute(cursor, str(source_relation["source_sql"]))
+                    _check_cancel(cancel)
+                    if not metadata.columns and cursor.description:
+                        metadata = TableMetadata(
+                            schema=metadata.schema,
+                            name=metadata.name,
+                            columns=_columns_from_description(cursor.description),
+                            relation_type=metadata.relation_type,
+                        )
+                        relation["metadata"] = _metadata_to_dict(metadata)
+                        relation["columns"] = [_column_to_dict(column, editable=False) for column in metadata.columns]
+                        source["columns"] = relation["columns"]
+                        source["updateable"] = False
+                    if not metadata.columns:
+                        raise RuntimeError("Không đọc được metadata column từ source data.")
+                    row_count = _spool_cursor_unique(
+                        workspace,
+                        item_id,
+                        cursor,
+                        metadata.columns,
+                        self.config.export_batch_size,
+                        self.config.workspace_spool_limit_mb,
+                        seen_keys,
+                        cancel,
                     )
-                    relation["metadata"] = _metadata_to_dict(metadata)
-                    relation["columns"] = [_column_to_dict(column, editable=False) for column in metadata.columns]
-                    source["columns"] = relation["columns"]
-                    source["updateable"] = False
-                if not metadata.columns:
-                    raise RuntimeError("Không đọc được metadata column từ source data.")
-                row_count = _spool_cursor(
-                    workspace,
-                    _source_item_id(relation["relation_id"]),
-                    "source",
-                    cursor,
-                    metadata.columns,
-                    self.config.export_batch_size,
-                    self.config.workspace_spool_limit_mb,
-                    cancel,
-                )
+                    alias = str(source_relation.get("alias") or source_relation.get("qualified_name") or "")
+                    if alias and alias not in successful_aliases:
+                        successful_aliases.append(alias)
+                except OperationCancelledError:
+                    raise
+                except Exception as exc:
+                    errors.append(str(exc))
+
+            if successful_aliases:
                 relation["row_count"] = row_count
                 source["row_count"] = row_count
-                source["item_id"] = _source_item_id(relation["relation_id"])
-            except OperationCancelledError:
-                raise
-            except Exception as exc:
-                reason = f"Không thể đọc source data chính xác: {exc}"
+                source["item_id"] = item_id
+                if errors:
+                    source["warning"] = "Một số alias không đọc được: " + "; ".join(errors)
+                    workspace.warnings.append(f"{source['label']}: {source['warning']}")
+            else:
+                reason = "Không thể đọc source data chính xác: " + "; ".join(errors)
                 relation["lineage_status"] = "unsupported"
                 relation["unsupported_reason"] = reason
                 source["lineage_status"] = "unsupported"
@@ -882,7 +910,7 @@ def _select_writes_to_table(expression: exp.Expression) -> bool:
 
 
 def _init_spool(path: Path) -> None:
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS spool_rows (
@@ -896,6 +924,7 @@ def _init_spool(path: Path) -> None:
             """
         )
         connection.execute("CREATE INDEX IF NOT EXISTS idx_spool_rows_item ON spool_rows(item_id, row_number)")
+        connection.commit()
 
 
 def _spool_cursor(
@@ -910,7 +939,7 @@ def _spool_cursor(
 ) -> int:
     row_number = 0
     max_bytes = max(1, int(spool_limit_mb)) * 1024 * 1024
-    with workspace.lock, sqlite3.connect(workspace.sqlite_path) as spool:
+    with workspace.lock, closing(sqlite3.connect(workspace.sqlite_path)) as spool:
         while True:
             _check_cancel(cancel)
             rows = cursor.fetchmany(batch_size)
@@ -934,8 +963,54 @@ def _spool_cursor(
     return row_number
 
 
+def _spool_cursor_unique(
+    workspace: _Workspace,
+    item_id: str,
+    cursor,
+    columns: list[DatabaseColumn],
+    batch_size: int,
+    spool_limit_mb: int,
+    seen_keys: set[str],
+    cancel: CancelChecker | None = None,
+) -> int:
+    """Append rows while keeping one row per primary key (or full-row hash)."""
+    max_bytes = max(1, int(spool_limit_mb)) * 1024 * 1024
+    with workspace.lock, closing(sqlite3.connect(workspace.sqlite_path)) as spool:
+        current = spool.execute(
+            "SELECT COALESCE(MAX(row_number), 0) FROM spool_rows WHERE item_id = ?",
+            (item_id,),
+        ).fetchone()
+        row_number = int(current[0] or 0)
+        while True:
+            _check_cancel(cancel)
+            rows = cursor.fetchmany(batch_size)
+            if not rows:
+                break
+            payloads = []
+            for row in rows:
+                _check_cancel(cancel)
+                values = list(row)
+                row_hash = _row_hash(values, columns)
+                pk_payload = _serialize_pk_payload(values, columns)
+                dedupe_key = f"pk:{pk_payload}" if pk_payload not in {None, "", "[]"} else f"row:{row_hash}"
+                if dedupe_key in seen_keys:
+                    continue
+                seen_keys.add(dedupe_key)
+                row_number += 1
+                payloads.append((item_id, row_number, _serialize_row_payload(values), row_hash, pk_payload))
+            if payloads:
+                spool.executemany(
+                    "INSERT INTO spool_rows(item_id, row_number, payload, row_hash, pk_payload) VALUES (?, ?, ?, ?, ?)",
+                    payloads,
+                )
+                spool.commit()
+            if workspace.sqlite_path.stat().st_size > max_bytes:
+                raise RuntimeError("SQL workspace vượt quá giới hạn spool tạm thời trong cấu hình.")
+    return row_number
+
+
 def _read_spool_rows(sqlite_path: Path, item_id: str, offset: int, limit: int) -> list[sqlite3.Row]:
-    with sqlite3.connect(sqlite_path) as connection:
+    with closing(sqlite3.connect(sqlite_path)) as connection:
         connection.row_factory = sqlite3.Row
         return list(
             connection.execute(
@@ -952,7 +1027,7 @@ def _read_spool_rows(sqlite_path: Path, item_id: str, offset: int, limit: int) -
 
 
 def _read_one_spool_row(sqlite_path: Path, item_id: str, row_number: int) -> sqlite3.Row | None:
-    with sqlite3.connect(sqlite_path) as connection:
+    with closing(sqlite3.connect(sqlite_path)) as connection:
         connection.row_factory = sqlite3.Row
         return connection.execute(
             """
@@ -973,7 +1048,7 @@ def _replace_spool_row(
 ) -> None:
     row_hash = _row_hash(values, columns)
     pk_payload = _serialize_pk_payload(values, columns)
-    with sqlite3.connect(sqlite_path) as connection:
+    with closing(sqlite3.connect(sqlite_path)) as connection:
         connection.execute(
             """
             UPDATE spool_rows
@@ -982,6 +1057,7 @@ def _replace_spool_row(
             """,
             (_serialize_row_payload(values), row_hash, pk_payload, item_id, row_number),
         )
+        connection.commit()
 
 
 def _spooled_row_to_response(row: sqlite3.Row, columns: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1487,6 +1563,96 @@ def _relation_kind(source_type: str) -> str:
     return "table"
 
 
+def _group_source_relations(relations: Sequence[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for relation in relations:
+        if relation.get("source_type") == "TABLE":
+            table_name = str(relation.get("qualified_name") or relation.get("name") or "").casefold()
+            key = ("table", table_name)
+        else:
+            key = ("relation", str(relation.get("relation_id") or ""))
+        grouped.setdefault(key, []).append(relation)
+    return list(grouped.values())
+
+
+def _merged_source_relation(
+    primary: dict[str, Any],
+    relations: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    merged = dict(primary)
+    aliases = _unique_nonempty(str(item.get("alias") or "") for item in relations)
+    statement_indexes = sorted({int(item.get("statement_index") or 0) for item in relations})
+    scope_ids = _unique_nonempty(str(item.get("scope_id") or "") for item in relations)
+    source_sqls = _unique_nonempty(
+        str(item.get("source_sql") or "")
+        for item in relations
+        if item.get("lineage_status") in AVAILABLE_SOURCE_STATUSES
+    )
+    unsupported_reasons = _unique_nonempty(
+        str(item.get("unsupported_reason") or "")
+        for item in relations
+        if item.get("lineage_status") not in AVAILABLE_SOURCE_STATUSES
+    )
+    merged["aliases"] = aliases
+    merged["alias"] = ", ".join(aliases)
+    merged["statement_indexes"] = statement_indexes
+    merged["scope_ids"] = scope_ids
+    merged["scope_id"] = ", ".join(scope_ids)
+    merged["source_sql"] = ";\n\n".join(sql.rstrip().rstrip(";") for sql in source_sqls)
+    merged["columns"] = _merged_relation_columns(primary, relations)
+    if source_sqls:
+        merged["lineage_status"] = "exact"
+        merged["unsupported_reason"] = ""
+    elif unsupported_reasons:
+        merged["unsupported_reason"] = "; ".join(unsupported_reasons)
+    return merged
+
+
+def _merged_relation_columns(
+    primary: dict[str, Any],
+    relations: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    columns = [dict(column) for column in primary.get("columns", [])]
+    by_name = {str(column.get("name") or "").casefold(): column for column in columns}
+    priority = {"JOIN": 1, "WHERE": 2, "SELECT": 3}
+    for relation in relations:
+        for source_column in relation.get("columns", []):
+            target = by_name.get(str(source_column.get("name") or "").casefold())
+            if target is None:
+                continue
+            usages = _unique_nonempty([
+                *(str(item) for item in target.get("usages", [])),
+                str(target.get("usage") or ""),
+                *(str(item) for item in source_column.get("usages", [])),
+                str(source_column.get("usage") or ""),
+            ])
+            usages.sort(key=lambda value: (priority.get(value.upper(), 99), value))
+            target["usages"] = usages
+            target["usage"] = usages[0] if usages else ""
+            if target["usage"] == str(source_column.get("usage") or ""):
+                target["color"] = source_column.get("color", target.get("color", ""))
+                target["join_group"] = source_column.get("join_group", target.get("join_group", ""))
+            tooltip_lines = _unique_nonempty([
+                *str(target.get("join_tooltip") or "").splitlines(),
+                *str(source_column.get("join_tooltip") or "").splitlines(),
+            ])
+            target["join_tooltip"] = "\n".join(tooltip_lines)
+    return columns
+
+
+def _unique_nonempty(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        key = text.casefold()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return result
+
+
 def _source_summary_from_relation(relation: dict[str, Any]) -> dict[str, Any]:
     return {
         "relation_id": relation["relation_id"],
@@ -1496,6 +1662,8 @@ def _source_summary_from_relation(relation: dict[str, Any]) -> dict[str, Any]:
         "relation_kind": relation["relation_kind"],
         "qualified_name": relation["qualified_name"],
         "alias": relation["alias"],
+        "aliases": relation.get("aliases", [relation["alias"]] if relation["alias"] else []),
+        "statement_indexes": relation.get("statement_indexes", [relation["statement_index"]]),
         "scope_id": relation["scope_id"],
         "lineage_status": relation["lineage_status"],
         "lineage_reason": relation.get("lineage_reason", ""),
@@ -1514,6 +1682,9 @@ def _source_item_id(relation_id: str) -> str:
 
 
 def _relation_label(relation: dict[str, Any]) -> str:
+    aliases = relation.get("aliases")
+    if isinstance(aliases, list) and len(aliases) > 1:
+        return str(relation.get("qualified_name") or relation.get("name") or relation.get("relation_id"))
     alias = str(relation.get("alias") or "").strip()
     base = str(relation.get("qualified_name") or relation.get("name") or relation.get("relation_id"))
     return f"{base} AS {alias}" if alias else base
@@ -1957,7 +2128,7 @@ def _find_negative_row(
         return None, "Table không có primary key để xác định complement."
 
     temp_table = f"matched_keys_{uuid.uuid4().hex}"
-    with sqlite3.connect(workspace.sqlite_path) as spool:
+    with closing(sqlite3.connect(workspace.sqlite_path)) as spool:
         spool.execute(f"CREATE TEMP TABLE {temp_table} (key_hash TEXT PRIMARY KEY)")
         offset = 0
         while True:
