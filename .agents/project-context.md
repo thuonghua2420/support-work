@@ -17,6 +17,7 @@ The web UI is organized by a left-side navigation menu:
 - `Compare`: compare workflows and FIXME review.
 - `Compare CSV Folders`: ad-hoc compare for two user-selected CSV folders.
 - `Compare Excel`: cell-by-cell compare for two OOXML workbooks.
+- `Compare PDF`: semantic and rendered-page comparison with an evidence report.
 - `File Utilities`: simple bulk file/folder operations.
 - `Copy UT Files`: source/target copy workflow.
 - `Database`: DB connection, CSV normalize/import/export, and database-to-database synchronization.
@@ -82,6 +83,21 @@ Behavior:
 - Copies source cell values/formulas and basic worksheet formatting into the Old/New snapshots.
 - Leaves equal compare cells blank. A differing cell contains rich text `Old:<old value> # New:<new value>`, with only `Old:` and `New:` bold.
 - Treats sheets missing from either workbook as blank on that side, so added or removed sheets are not lost.
+
+### Compare PDF
+
+Input:
+
+- An Old PDF, a New PDF, and a distinct PDF report path.
+
+Behavior:
+
+- Calculates file-level SHA-256 hashes for byte-for-byte evidence.
+- Compares exact extracted text plus form-field and annotation values/positions for each page.
+- Renders each page through PyMuPDF at 200 DPI and performs exact RGB pixel comparison.
+- Produces one landscape PDF report with a verdict, per-page summary, and Old/New/red-highlighted Diff panels for changed pages.
+- Writes a same-name JSON manifest containing the comparison algorithm, hashes, changed-pixel counts, ratios, and difference-region coordinates.
+- Reports `BINARY IDENTICAL`, `CONTENT IDENTICAL`, or `DIFFERENT`; content identity requires page count, text, visual pixels, form fields, and annotations all to match.
 
 ### FIXME Review
 

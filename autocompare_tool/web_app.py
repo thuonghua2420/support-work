@@ -43,6 +43,8 @@ from .database_io import (
 )
 from .excel_image_formatter import format_excel_images
 from .excel_compare import compare_excel_workbooks
+from .pdf_compare import compare_pdf_files
+from .image_compare import compare_images
 from .excel_format_presets import ExcelFormatPreset, ExcelFormatPresetStore
 from .excel_writer import WorkbookFixmeEntry
 from .file_utilities import (
@@ -207,6 +209,7 @@ class AutoCompareWebApplication:
         "compare": "Đang chạy so sánh UT...",
         "folder_compare": "Đang so sánh hai folder CSV...",
         "excel_compare": "Đang so sánh hai file Excel...",
+        "pdf_compare": "Đang so sánh hai file PDF...",
         "copy_ut": "Đang sao chép file UT...",
         "format_excel_images": "Đang format ảnh trong Excel...",
         "sql_format": "Đang format câu SQL...",
@@ -597,6 +600,16 @@ class AutoCompareWebApplication:
         if action == "excel_compare":
             return lambda log, cancel: self._file_summary(
                 compare_excel_workbooks(
+                    _text(payload, "old_path"),
+                    _text(payload, "new_path"),
+                    _text(payload, "output_path"),
+                    log=log,
+                    cancel=cancel.throw_if_cancelled,
+                )
+            )
+        if action == "pdf_compare":
+            return lambda log, cancel: self._file_summary(
+                compare_pdf_files(
                     _text(payload, "old_path"),
                     _text(payload, "new_path"),
                     _text(payload, "output_path"),
@@ -1094,6 +1107,9 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             payload = self._read_json_body()
+            if parsed.path == "/api/image-compare":
+                self._send_json(compare_images(payload.get("old"), payload.get("new")))
+                return
             if parsed.path == "/api/actions":
                 action = _text(payload, "action")
                 job = self.app.start_action(action, payload)
@@ -1141,7 +1157,8 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
         if content_type != "application/json":
             raise ValueError("API chỉ chấp nhận nội dung application/json.")
         length = int(self.headers.get("Content-Length", "0"))
-        if length <= 0 or length > 10_000_000:
+        limit = 34_000_000 if urlparse(self.path).path == "/api/image-compare" else 10_000_000
+        if length <= 0 or length > limit:
             raise ValueError("Nội dung request trống hoặc quá lớn.")
         data = json.loads(self.rfile.read(length).decode("utf-8"))
         if not isinstance(data, dict):

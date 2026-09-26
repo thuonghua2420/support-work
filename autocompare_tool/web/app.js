@@ -63,6 +63,7 @@ const ACTIVITY_LOG_SEPARATOR = "-----------------------------------------";
 const CANCELLABLE_ACTIONS = new Set([
   "compare_keys_extract",
   "excel_compare",
+  "pdf_compare",
   "db_test",
   "db_list_databases",
   "db_list_tables",
@@ -845,6 +846,17 @@ function bindForms() {
       output_path: valueOf("excel-compare-output"),
     });
   });
+  $("#pdf-compare-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const panel = $("#pdf-compare-result");
+    panel?.classList.add("hidden");
+    panel?.classList.remove("match", "different");
+    startAction("pdf_compare", {
+      old_path: valueOf("pdf-compare-old"),
+      new_path: valueOf("pdf-compare-new"),
+      output_path: valueOf("pdf-compare-output"),
+    });
+  });
   $$('input[name="folder-export-mode"]').forEach((control) => control.addEventListener("change", updateFolderCompareMode));
   $("#load-folder-pairs")?.addEventListener("click", loadFolderComparePairs);
   ["folder-left", "folder-right"].forEach((id) => $(`#${id}`)?.addEventListener("change", resetFolderComparePairs));
@@ -1309,6 +1321,7 @@ function hydrateDefaults() {
   $("#sql-export-folder").value = cwd;
   $("#folder-output").value = joinPath(cwd, state.bootstrap.folder_compare_file);
   $("#excel-compare-output").value = joinPath(cwd, "Compare_Excel.xlsx");
+  $("#pdf-compare-output").value = joinPath(cwd, "Compare_PDF.pdf");
   $("#workflow-count").textContent = String(state.bootstrap.compare_workflows.filter((item) => item.default_enabled).length);
 }
 
@@ -3221,6 +3234,15 @@ function consumeJobResult(job) {
       panel.classList.remove("hidden");
     }
   }
+  if (job.action === "pdf_compare") {
+    const panel = $("#pdf-compare-result");
+    if (panel) {
+      const identical = result.identical === true;
+      panel.innerHTML = `<strong>${escapeHtml(result.verdict || (identical ? "CONTENT IDENTICAL" : "DIFFERENT"))}</strong><span>${escapeHtml(result.output_path || "")}</span><br><span>Trang khác: ${Number(result.different_page_count || 0)} / ${Number(result.compared_page_count || 0)} · Vùng khác biệt: ${Number(result.difference_region_count || 0)}</span><br><span>Manifest: ${escapeHtml(result.manifest_path || "")}</span>`;
+      panel.classList.add(identical ? "match" : "different");
+      panel.classList.remove("hidden");
+    }
+  }
   if (job.action === "db_sql_update") {
     state.sqlWorkspace.dirty = {};
     markSqlWorkspaceStale();
@@ -4126,6 +4148,9 @@ function summaryMessage(job) {
   if (job.action === "compare") return `Đã xử lý ${result.processed_count || 0} case, tạo ${result.workbook_count || 0} workbook và tìm thấy ${result.fixme_count || 0} FIXME.`;
   if (job.action === "folder_compare") return `Đã tạo ${result.workbook_count || 1} workbook / ${result.sheet_count || 0} sheet, tìm thấy ${result.fixme_count || 0} FIXME.`;
   if (job.action === "excel_compare") return `Đã compare ${result.sheet_pair_count || 0} sheet và tìm thấy ${result.difference_count || 0} ô sai khác.`;
+  if (job.action === "pdf_compare") return result.identical
+    ? `Hai file PDF giống nhau theo text, form/annotation và ảnh render của ${result.compared_page_count || 0} trang.`
+    : `PDF khác nhau tại ${result.different_page_count || 0}/${result.compared_page_count || 0} trang, gồm ${result.difference_region_count || 0} vùng khác biệt.`;
   if (job.action === "check_fixmes") {
     const count = result.fixme_location_count || 0;
     const workbookCount = result.scanned_workbook_count || 0;

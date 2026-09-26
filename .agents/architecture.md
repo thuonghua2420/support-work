@@ -13,6 +13,7 @@ run.bat
       -> compare_workbook_view.py -> generated compare .xlsx
       -> folder_compare.py  -> excel_writer.py -> compare.py -> csv_table.py
       -> excel_compare.py   -> openpyxl cell-by-cell workbook compare
+      -> pdf_compare.py     -> PyMuPDF/Pillow/reportlab evidence report
       -> excel_image_formatter.py -> Microsoft Excel Desktop COM
       -> excel_format_presets.py -> excel_format_presets.json
       -> sql_tools.py       -> SQLGlot parser/AST
@@ -166,6 +167,20 @@ Owns:
 - Copying source cell content and basic formatting into `_Old` and `_New` snapshots.
 - Exact cell value/type comparison and rich-text `_compare` cells with bold `Old:` / `New:` labels.
 - Excel-safe, unique sheet names that keep the required suffix within the 31-character limit.
+
+### `autocompare_tool/image_compare.py`
+
+Validates uploaded/pasted still PNG/JPEG/WebP/BMP images (12 MB and 12 MP per image), applies EXIF orientation and compares exact 8-bit RGBA, including hidden RGB under transparency and missing dimensions. Rejects animation and higher bit depths instead of silently discarding data. Checks ICC/gamma metadata separately. The read-only `/api/image-compare` endpoint returns hashes, counts, tile-connected regions and PNG previews; no source files are written. `web/image-compare.js` owns clipboard/import/drop, region navigation, zoom/wipe views and standalone HTML/PNG/JSON downloads. The image endpoint alone accepts up to 34 MB JSON to accommodate two base64 uploads.
+
+### `autocompare_tool/pdf_compare.py`
+
+Owns:
+
+- PDF input/output validation and file SHA-256 hashing.
+- Per-page exact text, form-field, annotation, and 200-DPI RGB render comparison.
+- Difference-pixel grouping into reviewable page regions.
+- A landscape evidence PDF containing Old/New/Diff panels and page-level statistics.
+- A machine-readable JSON manifest with hashes, verdicts, counts, ratios, and region coordinates.
 
 ### `autocompare_tool/compare_workbook_view.py`
 

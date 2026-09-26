@@ -93,6 +93,8 @@ code { padding: 2px 6px; border-radius: 5px; background: #eef2f7; color: #34455c
 .excel-format-flow b:nth-of-type(2) { color: var(--green); background: var(--green-soft); }
 .excel-compare-flow b:first-child { color: var(--amber); background: var(--amber-soft); }
 .excel-compare-flow b:nth-of-type(2) { color: var(--green); background: var(--green-soft); }
+.pdf-compare-flow b:first-child { color: var(--red); background: var(--red-soft); }
+.pdf-compare-flow b:nth-of-type(2) { color: var(--blue); background: var(--blue-soft); }
 .sql-flow b:first-child { color: var(--red); background: var(--red-soft); }
 .sql-flow b:nth-of-type(2) { color: var(--violet); background: #f0ecff; }
 
@@ -149,6 +151,10 @@ input::placeholder, textarea::placeholder { color: #a8b3c0; }
 .form-card > .field + .import-mode-fieldset { margin-top: var(--layout-gap); }
 .excel-compare-result { margin-top: var(--layout-gap); padding: 12px 14px; border: 1px solid #c8ebdd; border-radius: 10px; color: #1d5941; background: #f0fbf6; font-size: 12px; line-height: 1.55; }
 .excel-compare-result strong { display: block; margin-bottom: 2px; }
+.pdf-compare-result { margin-top: var(--layout-gap); padding: 12px 14px; border: 1px solid #c9d6e4; border-radius: 10px; color: #334e68; background: #f6f9fc; font-size: 12px; line-height: 1.55; }
+.pdf-compare-result.match { border-color: #b9e3d0; color: #16613f; background: #f0fbf6; }
+.pdf-compare-result.different { border-color: #f0c7ca; color: #8b2f37; background: #fff6f7; }
+.pdf-compare-result strong { display: block; margin-bottom: 2px; }
 .tool-card > .two-column,
 .tool-card > .inline-actions { margin-top: var(--layout-gap); }
 .tool-card > button:last-child,

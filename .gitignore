@@ -1,4 +1,8 @@
 /.venv
+/.runtime-venv/
+/output/
+__pycache__/
+*.py[cod]
 /excel_format_presets.json
 /database_connection_history.json
 /.tmp/

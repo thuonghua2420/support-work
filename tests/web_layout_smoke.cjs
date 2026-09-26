@@ -21,10 +21,10 @@ const path = require('node:path');
     });
     await page.goto(base);
     await page.waitForSelector('#compare-workflows input');
-    assert.equal(await page.locator('.nav-item svg').count(), 7);
+    assert.equal(await page.locator('.nav-item svg').count(), 9);
     for (const width of [1440, 1024, 768, 390]) {
       await page.setViewportSize({ width, height: 1000 });
-      for (const key of ['compare', 'folder-compare', 'excel-compare', 'file-tools', 'copy-ut', 'excel-format', 'database']) {
+      for (const key of ['compare', 'folder-compare', 'excel-compare', 'pdf-compare', 'image-compare', 'file-tools', 'copy-ut', 'excel-format', 'database']) {
         if (width <= 900) await page.locator('#menu-toggle').click();
         await page.locator(`.nav-item[data-page="${key}"]`).click();
         assert.ok(!(await page.locator(`#page-${key} > .page-intro h2`).isVisible()), `${key} duplicate page heading is visible`);
@@ -150,7 +150,7 @@ const path = require('node:path');
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     }
     assert.deepEqual(errors, []);
-    console.log('PASS: 7 pages, 4 widths, database tabs/dialog, compare tabs, input retention, keyboard, expanded results, real CSV export and value-difference filters.');
+    console.log('PASS: 9 pages, 4 widths, database tabs/dialog, compare tabs, input retention, keyboard, expanded results, real CSV export and value-difference filters.');
   } finally {
     await browser.close();
   }

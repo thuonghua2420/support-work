@@ -421,6 +421,7 @@ body:has(.panel-expanded) { overflow: hidden; }
 /* Page title is already shown in the application topbar; reclaim duplicate header space. */
 #page-folder-compare > .page-intro,
 #page-excel-compare > .page-intro,
+#page-pdf-compare > .page-intro,
 #page-file-tools > .page-intro,
 #page-copy-ut > .page-intro,
 #page-excel-format > .page-intro { display: none; }

@@ -7,6 +7,7 @@
   <title>AutoCompare | Workspace</title>
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/adminator.css">
+  <link rel="stylesheet" href="/image-compare.css">
 </head>
 <body>
   <div class="app-shell">
@@ -26,6 +27,12 @@
         </button>
         <button class="nav-item" data-page="excel-compare" type="button">
           <span class="nav-icon">X</span><span><strong>Compare Excel</strong><small>So sánh value từng cell</small></span>
+        </button>
+        <button class="nav-item" data-page="pdf-compare" type="button">
+          <span class="nav-icon">P</span><span><strong>Compare PDF</strong><small>Text, hình ảnh và layout</small></span>
+        </button>
+        <button class="nav-item" data-page="image-compare" type="button">
+          <span class="nav-icon">I</span><span><strong>Compare Image</strong><small>Paste hoặc import hai ảnh</small></span>
         </button>
         <button class="nav-item" data-page="file-tools" type="button">
           <span class="nav-icon">◇</span><span><strong>File/Folder</strong><small>Đổi tên, xóa, di chuyển</small></span>
@@ -227,6 +234,56 @@
             <div class="excel-compare-result hidden" id="excel-compare-result" aria-live="polite"></div>
             <div class="form-actions"><span class="hint">Ô giống nhau để trống; ô khác nhau ghi <code>Old:value # New:value</code>.</span><button class="primary-button" type="submit">Tạo file compare <b>→</b></button></div>
           </form>
+        </section>
+
+        <section class="page" id="page-pdf-compare" data-title="Compare PDF" data-eyebrow="WORKSPACE / PDF COMPARE">
+          <div class="page-intro">
+            <div><span class="section-kicker">Evidence report</span><h2>Compare 2 file PDF</h2><p>Kiểm tra đồng thời text, form, annotation và hình ảnh render của từng trang.</p></div>
+            <div class="visual-chip pdf-compare-flow"><b>Old</b><span>⇄</span><b>New</b><i>→ Report</i></div>
+          </div>
+          <form class="card form-card" id="pdf-compare-form">
+            <div class="card-heading"><div><span class="step-number">01</span><h3>Chọn PDF</h3></div><span class="soft-badge">TEXT + PIXEL</span></div>
+            <div class="two-column">
+              <label class="field"><span>File PDF cũ</span><span class="path-control"><input id="pdf-compare-old" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="pdf-compare-old" data-browse-kind="file" data-browse-ext="pdf">Chọn file</button></span><small>Tài liệu baseline / Old</small></label>
+              <label class="field"><span>File PDF mới</span><span class="path-control"><input id="pdf-compare-new" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="pdf-compare-new" data-browse-kind="file" data-browse-ext="pdf">Chọn file</button></span><small>Tài liệu actual / New</small></label>
+            </div>
+            <label class="field field-wide"><span>Báo cáo PDF kết quả</span><span class="path-control"><input id="pdf-compare-output" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="pdf-compare-output" data-browse-kind="save" data-browse-ext="pdf">Chọn</button></span><small>Báo cáo gồm tổng quan hash, trạng thái từng trang và ảnh Old / New / Diff. File JSON kiểm chứng được tạo cùng vị trí.</small></label>
+            <div class="pdf-compare-result hidden" id="pdf-compare-result" aria-live="polite"></div>
+            <div class="form-actions"><span class="hint">Chỉ kết luận giống nhau khi số trang, text, form/annotation và toàn bộ pixel render đều khớp.</span><button class="primary-button" type="submit">Tạo báo cáo PDF <b>→</b></button></div>
+          </form>
+        </section>
+
+        <section class="page" id="page-image-compare" data-title="Compare Image" data-eyebrow="WORKSPACE / IMAGE COMPARE">
+          <div class="ic-inputs">
+            <section class="card ic-input" data-image-side="old" aria-label="Ảnh Old">
+              <div class="ic-bar"><strong>Old · Ảnh gốc</strong><div class="inline-actions"><button type="button" class="secondary-button" data-image-paste="old">Paste ảnh</button><button type="button" class="secondary-button" data-image-import="old">Import ảnh</button><button type="button" class="secondary-button" data-image-clear="old" aria-label="Xóa ảnh Old">Xóa</button></div></div>
+              <input id="ic-file-old" class="hidden" type="file" accept="image/png,image/jpeg,image/webp,image/bmp,.bmp">
+              <div class="ic-drop" id="ic-drop-old" tabindex="0" role="button" aria-label="Chọn vùng Old rồi nhấn Ctrl+V để dán ảnh; Enter để chọn file">
+                <span>Chọn vùng này rồi nhấn <b>Ctrl+V</b><small>hoặc kéo thả / import ảnh</small></span><img class="hidden" alt="Ảnh Old đã chọn">
+              </div><p id="ic-info-old" class="ic-file-info">Chưa có ảnh</p>
+            </section>
+            <section class="card ic-input" data-image-side="new" aria-label="Ảnh New">
+              <div class="ic-bar"><strong>New · Ảnh đối chiếu</strong><div class="inline-actions"><button type="button" class="secondary-button" data-image-paste="new">Paste ảnh</button><button type="button" class="secondary-button" data-image-import="new">Import ảnh</button><button type="button" class="secondary-button" data-image-clear="new" aria-label="Xóa ảnh New">Xóa</button></div></div>
+              <input id="ic-file-new" class="hidden" type="file" accept="image/png,image/jpeg,image/webp,image/bmp,.bmp">
+              <div class="ic-drop" id="ic-drop-new" tabindex="0" role="button" aria-label="Chọn vùng New rồi nhấn Ctrl+V để dán ảnh; Enter để chọn file">
+                <span>Chọn vùng này rồi nhấn <b>Ctrl+V</b><small>hoặc kéo thả / import ảnh</small></span><img class="hidden" alt="Ảnh New đã chọn">
+              </div><p id="ic-info-new" class="ic-file-info">Chưa có ảnh</p>
+            </section>
+          </div>
+          <div class="ic-bar ic-actions"><span class="hint">PNG, JPEG, WebP, BMP · 12 MB / 12 triệu pixel mỗi ảnh · So sánh chính xác cả độ trong suốt, không tự co giãn ảnh.</span><div class="inline-actions"><button class="secondary-button" type="button" id="ic-swap">Đổi Old ↔ New</button><button class="primary-button" type="button" id="ic-compare" disabled>Compare Image</button></div></div>
+          <p id="ic-message" role="status" aria-live="polite"></p>
+          <section id="ic-results" class="card hidden" aria-label="Kết quả so sánh ảnh">
+            <div id="ic-verdict" role="status" aria-live="polite"></div>
+            <div class="ic-bar ic-toolbar">
+              <div class="tabs ic-tabs" role="tablist" aria-label="Cách xem ảnh"><button type="button" class="tab active" data-image-view="diff" role="tab" aria-selected="true">Vùng sai khác</button><button type="button" class="tab" data-image-view="split" role="tab" aria-selected="false">Song song</button><button type="button" class="tab" data-image-view="wipe" role="tab" aria-selected="false">Kéo Old / New</button></div>
+              <div class="inline-actions"><label>Zoom <select id="ic-zoom" aria-label="Độ phóng đại"><option value="fit">Vừa khung</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select></label><button type="button" class="secondary-button" id="ic-prev" aria-label="Vùng khác biệt trước">←</button><span id="ic-region" aria-live="polite"></span><button type="button" class="secondary-button" id="ic-next" aria-label="Vùng khác biệt tiếp theo">→</button></div>
+            </div>
+            <div id="ic-wipe-control" class="hidden"><label>Old <input type="range" min="0" max="100" value="50" id="ic-wipe" aria-label="Vị trí thanh chia Old và New"> New</label></div>
+            <div id="ic-viewport" tabindex="0" aria-label="Khung xem ảnh có thể cuộn"><div id="ic-stage"><div class="ic-image-pane"><span id="ic-label-a">Diff · vùng đỏ là sai khác</span><div class="ic-image-wrap"><img id="ic-view-a" alt="Ảnh kết quả so sánh"><img id="ic-view-b" class="hidden" alt="Ảnh New"><div id="ic-focus" class="hidden"></div></div></div><div id="ic-pane-b" class="ic-image-pane hidden"><span>New</span><div class="ic-image-wrap"><img id="ic-view-c" alt="Ảnh New song song"></div></div></div></div>
+            <p class="ic-help">Màu đỏ đánh dấu pixel khác; khung xanh là vùng đang chọn. Ảnh khác kích thước được căn góc trên trái; phần thiếu cũng được tính là sai khác.</p>
+            <details class="ic-evidence"><summary>Thông tin kiểm chứng và quy tắc so sánh</summary><pre id="ic-evidence"></pre></details>
+            <div class="ic-bar ic-downloads"><span class="hint">Tải báo cáo để lưu hoặc chia sẻ kết quả cùng ảnh.</span><div class="inline-actions"><button type="button" class="secondary-button" id="ic-export-html">Tải báo cáo HTML</button><button type="button" class="secondary-button" id="ic-export-png">Tải ảnh Diff</button><button type="button" class="secondary-button" id="ic-export-json">Tải JSON</button></div></div>
+          </section>
         </section>
 
         <section class="page" id="page-file-tools" data-title="File/Folder" data-eyebrow="WORKSPACE / FILE UTILITIES">
@@ -585,5 +642,6 @@
   <script src="/vendor/lucide.min.js" defer></script>
   <script src="/adminator.js" defer></script>
   <script src="/app.js" defer></script>
+  <script src="/image-compare.js" defer></script>
 </body>
 </html>

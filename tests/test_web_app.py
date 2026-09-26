@@ -10,6 +10,7 @@ from autocompare_tool.database_io import DatabaseConnectionSettings, DatabaseCsv
 from autocompare_tool.excel_format_presets import ExcelFormatPresetStore
 from autocompare_tool.excel_image_formatter import ExcelImageFormatSummary
 from autocompare_tool.excel_compare import ExcelCompareResult
+from autocompare_tool.pdf_compare import PdfCompareResult
 from autocompare_tool.excel_writer import WorkbookFixmeEntry
 from autocompare_tool.sql_excel_loader import ExcelSqlEntry
 from autocompare_tool.sql_tools import SqlFormatResult
@@ -181,6 +182,33 @@ class WebApplicationTests(unittest.TestCase):
         self.assertEqual(str(old_path), compare_mock.call_args.args[0])
         self.assertEqual(str(new_path), compare_mock.call_args.args[1])
         self.assertEqual(str(output_path), compare_mock.call_args.args[2])
+
+    def test_pdf_compare_action_maps_paths_and_returns_json_safe_result(self) -> None:
+        app = AutoCompareWebApplication()
+        old_path = Path.cwd() / "old.pdf"
+        new_path = Path.cwd() / "new.pdf"
+        output_path = Path.cwd() / "Compare_PDF.pdf"
+        manifest_path = output_path.with_suffix(".json")
+        summary = PdfCompareResult(
+            old_path, new_path, output_path, manifest_path,
+            "DIFFERENT", False, False, False, False, True,
+            "a" * 64, "b" * 64, 2, 2, 2, 1, 3,
+        )
+
+        with patch("autocompare_tool.web_app.compare_pdf_files", return_value=summary) as compare_mock:
+            operation = app._operation("pdf_compare", {
+                "old_path": str(old_path),
+                "new_path": str(new_path),
+                "output_path": str(output_path),
+            })
+            from autocompare_tool.web_app import CancelToken
+            result = operation(lambda _message: None, CancelToken())
+
+        self.assertEqual(str(output_path), result["output_path"])
+        self.assertEqual(str(manifest_path), result["manifest_path"])
+        self.assertEqual("DIFFERENT", result["verdict"])
+        self.assertEqual(str(old_path), compare_mock.call_args.args[0])
+        self.assertEqual(str(new_path), compare_mock.call_args.args[1])
 
     def test_sql_format_action_maps_sql_and_dialect(self) -> None:
         app = AutoCompareWebApplication()
