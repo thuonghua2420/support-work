@@ -440,25 +440,20 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .sql-action-group .primary-button { gap: 8px; }
 .sql-excel-loader { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(150px, 220px) auto; align-items: end; gap: 10px; padding: 14px 22px; border-bottom: 1px solid var(--line-soft); background: #f6f9fc; }
 .sql-excel-loader small { grid-column: 1 / -1; color: #8190a3; font-size: 10px; line-height: 1.45; }
-.sql-editor-wrap { position: relative; background: #101d2e; }
-.sql-gutter { position: absolute; top: 15px; left: 15px; z-index: 4; padding: 4px 6px; border: 1px solid rgba(117,177,255,.18); border-radius: 5px; color: #71adfa; background: rgba(49,124,218,.1); font: 8px/1 "Cascadia Code", Consolas, monospace; font-weight: 800; letter-spacing: .1em; }
-.sql-highlight-layer { position: absolute; inset: 0 auto auto 0; z-index: 1; min-width: 100%; margin: 0; padding: 48px 22px 22px; color: #dbe9f8; background: #101d2e; pointer-events: none; white-space: pre-wrap; overflow-wrap: break-word; tab-size: 2; font: 12px/1.72 "Cascadia Code", Consolas, monospace; }
-#sql-input { position: relative; z-index: 2; width: 100%; min-height: 460px; padding: 48px 22px 22px; border: 0; border-radius: 0; color: transparent; -webkit-text-fill-color: transparent; caret-color: #eef6ff; background: transparent; box-shadow: none; resize: vertical; tab-size: 2; font: 12px/1.72 "Cascadia Code", Consolas, monospace; }
-#sql-input:focus { color: transparent; -webkit-text-fill-color: transparent; caret-color: #eef6ff; background: transparent; box-shadow: inset 0 0 0 2px rgba(58,146,255,.22); }
+.sql-editor-wrap { --sql-editor-pad-x: 22px; --sql-editor-pad-y: 18px; position: relative; overflow: hidden; isolation: isolate; background: #fff; }
+.sql-editor-wrap:focus-within { box-shadow: inset 0 0 0 1px #9fc1ef; }
+.sql-gutter { display: none; }
+.sql-highlight-layer { position: absolute; inset: 0 auto auto 0; z-index: 1; min-width: 100%; margin: 0; padding: var(--sql-editor-pad-y) var(--sql-editor-pad-x); color: var(--ink); background: transparent; pointer-events: none; white-space: pre-wrap; overflow-wrap: break-word; tab-size: 2; font: 12px/1.72 "Cascadia Code", Consolas, monospace; will-change: transform; }
+#sql-input { position: relative; z-index: 2; width: 100%; min-height: 460px; padding: var(--sql-editor-pad-y) var(--sql-editor-pad-x); border: 0; border-radius: 0; color: transparent; -webkit-text-fill-color: transparent; caret-color: #183b5b; background: transparent; box-shadow: none; resize: vertical; scrollbar-gutter: stable; tab-size: 2; font: 12px/1.72 "Cascadia Code", Consolas, monospace; }
+#sql-input:focus { outline: 0; color: transparent; -webkit-text-fill-color: transparent; caret-color: #183b5b; background: transparent; box-shadow: none; }
 #sql-input::placeholder { color: #58708d; -webkit-text-fill-color: #58708d; }
 #sql-input::selection { color: transparent; -webkit-text-fill-color: transparent; background: rgba(70, 140, 230, .32); }
-.sql-highlight-statement { border-radius: 2px; }
-.sql-highlight-statement.sql-tone-0 { background: rgba(37,99,235,.075); }
-.sql-highlight-statement.sql-tone-1 { background: rgba(124,58,237,.065); }
-.sql-highlight-statement.sql-tone-2 { background: rgba(5,150,105,.065); }
-.sql-highlight-statement.sql-tone-3 { background: rgba(217,119,6,.065); }
-.sql-highlight-statement.sql-tone-4 { background: rgba(219,39,119,.06); }
-.sql-highlight-statement.sql-tone-5 { background: rgba(8,145,178,.065); }
-.sql-token-keyword { color: #60a5fa; font-weight: 750; }
-.sql-token-string { color: #86efac; }
-.sql-token-number { color: #fbbf24; }
-.sql-token-comment { color: #7890ab; font-style: italic; }
-.sql-token-identifier { color: #c4b5fd; }
+.sql-highlight-statement { background: transparent; }
+.sql-token-keyword { color: #155cc4; font-weight: inherit; }
+.sql-token-string { color: #087942; }
+.sql-token-number { color: #9a5a00; }
+.sql-token-comment { color: #718096; font-style: normal; }
+.sql-token-identifier { color: #6d3bb5; }
 .sql-analysis { margin-top: 28px; padding: 0; overflow: hidden; }
 .sql-analysis-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: var(--panel-padding); list-style: none; cursor: pointer; }
 .sql-analysis-summary::-webkit-details-marker { display: none; }
@@ -478,6 +473,18 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .sql-metric strong { display: block; margin-top: 5px; color: var(--blue); font-size: 23px; letter-spacing: -.04em; }
 .sql-analysis-card { margin-top: var(--layout-gap); padding: var(--panel-padding); }
 .sql-analysis-card .card-heading { margin-bottom: 14px; }
+.sql-statement-table-groups { display: grid; gap: 14px; }
+.sql-statement-table-group { min-width: 0; overflow: hidden; border: 1px solid var(--line-soft); border-radius: 8px; background: #fff; }
+.sql-statement-table-group > header, .sql-table-summary-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; background: #f8fafc; }
+.sql-statement-table-group > header > div { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.sql-statement-table-actions, .sql-table-summary-heading > div { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.sql-statement-table-actions { flex: 0 0 auto; }
+.sql-statement-table-actions .secondary-button, .sql-table-summary-heading .secondary-button { min-height: 30px; padding: 6px 10px; white-space: nowrap; }
+.sql-statement-table-group > header strong, .sql-table-summary-heading strong { color: #354e6a; font-size: 11px; }
+.sql-statement-number { color: var(--blue); font-size: 10px; font-weight: 700; }
+.sql-statement-table-group .sql-table-wrap { border: 0; border-top: 1px solid var(--line-soft); }
+.sql-table-summary-heading { margin-top: 18px; border: 1px solid var(--line-soft); border-bottom: 0; border-radius: 8px 8px 0 0; }
+.sql-table-summary-heading + .sql-table-wrap { border-radius: 0 0 8px 8px; }
 .sql-result-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; color: var(--blue); background: var(--blue-soft); font-size: 10px; font-weight: 850; }
 .sql-result-icon.condition-icon { color: var(--amber); background: var(--amber-soft); }
 .sql-result-icon.cte-icon { color: var(--violet); background: #f0ecff; }
@@ -643,11 +650,13 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .activity-panel.success .activity-icon { color: #39d49b; background: rgba(53,211,154,.14); }
 .activity-panel.error .activity-icon { color: #ff8b8b; background: rgba(235,87,87,.15); }
 .activity-body { display: flex; flex-direction: column; height: calc(100% - 56px); min-height: 0; border-top: 1px solid rgba(255,255,255,.08); }
-.activity-header { display: flex; align-items: center; justify-content: space-between; height: 43px; padding: 0 13px; color: #bfd0e2; background: #0f2035; }
+.activity-header { display: flex; align-items: center; justify-content: space-between; height: 43px; padding: 0 13px; color: #bfd0e2; background: #0f2035; cursor: pointer; }
 .activity-header > div { display: flex; align-items: center; gap: 8px; }
 .activity-header strong { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
 .activity-actions { display: flex; align-items: center; gap: 8px; }
 .activity-actions .danger-button { min-height: 28px; padding: 0 10px; border-radius: 8px; font-size: 10px; }
+.activity-actions .ghost-button { min-height: 28px; padding: 0 10px; border-color: rgba(255,255,255,.13); border-radius: 8px; color: #b9cbe0; background: rgba(255,255,255,.04); font-size: 10px; }
+.activity-actions .ghost-button:hover { border-color: rgba(132,187,255,.42); color: #dcecff; background: rgba(84,155,255,.14); }
 .activity-header .icon-button { width: 28px; height: 28px; border-color: rgba(255,255,255,.1); color: #8fa5be; background: transparent; }
 .activity-log, #activity-log { flex: 1; min-height: 0; height: auto; margin: 0; padding: 14px 16px; overflow: auto; color: #b9cbe0; background: #13253c; font: 11px/1.65 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; }
 

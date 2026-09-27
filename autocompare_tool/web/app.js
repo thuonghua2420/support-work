@@ -90,6 +90,8 @@ let uiCacheTimer = null;
 let uiCacheRestoring = false;
 let uiCacheBound = false;
 let sqlJoinTooltipGlobalBound = false;
+let sqlEditorFitFrame = 0;
+let sqlEditorFitTimer = 0;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -129,6 +131,7 @@ async function init() {
     restoreDatabaseSessionConnections();
     renderCompareKeys();
     bindUiCache();
+    scheduleSqlEditorViewportFit();
     if (state.bootstrap.job) {
       state.job = state.bootstrap.job;
       state.jobCursor = 0;
@@ -212,6 +215,7 @@ function showPage(pageKey, updateHash, options = {}) {
     });
     if (updateHash) history.replaceState(null, "", `#${pageKey}`);
     if (options.scrollTop !== false) scrollPageTo(0, "smooth");
+    if (pageKey === "database") scheduleSqlEditorViewportFit();
 }
 
 function bindMobileMenu() {
@@ -221,6 +225,9 @@ function bindMobileMenu() {
     else {
       document.body.classList.toggle("nav-collapsed");
       updateMenuToggle();
+      scheduleSqlEditorViewportFit();
+      clearTimeout(sqlEditorFitTimer);
+      sqlEditorFitTimer = window.setTimeout(scheduleSqlEditorViewportFit, 220);
     }
   });
   $("#menu-backdrop").addEventListener("click", () => setMobileMenuOpen(false));
@@ -443,13 +450,41 @@ function bindTabs() {
 }
 
 function syncDatabaseCommonLayout(group, tab) {
+  if (group === "sql-workspace-view") {
+    if (tab === "input") scheduleSqlEditorViewportFit();
+    return;
+  }
   if (group !== "database") return;
   $("#db-connection-hub")?.classList.toggle("sync-mode", tab === "sync");
   $("#sql-page-toolbar")?.classList.toggle("hidden", tab !== "sql-workspace");
+  if (tab === "sql-workspace") scheduleSqlEditorViewportFit();
+}
+
+function scheduleSqlEditorViewportFit() {
+  window.cancelAnimationFrame(sqlEditorFitFrame);
+  sqlEditorFitFrame = window.requestAnimationFrame(fitSqlEditorToViewport);
+}
+
+function fitSqlEditorToViewport() {
+  const editor = $("#sql-input");
+  const databasePage = $("#page-database");
+  const workspacePanel = $('[data-tab-panel="database:sql-workspace"]');
+  const inputPanel = $("#sql-input-panel");
+  if (!editor || !databasePage?.classList.contains("active") ||
+      !workspacePanel?.classList.contains("active") || !inputPanel?.classList.contains("active")) return;
+
+  const documentTop = editor.getBoundingClientRect().top + currentPageScrollTop();
+  const availableHeight = Math.floor(window.innerHeight - documentTop - 12);
+  editor.style.setProperty("--sql-editor-fit-height", `${Math.max(240, availableHeight)}px`);
+  renderSqlEditorHighlight();
 }
 
 function bindActivityPanel() {
   const panel = $("#activity-panel");
+  const closeActivityPanel = () => {
+    panel.classList.add("collapsed");
+    updateActivityToggleTitle();
+  };
   $("#activity-toggle").addEventListener("click", () => {
     panel.classList.toggle("collapsed");
     updateActivityToggleTitle();
@@ -459,6 +494,11 @@ function bindActivityPanel() {
     updateActivityToggleTitle();
   });
   $("#clear-log").addEventListener("click", () => { $("#activity-log").textContent = ""; });
+  $("#close-activity").addEventListener("click", closeActivityPanel);
+  $(".activity-header")?.addEventListener("click", (event) => {
+    if (event.target.closest("button")) return;
+    closeActivityPanel();
+  });
   $("#cancel-job").addEventListener("click", cancelCurrentJob);
   updateActivityToggleTitle();
 }
@@ -914,9 +954,15 @@ function bindForms() {
   if (typeof ResizeObserver === "function") {
     new ResizeObserver(renderSqlEditorHighlight).observe($("#sql-input"));
   }
+  window.addEventListener("resize", scheduleSqlEditorViewportFit);
   renderSqlEditorHighlight();
   $("#copy-current-sql").addEventListener("click", copyCurrentSql);
   $("#copy-sql-tables")?.addEventListener("click", copyAnalyzedSqlTables);
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-sql-copy-statement-tables]");
+    if (!button) return;
+    copySqlStatementTables(button);
+  });
   $("#sql-run-current")?.addEventListener("click", () => runSqlExecute("current"));
   $("#sql-run-all")?.addEventListener("click", () => runSqlExecute("all"));
   $("#sql-export-all")?.addEventListener("click", () => exportSqlSources());
@@ -1313,7 +1359,7 @@ function bindDialogs() {
 
 function hydrateDefaults() {
   const cwd = state.bootstrap.cwd;
-  $("#server-address").textContent = `127.0.0.1:${state.bootstrap.port}`;
+  //$("#server-address").textContent = `127.0.0.1:${state.bootstrap.port}`;
   $("#compare-root").value = cwd;
   $("#utility-root").value = cwd;
   $("#excel-format-root").value = cwd;
@@ -3478,7 +3524,7 @@ function syncSqlEditorHighlightScroll() {
 
 function highlightSqlText(sql) {
   return splitSqlHighlightSegments(String(sql || ""))
-    .map((statement, index) => `<span class="sql-highlight-statement sql-tone-${index % 6}">${highlightSqlStatement(statement)}</span>`)
+    .map((statement) => `<span class="sql-highlight-statement">${highlightSqlStatement(statement)}</span>`)
     .join("");
 }
 
@@ -3546,9 +3592,33 @@ async function copyCurrentSql() {
 }
 
 async function copyAnalyzedSqlTables() {
-  if (!state.sqlAnalysisTables.length) return;
-  await writeClipboardText(state.sqlAnalysisTables.join(", "));
-  showToast(`Đã sao chép ${state.sqlAnalysisTables.length} table database.`, "success");
+  await copySqlTableNames(state.sqlAnalysisTables, "toàn bộ SQL");
+}
+
+async function copySqlStatementTables(button) {
+  const names = decodeSqlTableNameList(button?.dataset?.sqlCopyStatementTables);
+  const statementIndex = Number(button?.dataset?.sqlStatementIndex || 0);
+  const label = statementIndex > 0 ? `câu SQL ${statementIndex}` : "câu SQL";
+  await copySqlTableNames(names, label);
+}
+
+async function copySqlTableNames(names, label) {
+  const tableNames = Array.isArray(names) ? names.filter(Boolean) : [];
+  if (!tableNames.length) {
+    showToast(`Không có table database trong ${label}.`, "error");
+    return;
+  }
+  await writeClipboardText(tableNames.join(", "));
+  showToast(`Đã sao chép ${tableNames.length} table database của ${label}.`, "success");
+}
+
+function decodeSqlTableNameList(value) {
+  try {
+    const parsed = JSON.parse(decodeURIComponent(String(value || "")));
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || "").trim()).filter(Boolean) : [];
+  } catch (_error) {
+    return [];
+  }
 }
 
 async function copySqlSourceSelect(relationId) {
@@ -3586,6 +3656,7 @@ async function writeClipboardText(text, fallbackElement = null) {
 function renderSqlAnalysis(result) {
   const rawTables = Array.isArray(result.tables) ? result.tables : [];
   const tables = groupSqlAnalysisTables(rawTables);
+  const statements = normalizeSqlAnalysisStatements(result.statements, result.statement_count, rawTables);
   const conditions = Array.isArray(result.conditions) ? result.conditions : [];
   const ctes = Array.isArray(result.ctes) ? result.ctes : [];
   const subqueries = Array.isArray(result.subqueries) ? result.subqueries : [];
@@ -3602,6 +3673,7 @@ function renderSqlAnalysis(result) {
   $("#sql-count-ctes").textContent = String(ctes.length);
   $("#sql-count-subqueries").textContent = String(subqueries.length);
   $("#sql-table-count").textContent = String(tables.length);
+  $("#sql-table-summary-count").textContent = String(tables.length);
   $("#sql-condition-count").textContent = String(conditions.length);
   $("#sql-cte-count").textContent = String(ctes.length);
   $("#sql-subquery-count").textContent = String(subqueries.length);
@@ -3610,15 +3682,8 @@ function renderSqlAnalysis(result) {
   state.sqlAnalysisTables = sqlDatabaseTableNames(rawTables);
   updateCopySqlTablesButton();
 
-  $("#sql-table-body").innerHTML = tables.length ? tables.map((item, index) => `
-    <tr>
-      <td>${index + 1}</td>
-      <td><code class="sql-code">${escapeHtml(item.qualified_name)}</code></td>
-      <td>${sqlPills(item.aliases)}</td>
-      <td>${sqlPills(item.roles)}</td>
-      <td>${escapeHtml(sqlSourceTypeLabel(item.source_type))}</td>
-      <td>${sqlGroupedScopesHtml(item.scopes)}</td>
-    </tr>`).join("") : emptySqlTableRow(6, "Không tìm thấy table/reference trong SQL.");
+  renderSqlStatementTableGroups(statements, rawTables);
+  $("#sql-table-body").innerHTML = sqlAnalysisTableRows(tables, { includeStatements: true });
 
   $("#sql-condition-body").innerHTML = conditions.length ? conditions.map((item, index) => `
     <tr>
@@ -3661,6 +3726,68 @@ function renderSqlAnalysis(result) {
     </article>`).join("") : sqlEmpty("Không có GROUP BY, ORDER BY hoặc LIMIT.");
 }
 
+function normalizeSqlAnalysisStatements(statements, statementCount, tables) {
+  const byIndex = new Map();
+  (Array.isArray(statements) ? statements : []).forEach((statement) => {
+    const index = Number(statement?.index || 0);
+    if (index > 0) byIndex.set(index, statement);
+  });
+  const count = Math.max(0, Number(statementCount || 0));
+  for (let index = 1; index <= count; index += 1) {
+    if (!byIndex.has(index)) byIndex.set(index, { index, statement_type: "SQL", scope_count: 0, sql: "" });
+  }
+  (Array.isArray(tables) ? tables : []).forEach((table) => {
+    const index = Number(table?.statement_index || 0);
+    if (index > 0 && !byIndex.has(index)) byIndex.set(index, { index, statement_type: "SQL", scope_count: 0, sql: "" });
+  });
+  return [...byIndex.values()].sort((left, right) => Number(left.index) - Number(right.index));
+}
+
+function renderSqlStatementTableGroups(statements, rawTables) {
+  const host = $("#sql-statement-table-groups");
+  if (!host) return;
+  if (!statements.length) {
+    host.innerHTML = sqlEmpty("Không có câu SQL để phân tích table và alias.");
+    return;
+  }
+  host.innerHTML = statements.map((statement) => {
+    const statementIndex = Number(statement.index || 0);
+    const statementTables = rawTables.filter((item) => Number(item?.statement_index || 0) === statementIndex);
+    const tables = groupSqlAnalysisTables(statementTables);
+    const tableNames = sqlDatabaseTableNames(statementTables);
+    const statementType = String(statement.statement_type || "SQL").toUpperCase();
+    return `
+      <section class="sql-statement-table-group" data-sql-statement-table="${statementIndex}">
+        <header>
+          <div><span class="sql-statement-number">Câu SQL ${statementIndex}</span><strong>${escapeHtml(statementType)}</strong></div>
+          <div class="sql-statement-table-actions">
+            <span class="count-badge">${tables.length} table / reference</span>
+            <button class="secondary-button small" type="button" data-sql-copy-statement-tables="${encodeURIComponent(JSON.stringify(tableNames))}" data-sql-statement-index="${statementIndex}"${tableNames.length ? "" : " disabled"}>Sao chép ${tableNames.length} table</button>
+          </div>
+        </header>
+        <div class="table-wrap sql-table-wrap"><table class="sql-result-table"><thead><tr><th>#</th><th>Table / reference</th><th>Alias</th><th>Vai trò</th><th>Loại nguồn</th><th>Scope</th></tr></thead><tbody>${sqlAnalysisTableRows(tables)}</tbody></table></div>
+      </section>`;
+  }).join("");
+}
+
+function sqlAnalysisTableRows(tables, options = {}) {
+  const includeStatements = Boolean(options.includeStatements);
+  const columnCount = includeStatements ? 7 : 6;
+  if (!Array.isArray(tables) || !tables.length) {
+    return emptySqlTableRow(columnCount, "Không tìm thấy table/reference trong câu SQL này.");
+  }
+  return tables.map((item, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td><code class="sql-code">${escapeHtml(item.qualified_name)}</code></td>
+      <td>${sqlPills(item.aliases)}</td>
+      <td>${sqlPills(item.roles)}</td>
+      <td>${escapeHtml(sqlSourceTypeLabel(item.source_type))}</td>
+      ${includeStatements ? `<td>${sqlStatementPills(item.statement_indexes)}</td>` : ""}
+      <td>${sqlGroupedScopesHtml(item.scopes)}</td>
+    </tr>`).join("");
+}
+
 function groupSqlAnalysisTables(tables) {
   const groups = new Map();
   (Array.isArray(tables) ? tables : []).forEach((item, index) => {
@@ -3675,17 +3802,29 @@ function groupSqlAnalysisTables(tables) {
         aliases: [],
         roles: [],
         scopes: [],
+        statement_indexes: [],
       });
     }
     const group = groups.get(key);
     pushUniqueText(group.aliases, item.alias);
     pushUniqueText(group.roles, item.role);
+    const statementIndex = Number(item.statement_index || 0);
+    if (statementIndex > 0 && !group.statement_indexes.includes(statementIndex)) group.statement_indexes.push(statementIndex);
     const scopeKey = `${item.scope_id || ""}\u001f${item.scope_name || ""}`;
     if (!group.scopes.some((scope) => scope.key === scopeKey)) {
       group.scopes.push({ key: scopeKey, id: item.scope_id || "", name: item.scope_name || "Main query", depth: Number(item.depth || 0) });
     }
   });
   return [...groups.values()];
+}
+
+function sqlStatementPills(indexes) {
+  if (!Array.isArray(indexes) || !indexes.length) return "—";
+  return `<span class="sql-pill-list sql-statement-pill-list">${indexes
+    .slice()
+    .sort((left, right) => Number(left) - Number(right))
+    .map((index) => `<span>SQL ${Number(index)}</span>`)
+    .join("")}</span>`;
 }
 
 function pushUniqueText(values, value) {

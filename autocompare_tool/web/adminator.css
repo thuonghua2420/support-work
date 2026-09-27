@@ -127,7 +127,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
 .excel-section .notice { margin-top: 20px; }
 [data-tab-panel="database:sql-workspace"] > .page-intro { display: none; }
 .sql-action-group { border: 0; padding: 0; border-radius: 0; background: none; }
-.sql-editor-wrap, .sql-highlight-layer { background: #fff; color: var(--ink); }
+.sql-editor-wrap { background: #fff; color: var(--ink); }
+.sql-highlight-layer { background: transparent; color: var(--ink); }
 #sql-input, #sql-input:focus { color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--ink); background: transparent; }
 .sql-highlight-layer .sql-token-keyword { color: #155cc4; }
 .sql-highlight-layer .sql-token-string { color: #087942; }
@@ -166,19 +167,19 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
 .empty-state { padding: 36px 20px; }
 .empty-state > span { width: 38px; height: 38px; border-radius: 6px; box-shadow: none; }
 .activity-panel { border-radius: 6px; border-color: var(--line); box-shadow: 0 8px 30px #1e293b18; }
-.activity-panel.collapsed { width: 42px; height: 42px; min-height: 42px; right: 20px; bottom: 18px; }
+.activity-panel.collapsed { left: calc(var(--sidebar-width) - 58px); right: auto; width: 42px; height: 42px; min-height: 42px; bottom: 18px; border-radius: 50%; background: var(--blue-soft); }
 .activity-panel.collapsed .activity-handle { min-height: 42px; height: 42px; }
 .activity-handle { background: #fff; color: var(--ink); }
 .activity-icon { background: var(--blue-soft); color: var(--blue); border-radius: 4px; }
-.activity-panel.collapsed .activity-icon { width: 28px; height: 28px; color: var(--blue); background: var(--blue-soft); border-radius: 4px; }
-.activity-panel.collapsed .activity-handle { border-radius: 6px; box-shadow: none; }
+.activity-panel.collapsed .activity-icon { width: 100%; height: 100%; color: var(--blue); background: var(--blue-soft); border-radius: 50%; }
+.activity-panel.collapsed .activity-handle { border-radius: 50%; background: var(--blue-soft); box-shadow: none; }
 .compare-preview-tabs, .excel-preset-panel, .sync-progress-panel, .db-connection-hub.sync-mode { background: #f8fafc; }
 .danger-zone { background: #fff; border-left: 3px solid var(--red); }
 .modal-shell { border-radius: 6px; }
 .modal header { padding: 16px 20px; }
 .modal header h3 { font-size: 16px; }
 .toast { border-radius: 4px; font-size: 12px; }
-.toast-stack { top: auto; right: auto; bottom: 18px; left: 20px; }
+.toast-stack { top: auto; right: auto; bottom: 70px; left: 20px; }
 .menu-backdrop { display: none; }
 body.nav-collapsed { --sidebar-width: 72px; }
 .nav-collapsed .sidebar { padding-inline: 10px; }
@@ -199,6 +200,17 @@ body.nav-collapsed { --sidebar-width: 72px; }
 .compare-scroll-button { border-radius: 4px; box-shadow: none; }
 .fixme-card.panel-expanded { overflow: auto; }
 body:has(.panel-expanded) { overflow: hidden; }
+@media (min-width: 901px) {
+  .app-shell { display: block; min-height: 100dvh; }
+  .sidebar { position: fixed; inset: 0 auto 0 0; width: var(--sidebar-width); height: 100dvh; }
+  .workspace { margin-left: var(--sidebar-width); transition: margin-left .2s ease; }
+  .activity-panel:not(.collapsed) { left: var(--sidebar-width); right: 0; bottom: 0; width: auto; height: clamp(280px, 34vh, 420px); max-height: 100dvh; overflow: visible; }
+  .activity-panel:not(.collapsed) .activity-handle { position: fixed; left: calc(var(--sidebar-width) - 58px); bottom: 18px; z-index: 91; justify-content: center; width: 42px; height: 42px; min-height: 42px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--blue-soft); box-shadow: none; overflow: hidden; }
+  .activity-panel:not(.collapsed) .activity-handle > span:nth-child(2),
+  .activity-panel:not(.collapsed) .activity-handle > b { display: none; }
+  .activity-panel:not(.collapsed) .activity-icon { width: 100%; height: 100%; margin: 0; border-radius: 50%; }
+  .activity-panel:not(.collapsed) .activity-body { height: 100%; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 30px #1e293b18; overflow: hidden; }
+}
 @media (max-width: 1200px) {
   .content { padding-inline: 20px; }
   .choice-grid { grid-template-columns: 1fr; }
@@ -214,6 +226,8 @@ body:has(.panel-expanded) { overflow: hidden; }
   .sql-action-group > button { white-space: normal; }
   .app-shell { display: block; }
   .sidebar { position: fixed; left: 0; top: 0; width: 248px; height: 100dvh; transform: translateX(-100%); z-index: 45; transition: transform .2s; }
+  .workspace { margin-left: 0; }
+  .activity-panel { left: 14px; right: auto; }
   .sidebar.open { transform: translateX(0); }
   body:has(.sidebar.open) { overflow: hidden; }
   .menu-backdrop.visible { display: block; position: fixed; inset: 0; z-index: 40; background: #1e293b66; border: 0; }
@@ -344,7 +358,7 @@ body:has(.panel-expanded) { overflow: hidden; }
 #page-database .sql-toolbar-actions { flex-direction: row; align-items: center; justify-content: flex-start; padding-top: 8px; gap: 6px; }
 #page-database .sql-action-group { display: contents; }
 #page-database .sql-toolbar-actions button { width: auto; min-height: 32px; padding: 5px 9px; margin: 0; }
-#page-database #sql-input { height: 320px; min-height: 240px; }
+#page-database #sql-input { height: var(--sql-editor-fit-height, 320px); min-height: 240px; resize: none; }
 #page-database .db-connection-hub > #db-open-connections { width: auto; min-width: max-content; white-space: nowrap; }
 .sql-page-toolbar { min-width: 0; }
 #page-database .sql-page-toolbar .sql-toolbar-actions { justify-content: flex-end; flex-wrap: nowrap; width: 100%; padding-top: 0; border-top: 0; }

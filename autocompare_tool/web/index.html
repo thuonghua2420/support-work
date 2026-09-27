@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>AutoCompare | Workspace</title>
+  <title>Support | Workspace</title>
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/adminator.css">
   <link rel="stylesheet" href="/image-compare.css">
@@ -14,7 +14,7 @@
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"><i data-lucide="panels-top-left"></i></span>
-        <span><strong>AutoCompare</strong><small>UT WORKSPACE</small></span>
+        <span><strong>Support</strong><small>UT WORKSPACE</small></span>
       </div>
 
       <nav class="nav-list" aria-label="Menu chính">
@@ -53,7 +53,7 @@
 
       <div class="sidebar-footer">
         <span class="online-dot"></span>
-        <span><small>Server local</small><strong id="server-address">127.0.0.1</strong></span>
+        <span><small>Server local</small><small>Contact: ThuongHT4</small></span>
       </div>
     </aside>
 
@@ -428,8 +428,10 @@
             </div>
 
             <section class="card sql-analysis-card">
-              <div class="card-heading"><div><span class="sql-result-icon table-icon">T</span><h3>Table và alias</h3><span class="count-badge" id="sql-table-count">0</span></div><button class="secondary-button small" id="copy-sql-tables" type="button" title="Sao chép danh sách table vật lý, không bao gồm CTE/subquery" disabled>Sao chép table</button></div>
-              <div class="table-wrap sql-table-wrap"><table class="sql-result-table"><thead><tr><th>#</th><th>Table / reference</th><th>Alias</th><th>Vai trò</th><th>Loại nguồn</th><th>Scope</th></tr></thead><tbody id="sql-table-body"></tbody></table></div>
+              <div class="card-heading"><div><span class="sql-result-icon table-icon">T</span><h3>Table và alias</h3><span class="count-badge" id="sql-table-count">0</span></div></div>
+              <div class="sql-statement-table-groups" id="sql-statement-table-groups"></div>
+              <div class="sql-table-summary-heading"><div><strong>Tổng hợp toàn bộ table</strong><span class="count-badge" id="sql-table-summary-count">0</span></div><button class="secondary-button small" id="copy-sql-tables" type="button" title="Sao chép danh sách table vật lý, không bao gồm CTE/subquery" disabled>Sao chép toàn bộ table</button></div>
+              <div class="table-wrap sql-table-wrap"><table class="sql-result-table sql-table-summary"><thead><tr><th>#</th><th>Table / reference</th><th>Alias</th><th>Vai trò</th><th>Loại nguồn</th><th>Câu SQL</th><th>Scope</th></tr></thead><tbody id="sql-table-body"></tbody></table></div>
             </section>
 
             <section class="card sql-analysis-card">
@@ -612,7 +614,7 @@
 
   <aside class="activity-panel collapsed" id="activity-panel" aria-label="Nhật ký tác vụ">
     <button class="activity-handle" id="activity-toggle" type="button" title="Mở nhật ký tác vụ"><span class="activity-icon">LOG</span><span><strong>Nhật ký tác vụ</strong><small id="activity-subtitle">Chưa có hoạt động</small></span><b>⌃</b></button>
-    <div class="activity-body"><div class="activity-header"><div><span class="status-dot"></span><strong id="activity-title">Sẵn sàng</strong></div><div class="activity-actions"><button class="danger-button small hidden" id="cancel-job" type="button">Hủy tác vụ</button><button class="icon-button" id="clear-log" type="button" title="Xóa log">×</button></div></div><pre id="activity-log">AutoCompare đã sẵn sàng.</pre></div>
+    <div class="activity-body"><div class="activity-header"><div><span class="status-dot"></span><strong id="activity-title">Sẵn sàng</strong></div><div class="activity-actions"><button class="danger-button small hidden" id="cancel-job" type="button">Hủy tác vụ</button><button class="ghost-button small" id="clear-log" type="button" title="Xóa log">Clear log</button><button class="icon-button" id="close-activity" type="button" title="Đóng nhật ký" aria-label="Đóng nhật ký">×</button></div></div><pre id="activity-log">AutoCompare đã sẵn sàng.</pre></div>
   </aside>
 
   <dialog id="path-dialog" class="modal path-modal">

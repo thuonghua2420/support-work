@@ -92,6 +92,45 @@ const path = require('node:path');
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.locator('.nav-item[data-page="compare"]').click();
+    const collapsedLog = await page.evaluate(() => {
+      const panel = document.querySelector('#activity-panel').getBoundingClientRect();
+      const icon = document.querySelector('#activity-toggle .activity-icon');
+      const iconRect = icon.getBoundingClientRect();
+      return {
+        panel: { left: panel.left },
+        iconWidth: iconRect.width,
+        iconHeight: iconRect.height,
+        radius: getComputedStyle(icon).borderRadius,
+      };
+    });
+    assert.ok(collapsedLog.iconWidth >= 40 && collapsedLog.iconHeight >= 40);
+    assert.equal(collapsedLog.radius, '50%');
+    await page.locator('#activity-toggle').click();
+    await page.waitForTimeout(250);
+    const expandedLog = await page.evaluate(() => {
+      const panel = document.querySelector('#activity-panel').getBoundingClientRect();
+      const button = document.querySelector('#activity-toggle').getBoundingClientRect();
+      const workspace = document.querySelector('.workspace').getBoundingClientRect();
+      return {
+        panel: { left: panel.left, right: panel.right, bottom: panel.bottom, height: panel.height },
+        button: { left: button.left, right: button.right },
+        viewportHeight: innerHeight,
+        workspaceRight: workspace.right,
+      };
+    });
+    assert.equal(Math.round(expandedLog.panel.left), 248);
+    assert.equal(Math.round(expandedLog.panel.right), Math.round(expandedLog.workspaceRight));
+    assert.equal(Math.round(expandedLog.panel.bottom), expandedLog.viewportHeight);
+    assert.ok(expandedLog.panel.height >= 300);
+    assert.ok(expandedLog.button.right < expandedLog.panel.left);
+    assert.equal(Math.round(expandedLog.button.left), Math.round(collapsedLog.panel.left));
+    await page.locator('#clear-log').click();
+    assert.equal(await page.locator('#activity-log').textContent(), '');
+    await page.locator('#close-activity').click();
+    assert.equal(await page.locator('#activity-panel.collapsed').count(), 1);
+    await page.locator('#activity-toggle').click();
+    await page.locator('.activity-header').click({ position: { x: 120, y: 20 } });
+    assert.equal(await page.locator('#activity-panel.collapsed').count(), 1);
     await page.locator('#compare-root').fill('D:\\test-root');
     await page.locator('#tab-compare-preview-card').click();
     assert.ok(await page.locator('.workbench-empty').isVisible());

@@ -22,7 +22,7 @@ The web UI is organized by a left-side navigation menu:
 - `Copy UT Files`: source/target copy workflow.
 - `Database`: DB connection, CSV normalize/import/export, and database-to-database synchronization.
 
-Long-running actions run one at a time in a background job. The web UI shows live status and incremental logs in a bottom-right floating activity bubble that expands into the task log panel. The log keeps previous task history, adds start/end timestamps, shows elapsed time, and writes a separator after each completed task.
+Long-running actions run one at a time in a background job. The web UI shows live status and incremental logs through a circular activity control anchored at the bottom-right edge of the fixed left navigation; on mobile it remains at the bottom-left of the viewport. On desktop, opening the log keeps that control fixed and renders a separate full-width panel across the lower workspace without covering the control; the panel header or close button collapses it, while a separate Clear log button only clears the content. The left navigation stays fixed across every feature while only the workspace scrolls. The log keeps previous task history, adds start/end timestamps, shows elapsed time, and writes a separator after each completed task.
 
 ### Run Compare
 
@@ -205,9 +205,11 @@ Behavior:
 - SQL format, analysis, and Excel SQL loading use one shared editor; formatted SQL overwrites the editor content instead of appearing in a separate output panel.
 - When loading SQL from Excel, a note in column C is attached inline to the formatted SQL fragment originating from column B on the same worksheet row; repeated fragments are matched in worksheet order.
 - SQL analysis keeps every occurrence internally, but the table summary groups physical-table aliases into one row and removes duplicate aliases/scopes from that row.
-- The table-analysis copy button exports only unique physical database table names in analysis order, formatted as `Table1, Table2, Table3`; CTE and derived-query references are excluded.
+- Table-analysis copy buttons export only unique physical database table names in analysis order, formatted as `Table1, Table2, Table3`; CTE and derived-query references are excluded. Each SQL statement has its own copy button, and the combined cross-statement summary has a final copy-all button.
 - SQL Workspace runs SELECT statements directly. CUD/DDL is available by default but requires an explicit confirmation for each execution; the UI obtains and releases a temporary server-side write token automatically.
 - SQL Workspace uses three nested tabs: `Input SQL` for the editor and commands, `Results SQL` for database query/source output, and `Analysis SQL` for parser diagnostics. Analyze and run actions automatically activate their matching result tab.
+- The Input SQL editor automatically fills the remaining viewport height and recalculates when the window, workspace tab, or desktop navigation width changes.
+- Table/alias analysis is rendered once per SQL statement, including an explicit empty result for statements without a table, followed by a combined cross-statement table summary that merges aliases, roles, and scopes and identifies the contributing statement numbers.
 - The SQL editor and execution cards color SQL syntax and use a different accent per statement. Run-all attempts every parsed statement even when an earlier statement fails, while preserving rollback behavior for failed write batches.
 - Query result grids show a stable row ordinal before database columns and preserve the database-provided column-name casing. The redundant Sources summary is hidden; Source Data groups aliases of the same physical table and keeps one row per primary key (or full-row hash when no key exists).
 
