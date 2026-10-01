@@ -22,7 +22,7 @@ The web UI is organized by a left-side navigation menu:
 - `Copy UT Files`: source/target copy workflow.
 - `Database`: DB connection, CSV normalize/import/export, and database-to-database synchronization.
 
-Long-running actions run one at a time in a background job. The web UI shows live status and incremental logs through a circular activity control anchored at the bottom-right edge of the fixed left navigation; on mobile it remains at the bottom-left of the viewport. On desktop, opening the log keeps that control fixed and renders a separate full-width panel across the lower workspace without covering the control; the panel header or close button collapses it, while a separate Clear log button only clears the content. The left navigation stays fixed across every feature while only the workspace scrolls. The log keeps previous task history, adds start/end timestamps, shows elapsed time, and writes a separator after each completed task.
+Long-running actions run one at a time in a background job. The web UI shows live status and incremental logs through a circular LOG control inside the fixed left navigation footer; the control is hidden whenever the navigation is hidden, including full-workspace compare view and the closed mobile menu. On desktop, opening the log renders a separate full-width panel across the lower workspace; the panel header or close button collapses it, while a separate Clear log button only clears the content. The left navigation stays fixed across every feature while only the workspace scrolls. The log keeps previous task history, adds start/end timestamps, shows elapsed time, and writes a separator after each completed task.
 
 ### Run Compare
 
@@ -189,14 +189,13 @@ Important rule:
 - Import skips computed/generated/rowversion columns.
 - Identity columns are included only when users choose to keep identity values and the adapter can support that database behavior.
 
-### Excel Evidence Formatting
+### Excel Workbook Formatting
 
 Behavior:
 
-- Each sheet is split into old-system columns (A–R by default) and new-system columns (S onward), plus Input/Steps/Output row sections found from configured marker text in column A.
-- An image belongs to the resulting region containing its original top-left cell; an oversized image crossing another region does not change ownership.
-- Images in each of the six regions keep paste/z-order, are resized to the configured width, and are stacked independently with a 60 px default gap.
-- Section row space grows to fit the taller old/new stack and shrinks only when the removed trailing rows contain no cell values.
+- The compact Format Excel page offers independent checkboxes for font name, font size, row-specific size exclusions, selecting A1, resetting scroll, and activating the first sheet. Only selected workbook-format options run; at least one main option is required.
+- Existing images and shapes are preserved in place. The web action does not expose or execute the old Evidence image layout step, even when a request includes its former `run_image_format` option.
+- Users can save a copy under `Formatted` or explicitly confirm an overwrite of source workbooks.
 
 ### SQL Workspace
 

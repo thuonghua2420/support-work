@@ -42,7 +42,7 @@ from .database_io import (
     sync_database_tables,
     test_database_connection,
 )
-from .excel_image_formatter import format_excel_images
+from .excel_image_formatter import format_excel_workbooks
 from .excel_compare import compare_excel_workbooks
 from .pdf_compare import compare_pdf_files
 from .image_compare import compare_images
@@ -213,7 +213,7 @@ class AutoCompareWebApplication:
         "excel_compare": "Đang so sánh hai file Excel...",
         "pdf_compare": "Đang so sánh hai file PDF...",
         "copy_ut": "Đang sao chép file UT...",
-        "format_excel_images": "Đang format ảnh trong Excel...",
+        "format_excel_workbooks": "Đang định dạng workbook Excel...",
         "sql_format": "Đang format câu SQL...",
         "sql_analyze": "Đang phân tích toàn bộ câu SQL...",
         "sql_load_excel": "Đang đọc và format SQL từ Excel...",
@@ -242,7 +242,7 @@ class AutoCompareWebApplication:
         "db_import",
         "db_export",
         "db_sync",
-        "format_excel_images",
+        "format_excel_workbooks",
     }
 
     def __init__(self) -> None:
@@ -624,16 +624,19 @@ class AutoCompareWebApplication:
             "compare": lambda log: self._compare(payload, log),
             "folder_compare": lambda log: self._folder_compare(payload, log),
             "copy_ut": lambda log: self._copy_ut(payload, log),
-            "format_excel_images": lambda log: self._file_summary(
-                format_excel_images(
+            "format_excel_workbooks": lambda log: self._file_summary(
+                format_excel_workbooks(
                     _text(payload, "root"),
                     overwrite_original=_bool(payload, "overwrite_original"),
                     recursive=_bool(payload, "recursive", True),
-                    draw_format=True,
-                    run_image_format=_bool(payload, "run_image_format", True),
                     font_name=_text(payload, "font_name"),
                     font_size=payload.get("font_size", 11),
-                    font_size_exclusions=payload.get("font_size_exclusions", ""),
+                    font_size_exclusions=payload.get("font_size_exclusions", "") if _bool(payload, "apply_exclusions", True) else "",
+                    apply_font_name=_bool(payload, "apply_font_name", True),
+                    apply_font_size=_bool(payload, "apply_font_size", True),
+                    select_a1=_bool(payload, "select_a1", True),
+                    reset_scroll=_bool(payload, "reset_scroll", True),
+                    activate_first_sheet=_bool(payload, "activate_first_sheet", True),
                     log=log,
                 )
             ),

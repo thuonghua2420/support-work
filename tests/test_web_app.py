@@ -17,6 +17,7 @@ from autocompare_tool.sql_tools import SqlFormatResult
 from autocompare_tool.web_app import (
     AutoCompareServer,
     AutoCompareWebApplication,
+    CancelToken,
     JobManager,
     _db_settings,
     _fixme_to_dict,
@@ -140,12 +141,15 @@ class WebApplicationTests(unittest.TestCase):
         app = AutoCompareWebApplication()
 
         with self.assertRaises(PermissionError):
-            app.start_action("format_excel_images", {"root": str(Path.cwd())})
+            app.start_action("format_excel_workbooks", {"root": str(Path.cwd())})
+
+        with self.assertRaises(ValueError):
+            app.start_action("format_excel_images", {"root": str(Path.cwd()), "confirmed": True})
 
     def test_excel_format_action_maps_safe_copy_options(self) -> None:
         app = AutoCompareWebApplication()
         summary = ExcelImageFormatSummary(
-            action_name="Format ảnh Excel",
+            action_name="Format workbook Excel",
             root_path=Path.cwd(),
             output_root=Path.cwd() / "Formatted",
         )
@@ -153,24 +157,35 @@ class WebApplicationTests(unittest.TestCase):
             "root": str(Path.cwd()),
             "recursive": False,
             "overwrite_original": False,
-            "run_image_format": False,
+            "run_image_format": True,
             "font_name": "Calibri",
             "font_size": "12",
             "font_size_exclusions": "Header\n(Title, A1)",
+            "apply_font_name": False,
+            "apply_font_size": True,
+            "apply_exclusions": False,
+            "select_a1": False,
+            "reset_scroll": True,
+            "activate_first_sheet": False,
         }
 
-        with patch("autocompare_tool.web_app.format_excel_images", return_value=summary) as format_mock:
-            result = app._operation("format_excel_images", payload)(lambda _message: None)
+        with patch("autocompare_tool.web_app.format_excel_workbooks", return_value=summary) as format_mock:
+            result = app._operation("format_excel_workbooks", payload)(lambda _message: None, CancelToken())
 
         self.assertEqual(0, result["processed_count"])
         self.assertEqual(str(Path.cwd() / "Formatted"), result["output_root"])
         self.assertFalse(format_mock.call_args.kwargs["recursive"])
         self.assertFalse(format_mock.call_args.kwargs["overwrite_original"])
-        self.assertTrue(format_mock.call_args.kwargs["draw_format"])
-        self.assertFalse(format_mock.call_args.kwargs["run_image_format"])
+        self.assertNotIn("draw_format", format_mock.call_args.kwargs)
+        self.assertNotIn("run_image_format", format_mock.call_args.kwargs)
         self.assertEqual("Calibri", format_mock.call_args.kwargs["font_name"])
         self.assertEqual("12", format_mock.call_args.kwargs["font_size"])
-        self.assertEqual("Header\n(Title, A1)", format_mock.call_args.kwargs["font_size_exclusions"])
+        self.assertEqual("", format_mock.call_args.kwargs["font_size_exclusions"])
+        self.assertFalse(format_mock.call_args.kwargs["apply_font_name"])
+        self.assertTrue(format_mock.call_args.kwargs["apply_font_size"])
+        self.assertFalse(format_mock.call_args.kwargs["select_a1"])
+        self.assertTrue(format_mock.call_args.kwargs["reset_scroll"])
+        self.assertFalse(format_mock.call_args.kwargs["activate_first_sheet"])
 
     def test_excel_compare_action_maps_paths_and_returns_json_safe_result(self) -> None:
         app = AutoCompareWebApplication()

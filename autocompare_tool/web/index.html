@@ -41,7 +41,7 @@
           <span class="nav-icon">⧉</span><span><strong>Sao chép UT</strong><small>Copy theo cấu trúc test</small></span>
         </button>
           <button class="nav-item" data-page="excel-format" type="button">
-            <span class="nav-icon">▦</span><span><strong>Format EVD/Excel</strong><small>Ảnh · font · vị trí sheet</small></span>
+            <span class="nav-icon">▦</span><span><strong>Format Excel</strong><small>Font · cỡ chữ · vị trí sheet</small></span>
         </button>
         <button class="nav-item hidden" data-page="sql-studio" type="button">
           <span class="nav-icon sql-nav-icon">SQL</span><span><strong>SQL</strong><small>Format &amp; phân tích câu SQL</small></span>
@@ -54,6 +54,7 @@
       <div class="sidebar-footer">
         <span class="online-dot"></span>
         <span><small>Server local</small><small>Build: ThuongHT4</small></span>
+        <button class="sidebar-log-button" id="activity-toggle" type="button" title="Mở nhật ký tác vụ" aria-label="Mở nhật ký tác vụ" aria-controls="activity-panel" aria-expanded="false"><span class="activity-icon">LOG</span></button>
       </div>
     </aside>
 
@@ -320,57 +321,49 @@
           </form>
         </section>
 
-        <section class="page" id="page-excel-format" data-title="Format ảnh Excel" data-eyebrow="WORKSPACE / EXCEL IMAGE FORMAT">
+        <section class="page" id="page-excel-format" data-title="Format workbook Excel" data-eyebrow="WORKSPACE / EXCEL FORMAT">
           <div class="page-intro">
-            <div><span class="section-kicker">Excel workflow</span><h2>Căn ảnh và chuẩn hóa toàn bộ workbook</h2><p>Chạy logic căn ảnh UT, đồng thời thống nhất font/cỡ chữ và đưa mọi sheet về vị trí A1 để mở file luôn ở trạng thái dễ đọc.</p></div>
-            <div class="visual-chip excel-format-flow"><b>Ảnh cũ</b><span>⇄</span><b>Ảnh mới</b><i>→ Căn chuẩn</i></div>
+            <div><span class="section-kicker">Excel workflow</span><h2>Chuẩn hóa định dạng workbook</h2><p>Chọn riêng thao tác font, cỡ chữ và vị trí mở sheet. Ảnh sẵn có được giữ nguyên.</p></div>
           </div>
 
           <form class="card form-card excel-format-card" id="excel-format-form">
-            <div class="card-heading"><div><span class="step-number">01</span><h3>Folder workbook</h3></div><span class="soft-badge">XLSX · XLSM · XLSB · XLS</span></div>
-            <label class="field field-wide"><span>Đường dẫn chứa file Excel</span><span class="path-control"><input id="excel-format-root" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="excel-format-root" data-browse-kind="directory">Chọn folder</button></span><small>Hỗ trợ XLSX/XLSM/XLSB/XLS. Logic căn ảnh lấy ý tưởng từ <code>sample.vba</code> nhưng chạy trực tiếp bằng Excel COM, không yêu cầu workbook có macro.</small></label>
-            <label class="switch-row"><span><strong>Quét cả folder con</strong><small>Giữ nguyên cấu trúc folder con khi tạo bản sao.</small></span><input class="switch" type="checkbox" id="excel-format-recursive" checked></label>
-
-            <div class="divider"></div>
-            <div class="card-heading compact"><div><span class="step-number">02</span><h3>Định dạng workbook</h3></div><span class="soft-badge">Font · Size · View</span></div>
-            <div class="two-column excel-font-fields">
-              <label class="field"><span>Font chữ</span><input id="excel-format-font-name" value="Meiryo UI" required><small>Áp dụng cho toàn bộ vùng dữ liệu đã sử dụng trên mọi sheet.</small></label>
-              <label class="field"><span>Cỡ chữ</span><input id="excel-format-font-size" type="number" min="1" max="409" step="0.5" value="11" required><small>Chỉ các row khớp quy tắc bên dưới được giữ nguyên size cũ.</small></label>
+            <div class="excel-compact-heading"><div><h3>Định dạng workbook</h3><p>Chọn đúng thao tác cần áp dụng. Ảnh và nội dung hiện có được giữ nguyên.</p></div><span class="soft-badge">XLSX · XLSM · XLSB · XLS</span></div>
+            <div class="excel-source-row">
+              <label class="field"><span>Folder Excel</span><span class="path-control"><input id="excel-format-root" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="excel-format-root" data-browse-kind="directory">Chọn folder</button></span></label>
+              <label class="excel-inline-check"><input type="checkbox" id="excel-format-recursive" checked> Quét folder con</label>
             </div>
-            <label class="switch-row"><span><strong>Căn ảnh theo 6 vùng Evidence</strong><small>Phân loại ảnh bằng ô góc trên bên trái: hệ thống cũ A–R, hệ thống mới từ S; mỗi phía được xếp theo thứ tự paste trong Input/Steps/Output.</small></span><input class="switch" type="checkbox" id="excel-format-run-image" checked></label>
 
-            <div class="excel-preset-panel">
-              <label class="field"><span>Bộ quy tắc đã lưu</span><select id="excel-format-preset"><option value="">— Chọn preset —</option></select></label>
-              <label class="field"><span>Tên preset</span><input id="excel-format-preset-name" placeholder="Ví dụ: UT Report chuẩn"></label>
-              <div class="excel-preset-actions"><button class="secondary-button" id="save-excel-format-preset" type="button">Lưu preset</button><button class="danger-button subtle" id="delete-excel-format-preset" type="button" disabled>Xóa</button></div>
-            </div>
-            <label class="field field-wide excel-exclusion-field"><span>Không đổi cỡ chữ tại các row</span><textarea id="excel-format-exclusions" rows="5" spellcheck="false" placeholder="Header&#10;(Title, A1)&#10;Total"></textarea><small>Mỗi quy tắc một dòng. <code>Header</code>: giữ nguyên size của mọi row có cell bằng Header. <code>(Header, A1)</code>: chỉ giữ row của A1 khi A1 bằng Header.</small></label>
-            <div class="excel-view-note"><span>↖</span><p><strong>Trạng thái sau khi lưu</strong>Mỗi sheet chọn ô A1, scroll ngang/dọc về đầu; workbook được đặt tại sheet đầu tiên.</p></div>
-
-            <div class="divider"></div>
-            <div class="card-heading compact"><div><span class="step-number">03</span><h3>Chọn cách lưu</h3></div></div>
-            <fieldset class="import-mode-fieldset excel-output-fieldset">
-              <div class="excel-output-grid">
-                <label class="import-mode-card">
-                  <input type="radio" name="excel-output-mode" value="copy" checked>
-                  <span><b>Tạo bản sao an toàn</b><small>Copy vào folder <code>Formatted</code> bên trong đường dẫn đã chọn rồi mới format.</small></span>
-                </label>
-                <label class="import-mode-card danger-mode">
-                  <input type="radio" name="excel-output-mode" value="overwrite">
-                  <span><b>Ghi đè file gốc</b><small>Format và lưu trực tiếp vào workbook nguồn; không thể hoàn tác tự động.</small></span>
-                </label>
+            <div class="excel-compact-section"><h4>Định dạng chữ</h4>
+              <div class="excel-option-grid excel-font-options">
+                <div class="excel-option"><label for="excel-format-apply-font-name"><input type="checkbox" id="excel-format-apply-font-name" checked> Đổi font chữ</label><input id="excel-format-font-name" value="Meiryo UI" aria-label="Tên font chữ" required></div>
+                <div class="excel-option"><label for="excel-format-apply-font-size"><input type="checkbox" id="excel-format-apply-font-size" checked> Đổi cỡ chữ</label><input id="excel-format-font-size" type="number" min="1" max="409" step="0.5" value="11" aria-label="Cỡ chữ" required></div>
               </div>
-            </fieldset>
+              <details class="excel-advanced"><summary>Quy tắc ngoại lệ và preset</summary>
+                <label class="excel-inline-check"><input type="checkbox" id="excel-format-apply-exclusions" checked> Giữ cỡ chữ ở các row khớp quy tắc</label>
+                <textarea id="excel-format-exclusions" rows="2" spellcheck="false" aria-label="Quy tắc giữ cỡ chữ" placeholder="Header&#10;(Title, A1)"></textarea>
+                <small>Mỗi dòng một quy tắc: <code>Header</code> hoặc <code>(Title, A1)</code>.</small>
+                <div class="excel-preset-panel">
+                  <label class="field"><span>Preset đã lưu</span><select id="excel-format-preset"><option value="">— Chọn preset —</option></select></label>
+                  <label class="field"><span>Tên preset</span><input id="excel-format-preset-name" placeholder="Tên preset mới"></label>
+                  <div class="excel-preset-actions"><button class="secondary-button" id="save-excel-format-preset" type="button">Lưu</button><button class="danger-button subtle" id="delete-excel-format-preset" type="button" disabled>Xóa</button></div>
+                </div>
+              </details>
+            </div>
 
-            <div class="notice excel-requirement"><b>i</b><span><strong>Cần Microsoft Excel Desktop</strong>Excel chạy ẩn để giữ nguyên ảnh, VBA và button. Sheet đặc biệt chỉ bị bỏ qua ở bước căn ảnh; font và trạng thái xem vẫn được chuẩn hóa.</span></div>
-            <div class="form-actions"><span class="hint">Mặc định tạo bản sao an toàn trong <code>Formatted</code>.</span><button class="primary-button" type="submit">Format workbook <b>→</b></button></div>
+            <div class="excel-compact-section"><h4>Trạng thái khi mở file</h4>
+              <div class="excel-view-options">
+                <label class="excel-inline-check"><input type="checkbox" id="excel-format-select-a1" checked> Chọn ô A1 trên mỗi sheet</label>
+                <label class="excel-inline-check"><input type="checkbox" id="excel-format-reset-scroll" checked> Cuộn về đầu sheet</label>
+                <label class="excel-inline-check"><input type="checkbox" id="excel-format-first-sheet" checked> Mở tại sheet đầu tiên</label>
+              </div>
+            </div>
+
+            <div class="excel-compact-footer">
+              <fieldset class="excel-save-mode"><legend>Lưu kết quả</legend><div class="excel-save-options"><label><input type="radio" name="excel-output-mode" value="copy" checked> Bản sao trong <code>Formatted</code></label><label><input type="radio" name="excel-output-mode" value="overwrite"> Ghi đè file gốc</label></div></fieldset>
+              <button class="primary-button" type="submit">Format workbook</button>
+            </div>
+            <p class="excel-footnote">File có ảnh, VBA, button hoặc định dạng Excel cũ cần Microsoft Excel Desktop. Ghi đè file gốc luôn yêu cầu xác nhận.</p>
           </form>
-
-          <div class="format-logic-grid" aria-label="Quy trình format">
-            <article class="card format-logic-item"><span>1</span><div><strong>Nhận diện ảnh</strong><small>Tách ảnh cũ và mới tại mốc cột 19.</small></div></article>
-            <article class="card format-logic-item"><span>2</span><div><strong>Ghép theo hàng</strong><small>Sắp xếp theo vị trí và các vùng Input, Steps, Output.</small></div></article>
-            <article class="card format-logic-item"><span>3</span><div><strong>Căn &amp; lưu</strong><small>Resize, dồn hàng, kẻ viền rồi lưu workbook.</small></div></article>
-          </div>
         </section>
 
         <section class="page" id="page-sql-studio" data-title="SQL Studio" data-eyebrow="WORKSPACE / SQL STUDIO">
@@ -613,7 +606,6 @@
   </div>
 
   <aside class="activity-panel collapsed" id="activity-panel" aria-label="Nhật ký tác vụ">
-    <button class="activity-handle" id="activity-toggle" type="button" title="Mở nhật ký tác vụ"><span class="activity-icon">LOG</span><span><strong>Nhật ký tác vụ</strong><small id="activity-subtitle">Chưa có hoạt động</small></span><b>⌃</b></button>
     <div class="activity-body"><div class="activity-header"><div><span class="status-dot"></span><strong id="activity-title">Sẵn sàng</strong></div><div class="activity-actions"><button class="danger-button small hidden" id="cancel-job" type="button">Hủy tác vụ</button><button class="ghost-button small" id="clear-log" type="button" title="Xóa log">Clear log</button><button class="icon-button" id="close-activity" type="button" title="Đóng nhật ký" aria-label="Đóng nhật ký">×</button></div></div><pre id="activity-log">AutoCompare đã sẵn sàng.</pre></div>
   </aside>
 

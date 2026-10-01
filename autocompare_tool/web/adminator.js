@@ -9,7 +9,7 @@ function prepareAdminatorLayout() {
     "image-compare": ["images", "Compare Image"],
     "file-tools": ["folder-cog", "File / Folder"],
     "copy-ut": ["copy", "Sao chép UT"],
-    "excel-format": ["file-spreadsheet", "Format EVD / Excel"],
+    "excel-format": ["file-spreadsheet", "Format Excel"],
     database: ["database", "Database"],
   };
   for (const [key, [icon, label]] of Object.entries(navigation)) {
@@ -33,7 +33,6 @@ function prepareAdminatorLayout() {
   backdrop.setAttribute("aria-label", "Đóng menu");
   document.body.append(backdrop);
   prepareCompareWorkbench();
-  prepareExcelWorkbench();
   prepareCompactWorkspaces();
   for (const id of ["compare-preview-card", "fixme-expand-card"]) {
     const panel = document.getElementById(id);
@@ -125,30 +124,6 @@ function prepareCompactWorkspaces() {
     if (iconOnly) button.classList.add("icon-button");
     button.innerHTML = `<i data-lucide="${icon}" aria-hidden="true"></i>${iconOnly ? "" : `<span>${label}</span>`}`;
   }
-}
-
-function prepareExcelWorkbench() {
-  const form = document.getElementById("excel-format-form");
-  const nodes = [...form.children];
-  const grid = document.createElement("div");
-  grid.className = "excel-workbench";
-  let section;
-  let sectionIndex = 0;
-  for (const node of nodes) {
-    if (node.classList.contains("form-actions")) continue;
-    if (node.classList.contains("divider")) {
-      section = null;
-      node.remove();
-      continue;
-    }
-    if (!section) {
-      section = document.createElement("section");
-      section.className = `excel-section excel-section-${sectionIndex++}`;
-      grid.append(section);
-    }
-    section.append(node);
-  }
-  form.prepend(grid);
 }
 
 function prepareCompareWorkbench() {

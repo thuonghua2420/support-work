@@ -141,11 +141,9 @@ Các thao tác xóa, import, export và đồng bộ luôn yêu cầu xác nhậ
 
 Nhật ký tác vụ nằm ở bong bóng góc phải dưới. Log không tự xóa khi chạy tác vụ mới; mỗi tác vụ có thời gian bắt đầu/kết thúc, thời gian xử lý và dòng phân cách `-----------------------------------------`.
 
-## Format ảnh và workbook Excel
+## Format workbook Excel
 
-Chọn folder chứa workbook `.xlsx`, `.xlsm`, `.xlsb` hoặc `.xls`. Công cụ áp dụng font và cỡ chữ cho toàn bộ sheet, đưa mỗi sheet về ô `A1`, kéo thanh cuộn ngang/dọc về đầu và chọn sheet đầu tiên trước khi lưu. Khi bật căn ảnh, mỗi sheet được chia thành 6 vùng: hệ thống cũ ở cột A–R, hệ thống mới từ cột S trở đi; ba vùng hàng bắt đầu tại các marker `Input`, `Steps`, `Output` trong cột A. Ảnh thuộc vùng chứa ô góc trên bên trái ban đầu của ảnh, kể cả khi phần còn lại của ảnh tràn sang vùng khác.
-
-Trong từng vùng, ảnh được xếp từ trên xuống theo thứ tự paste/z-order, ảnh nằm dưới cùng trong chồng ảnh được xử lý trước. Hai hệ thống được xếp độc lập nên không yêu cầu số ảnh đã dán phải bằng nhau. Ảnh giữ tỷ lệ, nhận width theo range cấu hình và cách nhau mặc định 60 px. Ảnh đầu vùng cách header 2 row; chiều cao vùng lấy theo phía chứa chuỗi ảnh dài hơn. Công cụ chèn thêm row khi thiếu chỗ và xóa phần row cuối vùng khi chúng thực sự trống. Logic chạy trực tiếp qua Excel COM nên `.xlsx` cũng căn ảnh được, không cần workbook chứa macro.
+Chọn folder chứa workbook `.xlsx`, `.xlsm`, `.xlsb` hoặc `.xls`. Công cụ áp dụng font và cỡ chữ cho toàn bộ sheet, đưa mỗi sheet về ô `A1`, kéo thanh cuộn ngang/dọc về đầu và chọn sheet đầu tiên trước khi lưu. Ảnh và shape hiện có không bị di chuyển hoặc thay đổi kích thước.
 
 Ô **Giữ nguyên size cho các row** nhận nhiều quy tắc, mỗi quy tắc một dòng:
 
@@ -156,9 +154,7 @@ Font name vẫn được áp dụng cho các row này; phần loại trừ chỉ
 
 Mặc định workbook được copy theo đúng cấu trúc folder vào thư mục con `Formatted` rồi mới xử lý. Chỉ chọn **Ghi đè file gốc** khi đã có backup. Cả hai chế độ đều yêu cầu xác nhận vì kết quả cũ cùng tên có thể bị ghi đè.
 
-Các marker sheet/shape/vùng hàng, biên cột A–R/S, anchor, range width, khoảng cách ảnh, border/header được cấu hình trong `[excel_image_format]` của `autocompare_config.ini`. Các chuỗi Nhật bị mojibake từ `sample.vba` được giữ trong config để dễ chỉnh khi gặp workbook khác encoding.
-
-Tính năng này cần Microsoft Excel Desktop trên máy Windows. Dùng Excel COM thay vì `openpyxl` để không làm mất VBA, ảnh hoặc button có sẵn. Các preset cá nhân được lưu trong `excel_format_presets.json` và file này không được commit vào Git.
+Workbook `.xlsx` đơn giản được xử lý bằng `openpyxl`. Với file có ảnh, VBA, button hoặc định dạng Excel cũ, cần Microsoft Excel Desktop trên Windows để giữ nguyên các thành phần đó. Các preset cá nhân được lưu trong `excel_format_presets.json` và file này không được commit vào Git.
 
 ## SQL Studio
 
@@ -183,7 +179,7 @@ Trình duyệt web không cho phép website đọc đường dẫn tuyệt đố
 - `[excel_headers]`: header/text trong file compare Excel, gồm `FIXME`.
 - `[excel_compare_style]`: mã màu font/fill dùng khi tạo file compare Excel; `diff_font_color` dùng cho cell sai khác, `a1_font_color` dùng riêng cho ô A1.
 - `[compare_workflows]`: trạng thái mặc định của các luồng so sánh.
-- `[excel_image_format]`: marker và thông số layout cho chức năng căn ảnh Excel.
+- `[excel_image_format]`: cấu hình cũ được giữ để tương thích; trang Format Excel không dùng các tùy chọn căn ảnh.
 
 Giá trị ghi chú FIXME do người dùng tạo được lưu tại `fixme_notes.json`.
 

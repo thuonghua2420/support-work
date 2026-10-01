@@ -11,6 +11,7 @@ from autocompare_tool.excel_image_formatter import (
     _is_com_busy_error,
     _retry_com_call,
     format_excel_images,
+    format_excel_workbooks,
 )
 
 
@@ -715,6 +716,97 @@ class ExcelImageFormatterTests(unittest.TestCase):
         self.assertEqual(1, summary.workbook_format_sheet_count)
         self.assertEqual(1, summary.font_size_skipped_row_count)
 
+    def test_workbook_format_applies_only_selected_openpyxl_options(self) -> None:
+        try:
+            from openpyxl import Workbook, load_workbook
+        except ImportError:
+            self.skipTest("openpyxl is not installed")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "plain.xlsx"
+            workbook = Workbook()
+            first = workbook.active
+            first["A1"] = "Original"
+            first.sheet_view.topLeftCell = "D4"
+            first.sheet_view.selection[0].activeCell = "C3"
+            first.sheet_view.selection[0].sqref = "C3"
+            second = workbook.create_sheet("Second")
+            second["A1"] = "Other"
+            workbook.active = 1
+            original_name = first["A1"].font.name
+            original_size = first["A1"].font.sz
+            workbook.save(source)
+            workbook.close()
+
+            summary = format_excel_workbooks(
+                temp_dir,
+                font_name="Calibri",
+                font_size=18,
+                apply_font_name=False,
+                apply_font_size=False,
+                select_a1=True,
+                reset_scroll=False,
+                activate_first_sheet=False,
+            )
+
+            formatted = load_workbook(Path(temp_dir) / "Formatted" / "plain.xlsx")
+            try:
+                self.assertEqual("Second", formatted.active.title)
+                self.assertEqual(original_name, formatted.worksheets[0]["A1"].font.name)
+                self.assertEqual(original_size, formatted.worksheets[0]["A1"].font.sz)
+                self.assertEqual("D4", formatted.worksheets[0].sheet_view.topLeftCell)
+                self.assertEqual("A1", formatted.worksheets[0].sheet_view.selection[0].activeCell)
+            finally:
+                formatted.close()
+            self.assertEqual(1, summary.processed_count)
+
+    def test_workbook_format_rejects_no_selected_options(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(ValueError, "ít nhất một"):
+                format_excel_workbooks(
+                    temp_dir,
+                    apply_font_name=False,
+                    apply_font_size=False,
+                    select_a1=False,
+                    reset_scroll=False,
+                    activate_first_sheet=False,
+                )
+
+    def test_workbook_format_can_reset_scroll_and_first_sheet_without_selecting_a1(self) -> None:
+        try:
+            from openpyxl import Workbook, load_workbook
+        except ImportError:
+            self.skipTest("openpyxl is not installed")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workbook = Workbook()
+            first = workbook.active
+            first.sheet_view.topLeftCell = "D4"
+            first.sheet_view.selection[0].activeCell = "C3"
+            first.sheet_view.selection[0].sqref = "C3"
+            workbook.create_sheet("Second")
+            workbook.active = 1
+            source = Path(temp_dir) / "plain.xlsx"
+            workbook.save(source)
+            workbook.close()
+
+            format_excel_workbooks(
+                temp_dir,
+                apply_font_name=False,
+                apply_font_size=False,
+                select_a1=False,
+                reset_scroll=True,
+                activate_first_sheet=True,
+            )
+
+            formatted = load_workbook(Path(temp_dir) / "Formatted" / "plain.xlsx")
+            try:
+                self.assertEqual(first.title, formatted.active.title)
+                self.assertEqual("A1", formatted.active.sheet_view.topLeftCell)
+                self.assertEqual("C3", formatted.active.sheet_view.selection[0].activeCell)
+            finally:
+                formatted.close()
+
     def test_reports_missing_section_markers_when_sheet_contains_images(self) -> None:
         excel = _FakeExcel(lambda: [_FakeSheet("UT", 1)])
 
@@ -798,6 +890,55 @@ class ExcelImageFormatterTests(unittest.TestCase):
         self.assertEqual(1, summary.workbook_format_sheet_count)
         self.assertTrue(source_sheet.Range("A1").selected)
         self.assertGreaterEqual(source_sheet.activation_count, 2)
+
+    def test_workbook_format_keeps_images_in_place(self) -> None:
+        shape = _FakeShape("Picture 1", top_row=3, left_column=5)
+        sheet = _FakeSheet("UT", [shape], values={"A1": "Header"})
+        excel = _FakeExcel(lambda: [sheet])
+        original_position = shape.position
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "report.xlsm").write_bytes(b"xlsm")
+            with patch(
+                "autocompare_tool.excel_image_formatter._excel_application",
+                self._excel_context(excel),
+            ):
+                summary = format_excel_workbooks(temp_dir, font_name="Calibri", font_size=12)
+
+        self.assertEqual("Format workbook Excel", summary.action_name)
+        self.assertEqual(1, summary.workbook_format_sheet_count)
+        self.assertEqual(0, summary.shape_count)
+        self.assertEqual(original_position, shape.position)
+        self.assertEqual("Calibri", sheet.UsedRange.Font.Name)
+
+    def test_workbook_format_applies_only_selected_com_options(self) -> None:
+        sheet = _FakeSheet("UT", 0)
+        excel = _FakeExcel(lambda: [sheet])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            (Path(temp_dir) / "report.xlsm").write_bytes(b"xlsm")
+            with patch(
+                "autocompare_tool.excel_image_formatter._excel_application",
+                self._excel_context(excel),
+            ):
+                summary = format_excel_workbooks(
+                    temp_dir,
+                    font_name="Calibri",
+                    font_size=12,
+                    apply_font_name=True,
+                    apply_font_size=False,
+                    select_a1=False,
+                    reset_scroll=False,
+                    activate_first_sheet=False,
+                )
+
+        self.assertEqual(1, summary.processed_count)
+        self.assertEqual("Calibri", sheet.UsedRange.Font.Name)
+        self.assertEqual(9, sheet.UsedRange.Font.Size)
+        self.assertFalse(sheet.Range("A1").selected)
+        self.assertEqual(99, excel.ActiveWindow.ScrollRow)
+        self.assertEqual(99, excel.ActiveWindow.ScrollColumn)
+        self.assertEqual(0, sheet.activation_count)
 
     def test_included_row_segments_skip_only_selected_rows(self) -> None:
         self.assertEqual([(2, 3), (5, 6), (8, 8)], _included_row_segments(1, 8, {1, 4, 7}))

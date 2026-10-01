@@ -59,6 +59,12 @@ code { padding: 2px 6px; border-radius: 5px; background: #eef2f7; color: #34455c
 .sidebar-footer small, .sidebar-footer strong { display: block; }
 .sidebar-footer small { color: #7690af; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
 .sidebar-footer strong { margin-top: 2px; color: #c8d7e8; font-size: 12px; font-weight: 500; }
+.sidebar-footer > span:nth-child(2) { min-width: 0; }
+.sidebar-log-button { display: grid; flex: 0 0 42px; place-items: center; width: 42px; height: 42px; margin-left: auto; padding: 0; border: 1px solid var(--line); border-radius: 50%; color: var(--blue); background: var(--blue-soft); cursor: pointer; }
+.sidebar-log-button .activity-icon { display: grid; place-items: center; width: 100%; height: 100%; margin: 0; border-radius: 50%; color: inherit; background: transparent; font-size: 8px; font-weight: 850; }
+.sidebar-log-button.running { color: white; background: var(--blue); }
+.sidebar-log-button.success { color: #087f5b; background: #ddf8ed; }
+.sidebar-log-button.error { color: #b42318; background: #ffeded; }
 .online-dot { width: 8px; height: 8px; border-radius: 50%; background: #35d39a; box-shadow: 0 0 0 4px rgba(53,211,154,.12); }
 
 .workspace { min-width: 0; }
@@ -89,8 +95,6 @@ code { padding: 2px 6px; border-radius: 5px; background: #eef2f7; color: #34455c
 .visual-chip b { padding: 7px 10px; border-radius: 8px; color: var(--blue); background: var(--blue-soft); font-size: 12px; }
 .visual-chip i { color: var(--green); font-style: normal; font-weight: 700; font-size: 12px; }
 .folder-flow b:nth-of-type(2) { color: var(--violet); background: #f0ecff; }
-.excel-format-flow b:first-child { color: var(--amber); background: var(--amber-soft); }
-.excel-format-flow b:nth-of-type(2) { color: var(--green); background: var(--green-soft); }
 .excel-compare-flow b:first-child { color: var(--amber); background: var(--amber-soft); }
 .excel-compare-flow b:nth-of-type(2) { color: var(--green); background: var(--green-soft); }
 .pdf-compare-flow b:first-child { color: var(--red); background: var(--red-soft); }
@@ -399,19 +403,38 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .sync-condition-panel textarea { min-height: 86px; font: 11px/1.55 "Cascadia Code", Consolas, monospace; }
 .sync-condition-panel .two-column { margin-top: 12px; }
 .action-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 20px; }
-.excel-format-card { max-width: none; }
-.excel-output-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.excel-output-grid .import-mode-card { min-height: 82px; }
-.excel-font-fields { margin-bottom: 14px; }
-.excel-preset-panel { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto; align-items: end; gap: 10px; margin: 17px 0 14px; padding: 16px; border: 1px solid #dce6f0; border-radius: 12px; background: linear-gradient(145deg, #f9fbfe, #f3f7fc); }
-.excel-preset-actions { display: flex; gap: 7px; }
-.excel-preset-actions button { min-height: 40px; white-space: nowrap; }
-.excel-exclusion-field textarea { min-height: 116px; font: 11px/1.55 "Cascadia Code", Consolas, monospace; }
-.excel-view-note { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 12px 14px; border: 1px solid #d6e7df; border-radius: 10px; color: #3d6656; background: #f1faf6; }
-.excel-view-note > span { display: grid; place-items: center; flex: 0 0 auto; width: 30px; height: 30px; border-radius: 8px; color: var(--green); background: var(--green-soft); font-size: 16px; font-weight: 800; }
-.excel-view-note p { margin: 0; font-size: 10px; line-height: 1.5; }
-.excel-view-note strong { display: block; color: #315848; font-size: 11px; }
-.excel-requirement { margin-top: 21px; }
+#page-excel-format > .excel-format-card { max-width: 1100px; padding: 20px 24px; }
+.excel-compact-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.excel-compact-heading h3 { margin: 0 0 3px; font-size: 16px; }
+.excel-compact-heading p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.excel-compact-heading .soft-badge { flex: 0 0 auto; }
+.excel-source-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 18px; }
+.excel-inline-check { display: inline-flex; align-items: center; gap: 7px; min-width: 0; color: #344b66; font-size: 12px; line-height: 1.35; cursor: pointer; }
+.excel-inline-check input, .excel-option label input, .excel-save-mode input { flex: 0 0 auto; width: 15px; height: 15px; min-height: 15px; margin: 0; accent-color: var(--blue); }
+.excel-source-row > .excel-inline-check { min-height: 38px; white-space: nowrap; }
+.excel-compact-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.excel-compact-section h4 { margin: 0 0 11px; color: #334b67; font-size: 12px; }
+.excel-option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.excel-option { display: grid; grid-template-columns: auto minmax(100px, 1fr); align-items: center; gap: 10px; min-width: 0; }
+.excel-option label { display: inline-flex; align-items: center; gap: 7px; min-width: 0; white-space: nowrap; color: #344b66; font-size: 12px; cursor: pointer; }
+.excel-option > input { min-width: 0; }
+.excel-option > input:disabled, .excel-advanced textarea:disabled { color: #8795a8; background: #f3f6f9; }
+.excel-advanced { margin-top: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fbfcfe; }
+.excel-advanced > summary { color: #456383; font-size: 11px; font-weight: 650; cursor: pointer; }
+.excel-advanced[open] > summary { margin-bottom: 12px; }
+.excel-advanced textarea { display: block; width: 100%; min-height: 60px; margin-top: 8px; font: 11px/1.5 "Cascadia Code", Consolas, monospace; }
+.excel-advanced > small { display: block; margin-top: 5px; color: var(--muted); }
+.excel-preset-panel { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) auto; align-items: end; gap: 10px; margin-top: 12px; }
+.excel-preset-actions { display: flex; gap: 6px; }
+.excel-preset-actions button { min-height: 36px; white-space: nowrap; }
+.excel-view-options { display: flex; flex-wrap: wrap; gap: 9px 24px; }
+.excel-compact-footer { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-top: 17px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.excel-save-mode { min-width: 0; margin: 0; padding: 0; border: 0; }
+.excel-save-mode legend { margin-bottom: 3px; color: #334b67; font-size: 12px; font-weight: 650; }
+.excel-save-options { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.excel-save-options label { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; font-size: 12px; cursor: pointer; }
+.excel-compact-footer > button { flex: 0 0 auto; }
+.excel-footnote { margin: 10px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .format-logic-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--layout-gap); max-width: none; margin-top: var(--layout-gap); }
 .format-logic-item { display: flex; align-items: center; gap: 13px; padding: 16px 18px; }
 .format-logic-item > span { display: grid; place-items: center; flex: 0 0 auto; width: 32px; height: 32px; border-radius: 9px; color: var(--blue); background: var(--blue-soft); font-size: 11px; font-weight: 800; }
@@ -633,23 +656,8 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .sql-join-tooltip.visible { opacity: 1; transform: translateY(0); }
 
 .activity-panel { position: fixed; right: 22px; bottom: 22px; left: auto; z-index: 90; width: min(440px, calc(100vw - 44px)); height: clamp(320px, 58vh, 520px); max-height: calc(100vh - 44px); border: 1px solid #cbd8e5; border-radius: 18px; background: #13253c; box-shadow: 0 18px 48px rgba(13,31,51,.25); overflow: hidden; transition: width .18s ease, height .18s ease, border-radius .18s ease, box-shadow .18s ease; }
-.activity-panel.collapsed { width: 60px; height: 60px; min-height: 60px; border-radius: 999px; background: transparent; box-shadow: none; }
-.activity-handle { display: flex; align-items: center; width: 100%; min-height: 56px; padding: 9px 14px; border: 0; color: #dce8f5; text-align: left; background: linear-gradient(135deg, #183555, #10243a); cursor: pointer; }
-.activity-handle > span:nth-child(2) { flex: 1; }
-.activity-handle strong, .activity-handle small { display: block; }
-.activity-handle strong { font-size: 11px; }
-.activity-handle small { margin-top: 3px; color: #8fa6c1; font-size: 9px; }
-.activity-icon { display: grid; place-items: center; width: 31px; height: 31px; margin-right: 10px; border-radius: 8px; color: #84bbff; background: rgba(50,132,238,.15); font-size: 8px; font-weight: 850; letter-spacing: -.02em; }
-.activity-panel:not(.collapsed) .activity-handle > b { transform: rotate(180deg); }
-.activity-panel.collapsed .activity-handle { justify-content: center; height: 60px; min-height: 60px; padding: 0; border-radius: 999px; box-shadow: 0 14px 35px rgba(13,31,51,.28); }
-.activity-panel.collapsed .activity-handle > span:nth-child(2),
-.activity-panel.collapsed .activity-handle > b,
-.activity-panel.collapsed .activity-body { display: none; }
-.activity-panel.collapsed .activity-icon { width: 38px; height: 38px; margin: 0; border-radius: 50%; color: #dcecff; background: rgba(84,155,255,.18); }
-.activity-panel.running .activity-icon { color: white; background: rgba(50,132,238,.28); box-shadow: 0 0 0 4px rgba(20,104,230,.12); animation: pulse 1.3s infinite; }
-.activity-panel.success .activity-icon { color: #39d49b; background: rgba(53,211,154,.14); }
-.activity-panel.error .activity-icon { color: #ff8b8b; background: rgba(235,87,87,.15); }
-.activity-body { display: flex; flex-direction: column; height: calc(100% - 56px); min-height: 0; border-top: 1px solid rgba(255,255,255,.08); }
+.activity-panel.collapsed { display: none; }
+.activity-body { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .activity-header { display: flex; align-items: center; justify-content: space-between; height: 43px; padding: 0 13px; color: #bfd0e2; background: #0f2035; cursor: pointer; }
 .activity-header > div { display: flex; align-items: center; gap: 8px; }
 .activity-header strong { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
@@ -728,6 +736,14 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 }
 
 @media (max-width: 760px) {
+  #page-excel-format > .excel-format-card { padding: 16px; }
+  .excel-compact-heading { flex-wrap: wrap; }
+  .excel-source-row, .excel-option-grid, .excel-preset-panel { grid-template-columns: 1fr; }
+  .excel-source-row { gap: 6px; }
+  .excel-source-row > .excel-inline-check { min-height: 28px; }
+  .excel-option { grid-template-columns: minmax(130px, auto) minmax(0, 1fr); }
+  .excel-compact-footer { align-items: stretch; flex-direction: column; }
+  .excel-compact-footer > button { align-self: flex-start; }
   :root { --sidebar-width: 0px; }
   .mobile-only { display: grid !important; }
   .app-shell { display: block; }
@@ -795,8 +811,6 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
   .tabs { width: 100%; overflow-x: auto; }
   .tab { flex: 1 0 auto; }
   .activity-panel { right: 14px; bottom: 14px; width: min(420px, calc(100vw - 28px)); height: min(62vh, 520px); }
-  .activity-panel.collapsed { width: 58px; height: 58px; min-height: 58px; }
-  .activity-panel.collapsed .activity-handle { height: 58px; min-height: 58px; }
   .notes-layout { grid-template-columns: 1fr; }
   .note-list { max-height: 160px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--line-soft); }
   .path-toolbar { grid-template-columns: 80px 35px minmax(0, 1fr); }

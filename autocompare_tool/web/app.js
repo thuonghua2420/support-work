@@ -505,7 +505,11 @@ function bindActivityPanel() {
 
 function updateActivityToggleTitle() {
   const collapsed = $("#activity-panel")?.classList.contains("collapsed");
-  $("#activity-toggle")?.setAttribute("title", collapsed ? "Mở nhật ký tác vụ" : "Thu gọn nhật ký tác vụ");
+  const toggle = $("#activity-toggle");
+  const title = collapsed ? "Mở nhật ký tác vụ" : "Thu gọn nhật ký tác vụ";
+  toggle?.setAttribute("title", title);
+  toggle?.setAttribute("aria-label", title);
+  toggle?.setAttribute("aria-expanded", String(!collapsed));
 }
 
 function bindUiCache() {
@@ -588,6 +592,7 @@ function finalizeRestoredUiCache() {
   ensureDefaultMainDatabaseHost();
   syncImportButtonLabel();
   syncSyncModeControls();
+  syncExcelFormatOptions();
   state.fixmeFilters = {};
   $$("[data-fixme-filter]").forEach((control) => {
     const field = control.dataset.fixmeFilter;
@@ -911,28 +916,48 @@ function bindForms() {
     const fontName = valueOf("excel-format-font-name");
     const fontSize = valueOf("excel-format-font-size");
     const exclusions = valueOf("excel-format-exclusions");
-    const ruleCount = exclusions.split(/\r?\n/).filter((item) => item.trim()).length;
+    const options = {
+      apply_font_name: checked("excel-format-apply-font-name"),
+      apply_font_size: checked("excel-format-apply-font-size"),
+      apply_exclusions: checked("excel-format-apply-font-size") && checked("excel-format-apply-exclusions"),
+      select_a1: checked("excel-format-select-a1"),
+      reset_scroll: checked("excel-format-reset-scroll"),
+      activate_first_sheet: checked("excel-format-first-sheet"),
+    };
+    if (![options.apply_font_name, options.apply_font_size, options.select_a1, options.reset_scroll, options.activate_first_sheet].some(Boolean)) {
+      showToast("Hãy chọn ít nhất một thao tác format workbook.", "error");
+      return;
+    }
+    const ruleCount = options.apply_font_size && options.apply_exclusions
+      ? exclusions.split(/\r?\n/).filter((item) => item.trim()).length : 0;
     const title = overwriteOriginal ? "Ghi đè các workbook gốc?" : "Format các workbook?";
     const message = overwriteOriginal
       ? `CẢNH BÁO: Mọi workbook bên dưới “${root}” sẽ được format và lưu trực tiếp. Thao tác này không thể hoàn tác tự động.`
       : `Workbook sẽ được copy vào “${joinPath(root, "Formatted")}” rồi format. File kết quả cùng tên đã tồn tại có thể bị ghi đè.`;
-    const imageDetails = checked("excel-format-run-image")
-      ? "Có căn ảnh theo 6 vùng hệ thống cũ/mới và Input/Steps/Output."
-      : "Không căn ảnh, chỉ format font/view workbook.";
-    const formatDetails = `\n\nFont: ${fontName}, size ${fontSize}; ${ruleCount} quy tắc giữ nguyên cỡ chữ. ${imageDetails} Mọi sheet sẽ trở về A1 và scroll về đầu.`;
+    const selected = [];
+    if (options.apply_font_name) selected.push(`font ${fontName}`);
+    if (options.apply_font_size) selected.push(`cỡ chữ ${fontSize}${ruleCount ? ` (${ruleCount} quy tắc ngoại lệ)` : ""}`);
+    if (options.select_a1) selected.push("chọn A1");
+    if (options.reset_scroll) selected.push("cuộn về đầu sheet");
+    if (options.activate_first_sheet) selected.push("mở sheet đầu tiên");
+    const formatDetails = `\n\nThao tác: ${selected.join(", ")}. Ảnh hiện có được giữ nguyên.`;
     if (await confirmAction(title, message + formatDetails)) {
-      startAction("format_excel_images", {
+      startAction("format_excel_workbooks", {
         root,
         recursive: checked("excel-format-recursive"),
-        run_image_format: checked("excel-format-run-image"),
         font_name: fontName,
         font_size: fontSize,
-        font_size_exclusions: exclusions,
+        font_size_exclusions: ruleCount ? exclusions : "",
+        ...options,
         overwrite_original: overwriteOriginal,
         confirmed: true,
       });
     }
   });
+  ["excel-format-apply-font-name", "excel-format-apply-font-size", "excel-format-apply-exclusions"].forEach((id) => {
+    $(`#${id}`).addEventListener("change", syncExcelFormatOptions);
+  });
+  syncExcelFormatOptions();
   $("#excel-format-preset").addEventListener("change", applySelectedExcelFormatPreset);
   $("#save-excel-format-preset").addEventListener("click", saveExcelFormatPreset);
   $("#delete-excel-format-preset").addEventListener("click", deleteExcelFormatPreset);
@@ -2826,6 +2851,22 @@ function renderNotes() {
   $("#delete-note").disabled = !valueOf("note-old-value");
 }
 
+function syncExcelFormatOptions() {
+  const fontNameEnabled = checked("excel-format-apply-font-name");
+  const fontSizeEnabled = checked("excel-format-apply-font-size");
+  const fontName = $("#excel-format-font-name");
+  const fontSize = $("#excel-format-font-size");
+  const exclusionsEnabled = $("#excel-format-apply-exclusions");
+  const exclusions = $("#excel-format-exclusions");
+  if (!fontName || !fontSize || !exclusionsEnabled || !exclusions) return;
+  fontName.disabled = !fontNameEnabled;
+  fontName.required = fontNameEnabled;
+  fontSize.disabled = !fontSizeEnabled;
+  fontSize.required = fontSizeEnabled;
+  exclusionsEnabled.disabled = !fontSizeEnabled;
+  exclusions.disabled = !fontSizeEnabled || !exclusionsEnabled.checked;
+}
+
 function renderExcelFormatPresets(selectedName = "") {
   const select = $("#excel-format-preset");
   select.innerHTML = `<option value="">— Chọn preset —</option>` + state.excelFormatPresets.map((preset) =>
@@ -2846,6 +2887,10 @@ function applySelectedExcelFormatPreset() {
   $("#excel-format-font-name").value = preset.font_name;
   $("#excel-format-font-size").value = String(preset.font_size);
   $("#excel-format-exclusions").value = Array.isArray(preset.exclusions) ? preset.exclusions.join("\n") : "";
+  $("#excel-format-apply-font-name").checked = true;
+  $("#excel-format-apply-font-size").checked = true;
+  $("#excel-format-apply-exclusions").checked = true;
+  syncExcelFormatOptions();
   saveUiCacheDebounced();
 }
 
@@ -3107,7 +3152,6 @@ async function startAction(action, payload) {
     state.job = response.job;
     state.jobCursor = 0;
     setJobVisual("running", state.job.label);
-    $("#activity-subtitle").textContent = state.job.label;
     appendJobStartLog(state.job);
     setBusy(true);
     schedulePoll(100);
@@ -4319,7 +4363,7 @@ function summaryMessage(job) {
       ? `Đã quét toàn bộ sheet trong ${workbookCount} file; vẫn còn ${count} cell FIXME.`
       : `Đã quét toàn bộ sheet trong ${workbookCount} file; không còn cell FIXME.`;
   }
-  if (job.action === "format_excel_images") return `Đã format ${result.processed_count || 0}/${result.file_count || 0} workbook, chuẩn hóa ${result.workbook_format_sheet_count || 0} sheet, giữ size cũ tại ${result.font_size_skipped_row_count || 0} row; lỗi ${result.error_count || 0}.`;
+  if (job.action === "format_excel_workbooks") return `Đã format ${result.processed_count || 0}/${result.file_count || 0} workbook, chuẩn hóa ${result.workbook_format_sheet_count || 0} sheet, giữ size cũ tại ${result.font_size_skipped_row_count || 0} row; lỗi ${result.error_count || 0}.`;
   if (job.action === "sql_format") return `Đã format ${result.statement_count || 0} câu lệnh SQL.`;
   if (job.action === "sql_load_excel") return `Đã đọc ${result.entry_count || 0} SQL từ Excel và format ${result.statement_count || 0} statement.`;
   if (job.action === "sql_analyze") return `Đã phân tích ${result.statement_count || 0} statement: ${result.tables?.length || 0} table/reference, ${result.conditions?.length || 0} điều kiện, ${result.subqueries?.length || 0} subquery.`;
@@ -4352,7 +4396,8 @@ function setJobVisual(kind, text) {
   if (kind !== "idle") panel.classList.add(kind);
   $("#job-status-text").textContent = text;
   $("#activity-title").textContent = text;
-  $("#activity-subtitle").textContent = kind === "idle" ? "Chưa có hoạt động" : text;
+  $("#activity-toggle").classList.remove("running", "success", "error");
+  if (kind !== "idle") $("#activity-toggle").classList.add(kind);
 }
 
 function setBusy(busy) {

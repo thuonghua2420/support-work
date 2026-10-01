@@ -27,6 +27,14 @@ const path = require('node:path');
       for (const key of ['compare', 'folder-compare', 'excel-compare', 'pdf-compare', 'image-compare', 'file-tools', 'copy-ut', 'excel-format', 'database']) {
         if (width <= 900) await page.locator('#menu-toggle').click();
         await page.locator(`.nav-item[data-page="${key}"]`).click();
+        if (key === 'excel-format') {
+          assert.equal(await page.locator('#excel-format-run-image').count(), 0);
+          assert.equal(await page.locator('#page-excel-format').getAttribute('data-title'), 'Format workbook Excel');
+          for (const option of ['apply-font-name', 'apply-font-size', 'apply-exclusions', 'select-a1', 'reset-scroll', 'first-sheet']) {
+            assert.equal(await page.locator(`#excel-format-${option}`).count(), 1);
+          }
+          assert.ok(await page.locator('.excel-advanced').count() === 1);
+        }
         assert.ok(!(await page.locator(`#page-${key} > .page-intro h2`).isVisible()), `${key} duplicate page heading is visible`);
         await page.screenshot({ path: path.join(output, `${width}-${key}.png`), fullPage: true });
         const size = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth,
@@ -93,11 +101,10 @@ const path = require('node:path');
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.locator('.nav-item[data-page="compare"]').click();
     const collapsedLog = await page.evaluate(() => {
-      const panel = document.querySelector('#activity-panel').getBoundingClientRect();
       const icon = document.querySelector('#activity-toggle .activity-icon');
       const iconRect = icon.getBoundingClientRect();
       return {
-        panel: { left: panel.left },
+        buttonInSidebar: document.querySelector('#sidebar').contains(document.querySelector('#activity-toggle')),
         iconWidth: iconRect.width,
         iconHeight: iconRect.height,
         radius: getComputedStyle(icon).borderRadius,
@@ -105,6 +112,7 @@ const path = require('node:path');
     });
     assert.ok(collapsedLog.iconWidth >= 40 && collapsedLog.iconHeight >= 40);
     assert.equal(collapsedLog.radius, '50%');
+    assert.ok(collapsedLog.buttonInSidebar);
     await page.locator('#activity-toggle').click();
     await page.waitForTimeout(250);
     const expandedLog = await page.evaluate(() => {
@@ -123,7 +131,7 @@ const path = require('node:path');
     assert.equal(Math.round(expandedLog.panel.bottom), expandedLog.viewportHeight);
     assert.ok(expandedLog.panel.height >= 300);
     assert.ok(expandedLog.button.right < expandedLog.panel.left);
-    assert.equal(Math.round(expandedLog.button.left), Math.round(collapsedLog.panel.left));
+    assert.equal(await page.locator('#activity-toggle').getAttribute('aria-expanded'), 'true');
     await page.locator('#clear-log').click();
     assert.equal(await page.locator('#activity-log').textContent(), '');
     await page.locator('#close-activity').click();
@@ -174,6 +182,7 @@ const path = require('node:path');
     });
     assert.ok(fullscreen.top <= 1 && fullscreen.left <= 1);
     assert.ok(fullscreen.width >= fullscreen.viewportWidth - 2 && fullscreen.height >= fullscreen.viewportHeight - 2);
+    assert.ok(!(await page.locator('#activity-toggle').isVisible()));
     await page.screenshot({ path: path.join(output, '1440-workbook-fullscreen.png') });
     await page.keyboard.press('Escape');
     if (await page.locator('#activity-panel:not(.collapsed)').count()) await page.locator('#activity-toggle').click();

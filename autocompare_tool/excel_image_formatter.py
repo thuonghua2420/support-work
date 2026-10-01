@@ -114,6 +114,11 @@ def format_excel_images(
     font_name: str = "Meiryo UI",
     font_size: object = 11,
     font_size_exclusions: str | list[object] | None = None,
+    apply_font_name: bool = True,
+    apply_font_size: bool = True,
+    select_a1: bool = True,
+    reset_scroll: bool = True,
+    activate_first_sheet: bool = True,
     image_config: ExcelImageFormatConfig | None = None,
     log: Logger | None = None,
 ) -> ExcelImageFormatSummary:
@@ -126,17 +131,19 @@ def format_excel_images(
 
     logger = log or (lambda _message: None)
     normalized_font_name = str(font_name).strip()
-    if not normalized_font_name:
+    if apply_font_name and not normalized_font_name:
         raise ValueError("Vui lòng nhập tên font chữ.")
-    normalized_font_size = normalize_font_size(font_size)
-    exclusion_rules = parse_exclusion_rules(font_size_exclusions)
+    normalized_font_size = normalize_font_size(font_size) if apply_font_size else 11.0
+    exclusion_rules = parse_exclusion_rules(font_size_exclusions) if apply_font_size else []
+    if not run_image_format and not any((apply_font_name, apply_font_size, select_a1, reset_scroll, activate_first_sheet)):
+        raise ValueError("Vui lòng chọn ít nhất một tùy chọn format workbook.")
     root = Path(root_path).expanduser().resolve()
     if not root.exists():
         raise FileNotFoundError(f"Folder không tồn tại: {root}")
     if not root.is_dir():
         raise NotADirectoryError(f"Đường dẫn phải là folder: {root}")
 
-    active_image_config = image_config or load_app_config().excel_image_format
+    active_image_config = (image_config or load_app_config().excel_image_format) if run_image_format else None
 
     output_root = None if overwrite_original else root / OUTPUT_FOLDER_NAME
     workbooks = _discover_workbooks(root, recursive=recursive, output_root=output_root)
@@ -152,10 +159,19 @@ def format_excel_images(
     )
     mode = "ghi đè file gốc" if overwrite_original else f"xuất bản sao vào {output_root}"
     logger(f"Tìm thấy {len(workbooks)} workbook; chế độ {mode}.")
-    logger(
-        f"Định dạng workbook: font {normalized_font_name}, size {normalized_font_size:g}, "
-        f"{len(exclusion_rules)} quy tắc loại trừ cỡ chữ."
-    )
+    selected = []
+    if apply_font_name:
+        selected.append(f"font {normalized_font_name}")
+    if apply_font_size:
+        selected.append(f"size {normalized_font_size:g} ({len(exclusion_rules)} quy tắc ngoại lệ)")
+    if select_a1:
+        selected.append("chọn A1")
+    if reset_scroll:
+        selected.append("cuộn về đầu")
+    if activate_first_sheet:
+        selected.append("mở sheet đầu tiên")
+    if selected:
+        logger("Định dạng workbook: " + ", ".join(selected) + ".")
 
     excel_context = None
     excel = None
@@ -179,6 +195,11 @@ def format_excel_images(
                         font_name=normalized_font_name,
                         font_size=normalized_font_size,
                         exclusion_rules=exclusion_rules,
+                        apply_font_name=apply_font_name,
+                        apply_font_size=apply_font_size,
+                        select_a1=select_a1,
+                        reset_scroll=reset_scroll,
+                        activate_first_sheet=activate_first_sheet,
                     )
                     logger(f"Su dung openpyxl cho workbook OOXML khong co anh/shape: {destination.name}")
                 else:
@@ -203,6 +224,11 @@ def format_excel_images(
                         font_name=normalized_font_name,
                         font_size=normalized_font_size,
                         exclusion_rules=exclusion_rules,
+                        apply_font_name=apply_font_name,
+                        apply_font_size=apply_font_size,
+                        select_a1=select_a1,
+                        reset_scroll=reset_scroll,
+                        activate_first_sheet=activate_first_sheet,
                         image_config=active_image_config,
                         logger=logger,
                     )
@@ -216,11 +242,18 @@ def format_excel_images(
                 summary.skipped_sheet_count += counts.skipped_image_sheet_count
                 summary.workbook_format_sheet_count += counts.workbook_format_sheet_count
                 summary.font_size_skipped_row_count += counts.font_size_skipped_row_count
-                logger(
-                    f"Hoàn tất {destination.name}: căn ảnh {counts.image_sheet_count} sheet, "
-                    f"format font/view {counts.workbook_format_sheet_count} sheet, "
-                    f"bỏ qua size tại {counts.font_size_skipped_row_count} row."
-                )
+                if run_image_format:
+                    logger(
+                        f"Hoàn tất {destination.name}: căn ảnh {counts.image_sheet_count} sheet, "
+                        f"format font/view {counts.workbook_format_sheet_count} sheet, "
+                        f"bỏ qua size tại {counts.font_size_skipped_row_count} row."
+                    )
+                else:
+                    logger(
+                        f"Hoàn tất {destination.name}: format font/view "
+                        f"{counts.workbook_format_sheet_count} sheet, "
+                        f"bỏ qua size tại {counts.font_size_skipped_row_count} row."
+                    )
             except Exception as exc:  # COM errors vary by installed Excel version.
                 if workbook is not None:
                     try:
@@ -238,6 +271,42 @@ def format_excel_images(
     )
     if excel_context is not None:
         excel_context.__exit__(None, None, None)
+    return summary
+
+
+def format_excel_workbooks(
+    root_path: str | Path,
+    *,
+    overwrite_original: bool = False,
+    recursive: bool = True,
+    font_name: str = "Meiryo UI",
+    font_size: object = 11,
+    font_size_exclusions: str | list[object] | None = None,
+    apply_font_name: bool = True,
+    apply_font_size: bool = True,
+    select_a1: bool = True,
+    reset_scroll: bool = True,
+    activate_first_sheet: bool = True,
+    log: Logger | None = None,
+) -> ExcelImageFormatSummary:
+    """Format workbook fonts and opening views without moving or resizing images."""
+    summary = format_excel_images(
+        root_path,
+        overwrite_original=overwrite_original,
+        recursive=recursive,
+        draw_format=False,
+        run_image_format=False,
+        font_name=font_name,
+        font_size=font_size,
+        font_size_exclusions=font_size_exclusions,
+        apply_font_name=apply_font_name,
+        apply_font_size=apply_font_size,
+        select_a1=select_a1,
+        reset_scroll=reset_scroll,
+        activate_first_sheet=activate_first_sheet,
+        log=log,
+    )
+    summary.action_name = "Format workbook Excel"
     return summary
 
 
@@ -284,6 +353,11 @@ def _format_basic_ooxml_workbook(
     font_name: str,
     font_size: float,
     exclusion_rules: list[FontSizeExclusionRule],
+    apply_font_name: bool,
+    apply_font_size: bool,
+    select_a1: bool,
+    reset_scroll: bool,
+    activate_first_sheet: bool,
 ) -> _WorkbookFormatCounts:
     try:
         from openpyxl import load_workbook
@@ -295,16 +369,20 @@ def _format_basic_ooxml_workbook(
     sheet_count = len(workbook.worksheets)
     try:
         for worksheet in workbook.worksheets:
-            excluded_rows = _openpyxl_excluded_rows(worksheet, exclusion_rules)
+            excluded_rows = _openpyxl_excluded_rows(worksheet, exclusion_rules) if apply_font_size else set()
             skipped_size_rows += len(excluded_rows)
-            _apply_openpyxl_sheet_format(
-                worksheet,
-                font_name=font_name,
-                font_size=font_size,
-                excluded_rows=excluded_rows,
-            )
-            _reset_openpyxl_sheet_view(worksheet)
-        if workbook.worksheets:
+            if apply_font_name or apply_font_size:
+                _apply_openpyxl_sheet_format(
+                    worksheet,
+                    font_name=font_name,
+                    font_size=font_size,
+                    excluded_rows=excluded_rows,
+                    apply_font_name=apply_font_name,
+                    apply_font_size=apply_font_size,
+                )
+            if select_a1 or reset_scroll:
+                _reset_openpyxl_sheet_view(worksheet, select_a1=select_a1, reset_scroll=reset_scroll)
+        if workbook.worksheets and activate_first_sheet:
             workbook.active = 0
         workbook.save(path)
     finally:
@@ -338,19 +416,23 @@ def _apply_openpyxl_sheet_format(
     font_name: str,
     font_size: float,
     excluded_rows: set[int],
+    apply_font_name: bool,
+    apply_font_size: bool,
 ) -> None:
     for row in worksheet.iter_rows():
         for cell in row:
             font = copy(cell.font)
-            font.name = font_name
-            if int(cell.row) not in excluded_rows:
+            if apply_font_name:
+                font.name = font_name
+            if apply_font_size and int(cell.row) not in excluded_rows:
                 font.sz = font_size
             cell.font = font
 
 
-def _reset_openpyxl_sheet_view(worksheet: Any) -> None:
-    worksheet.sheet_view.topLeftCell = "A1"
-    if worksheet.sheet_view.selection:
+def _reset_openpyxl_sheet_view(worksheet: Any, *, select_a1: bool, reset_scroll: bool) -> None:
+    if reset_scroll:
+        worksheet.sheet_view.topLeftCell = "A1"
+    if select_a1 and worksheet.sheet_view.selection:
         selection = worksheet.sheet_view.selection[0]
         selection.activeCell = "A1"
         selection.sqref = "A1"
@@ -365,7 +447,12 @@ def _format_workbook(
     font_name: str,
     font_size: float,
     exclusion_rules: list[FontSizeExclusionRule],
-    image_config: ExcelImageFormatConfig,
+    apply_font_name: bool,
+    apply_font_size: bool,
+    select_a1: bool,
+    reset_scroll: bool,
+    activate_first_sheet: bool,
+    image_config: ExcelImageFormatConfig | None,
     logger: Logger,
 ) -> _WorkbookFormatCounts:
     processed_sheets = 0
@@ -374,11 +461,14 @@ def _format_workbook(
     workbook_format_sheets = 0
     skipped_size_rows = 0
     sheet_total = int(_retry_com_call(lambda: workbook.Worksheets.Count))
+    original_active_sheet = getattr(workbook, "ActiveSheet", None) if not activate_first_sheet else None
     for sheet_index in range(1, sheet_total + 1):
         sheet = _retry_com_call(lambda: workbook.Worksheets.Item(sheet_index))
         sheet_name = str(_retry_com_call(lambda: sheet.Name))
-        _retry_com_call(sheet.Activate)
+        if run_image_format or select_a1 or reset_scroll:
+            _retry_com_call(sheet.Activate)
         if run_image_format:
+            assert image_config is not None
             if _is_excluded_image_sheet(sheet_name, image_config):
                 skipped_sheets += 1
                 logger(f"Bỏ qua căn ảnh trên sheet đặc biệt: {sheet_name}")
@@ -395,21 +485,28 @@ def _format_workbook(
                 shape_count += sheet_shape_count
                 processed_sheets += 1
 
-        skipped_size_rows += _retry_com_call(
-            lambda: _apply_sheet_format(
-                sheet,
-                font_name=font_name,
-                font_size=font_size,
-                exclusion_rules=exclusion_rules,
+        if apply_font_name or apply_font_size:
+            skipped_size_rows += _retry_com_call(
+                lambda: _apply_sheet_format(
+                    sheet,
+                    font_name=font_name,
+                    font_size=font_size,
+                    exclusion_rules=exclusion_rules,
+                    apply_font_name=apply_font_name,
+                    apply_font_size=apply_font_size,
+                )
             )
-        )
         workbook_format_sheets += 1
-        _retry_com_call(lambda: _reset_sheet_view(excel, sheet))
+        if select_a1 or reset_scroll:
+            _retry_com_call(lambda: _reset_sheet_view(excel, sheet, select_a1=select_a1, reset_scroll=reset_scroll))
 
-    if sheet_total > 0:
+    if sheet_total > 0 and activate_first_sheet:
         first_sheet = _retry_com_call(lambda: workbook.Worksheets.Item(1))
         _retry_com_call(first_sheet.Activate)
-        _retry_com_call(lambda: _reset_sheet_view(excel, first_sheet))
+        if select_a1 or reset_scroll:
+            _retry_com_call(lambda: _reset_sheet_view(excel, first_sheet, select_a1=select_a1, reset_scroll=reset_scroll))
+    elif original_active_sheet is not None and (select_a1 or reset_scroll):
+        _retry_com_call(original_active_sheet.Activate)
 
     return _WorkbookFormatCounts(
         image_sheet_count=processed_sheets,
@@ -946,9 +1043,14 @@ def _apply_sheet_format(
     font_name: str,
     font_size: float,
     exclusion_rules: list[FontSizeExclusionRule],
+    apply_font_name: bool = True,
+    apply_font_size: bool = True,
 ) -> int:
     used_range = sheet.UsedRange
-    used_range.Font.Name = font_name
+    if apply_font_name:
+        used_range.Font.Name = font_name
+    if not apply_font_size:
+        return 0
     excluded_rows = _excluded_rows(sheet, used_range, exclusion_rules)
     first_row = int(used_range.Row)
     last_row = first_row + int(used_range.Rows.Count) - 1
@@ -1032,10 +1134,11 @@ def _included_row_segments(
     return segments
 
 
-def _reset_sheet_view(excel: Any, sheet: Any) -> None:
+def _reset_sheet_view(excel: Any, sheet: Any, *, select_a1: bool = True, reset_scroll: bool = True) -> None:
     sheet.Activate()
-    sheet.Range("A1").Select()
-    if excel.ActiveWindow is not None:
+    if select_a1:
+        sheet.Range("A1").Select()
+    if reset_scroll and excel.ActiveWindow is not None:
         excel.ActiveWindow.ScrollRow = 1
         excel.ActiveWindow.ScrollColumn = 1
 

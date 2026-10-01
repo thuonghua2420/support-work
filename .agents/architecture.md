@@ -47,7 +47,7 @@ Rules:
 - Accept mutation API bodies only as `application/json`.
 - Keep business rules in the existing non-UI workflow modules.
 - Require an explicit `confirmed: true` payload for delete, DB import/export, and DB synchronization actions.
-- Require explicit confirmation for Excel image formatting because copied results can be overwritten and overwrite mode mutates source workbooks.
+- Require explicit confirmation for Excel workbook formatting because copied results can be overwritten and overwrite mode mutates source workbooks.
 
 ### `autocompare_tool/web/`
 
@@ -202,17 +202,17 @@ Owns:
 - Safe-copy output under `Formatted` or explicit in-place overwrite mode.
 - One hidden Microsoft Excel COM session per batch.
 - Simple `.xlsx` workbooks without OOXML drawing/media/control parts are formatted with `openpyxl` before Excel COM is started.
-- Native image layout based on the bundled VBA sample: classify pictures into six regions from their original `TopLeftCell` (old/new system × Input/Steps/Output), preserve paste order via z-order, resize to configured widths, stack each column region independently with a configured pixel gap, and grow or shrink empty row space at section boundaries.
+- `format_excel_workbooks` is the web-facing entry point and always disables the retired Evidence image layout. The older image routines remain internal for compatibility with existing callers.
 - Workbook-wide font/font-size formatting, row exclusions, A1 selection, scroll reset, and first-sheet activation.
 
 Rules:
 
-- Use Excel Desktop automation rather than `openpyxl` so images, VBA projects, and form buttons remain intact.
-- Skip temporary `~$` workbooks, the output tree, and history/sample sheets excluded by configured markers.
-- Apply general font/view formatting to every worksheet; special-sheet exclusions affect only the image layout step.
+- Use Excel Desktop automation for workbooks with images, VBA projects, form buttons, or legacy formats so those elements remain intact.
+- Skip temporary `~$` workbooks and the output tree.
+- Apply general font/view formatting to every worksheet.
 - Treat a plain exclusion as an exact, case-insensitive value anywhere in a row; treat `(Text, A1)` as a value check at one explicit cell.
 - Retry transient Excel COM busy errors, including `Call was rejected by callee`, before marking a workbook as failed.
-- Keep row markers, old/new column boundaries, image anchors/sizes/gaps, borders, and optional header/background settings in `[excel_image_format]` of `autocompare_config.ini`.
+- Keep the legacy `[excel_image_format]` configuration readable for compatibility, but do not use it in the web workbook-format action.
 
 ### `autocompare_tool/excel_format_presets.py`
 

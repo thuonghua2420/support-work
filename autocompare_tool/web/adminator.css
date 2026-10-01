@@ -116,15 +116,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
 .db-connection-hub { gap: 10px; }
 .db-connection-hub, .db-connection-hub.sync-mode { border: 0; padding: 0; border-radius: 0; box-shadow: none; background: none; }
 .database-layout > .card { border-radius: 0; border-inline: 0; }
-.excel-workbench { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 24px; }
-.excel-section { min-width: 0; }
-.excel-section-0 { grid-column: 1 / -1; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
-.excel-section-2 { padding-left: 24px; border-left: 1px solid var(--line); }
-.excel-section > .field + .switch-row, .excel-section > .two-column + .switch-row { margin-top: 16px; }
-.excel-section .excel-preset-panel { padding: 16px 0; border: 0; border-block: 1px solid var(--line); border-radius: 0; background: none; grid-template-columns: 1fr 1fr; }
-.excel-section .excel-preset-actions { grid-column: 1 / -1; }
-.excel-section .excel-output-grid { grid-template-columns: 1fr; }
-.excel-section .notice { margin-top: 20px; }
 [data-tab-panel="database:sql-workspace"] > .page-intro { display: none; }
 .sql-action-group { border: 0; padding: 0; border-radius: 0; background: none; }
 .sql-editor-wrap { background: #fff; color: var(--ink); }
@@ -167,12 +158,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
 .empty-state { padding: 36px 20px; }
 .empty-state > span { width: 38px; height: 38px; border-radius: 6px; box-shadow: none; }
 .activity-panel { border-radius: 6px; border-color: var(--line); box-shadow: 0 8px 30px #1e293b18; }
-.activity-panel.collapsed { left: calc(var(--sidebar-width) - 58px); right: auto; width: 42px; height: 42px; min-height: 42px; bottom: 18px; border-radius: 50%; background: var(--blue-soft); }
-.activity-panel.collapsed .activity-handle { min-height: 42px; height: 42px; }
-.activity-handle { background: #fff; color: var(--ink); }
-.activity-icon { background: var(--blue-soft); color: var(--blue); border-radius: 4px; }
-.activity-panel.collapsed .activity-icon { width: 100%; height: 100%; color: var(--blue); background: var(--blue-soft); border-radius: 50%; }
-.activity-panel.collapsed .activity-handle { border-radius: 50%; background: var(--blue-soft); box-shadow: none; }
 .compare-preview-tabs, .excel-preset-panel, .sync-progress-panel, .db-connection-hub.sync-mode { background: #f8fafc; }
 .danger-zone { background: #fff; border-left: 3px solid var(--red); }
 .modal-shell { border-radius: 6px; }
@@ -184,9 +169,11 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
 body.nav-collapsed { --sidebar-width: 72px; }
 .nav-collapsed .sidebar { padding-inline: 10px; }
 .nav-collapsed .brand { padding-inline: 8px; }
-.nav-collapsed .brand > span:last-child, .nav-collapsed .nav-item > span:last-child, .nav-collapsed .nav-label, .nav-collapsed .sidebar-footer > span:last-child { display: none; }
+.nav-collapsed .brand > span:last-child, .nav-collapsed .nav-item > span:last-child, .nav-collapsed .nav-label, .nav-collapsed .sidebar-footer > span:nth-child(2) { display: none; }
 .nav-collapsed .nav-item { grid-template-columns: 20px; justify-content: center; padding: 12px; }
-.nav-collapsed .sidebar-footer { justify-content: center; }
+.nav-collapsed .sidebar-footer { justify-content: center; padding-inline: 0; }
+.nav-collapsed .sidebar-footer .online-dot { display: none; }
+.nav-collapsed .sidebar-log-button { margin-left: 0; }
 .panel-expanded { position: fixed !important; inset: 0; z-index: 60; width: 100vw; height: 100dvh; margin: 0 !important; overflow: hidden; background: white; padding: 10px 12px; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
 .compare-preview-card.panel-expanded { display: flex; flex-direction: column; }
 .compare-preview-card.panel-expanded > .card-heading { flex: 0 0 auto; margin-bottom: 8px; }
@@ -200,15 +187,13 @@ body.nav-collapsed { --sidebar-width: 72px; }
 .compare-scroll-button { border-radius: 4px; box-shadow: none; }
 .fixme-card.panel-expanded { overflow: auto; }
 body:has(.panel-expanded) { overflow: hidden; }
+body:has(.panel-expanded) .sidebar-log-button,
+body:has(.panel-expanded) .activity-panel { display: none; }
 @media (min-width: 901px) {
   .app-shell { display: block; min-height: 100dvh; }
   .sidebar { position: fixed; inset: 0 auto 0 0; width: var(--sidebar-width); height: 100dvh; }
   .workspace { margin-left: var(--sidebar-width); transition: margin-left .2s ease; }
   .activity-panel:not(.collapsed) { left: var(--sidebar-width); right: 0; bottom: 0; width: auto; height: clamp(280px, 34vh, 420px); max-height: 100dvh; overflow: visible; }
-  .activity-panel:not(.collapsed) .activity-handle { position: fixed; left: calc(var(--sidebar-width) - 58px); bottom: 18px; z-index: 91; justify-content: center; width: 42px; height: 42px; min-height: 42px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--blue-soft); box-shadow: none; overflow: hidden; }
-  .activity-panel:not(.collapsed) .activity-handle > span:nth-child(2),
-  .activity-panel:not(.collapsed) .activity-handle > b { display: none; }
-  .activity-panel:not(.collapsed) .activity-icon { width: 100%; height: 100%; margin: 0; border-radius: 50%; }
   .activity-panel:not(.collapsed) .activity-body { height: 100%; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 30px #1e293b18; overflow: hidden; }
 }
 @media (max-width: 1200px) {
@@ -220,12 +205,11 @@ body:has(.panel-expanded) { overflow: hidden; }
   .db-connection-hub { margin: 0; width: auto; }
 }
 @media (max-width: 900px) {
-  .excel-workbench { grid-template-columns: 1fr; }
-  .excel-section-2 { padding: 20px 0 0; border-left: 0; border-top: 1px solid var(--line); }
   .sql-db-action-group { margin-left: 0; width: 100%; }
   .sql-action-group > button { white-space: normal; }
   .app-shell { display: block; }
   .sidebar { position: fixed; left: 0; top: 0; width: 248px; height: 100dvh; transform: translateX(-100%); z-index: 45; transition: transform .2s; }
+  .sidebar:not(.open) .sidebar-log-button { display: none; }
   .workspace { margin-left: 0; }
   .activity-panel { left: 14px; right: auto; }
   .sidebar.open { transform: translateX(0); }
