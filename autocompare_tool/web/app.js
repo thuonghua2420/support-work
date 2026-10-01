@@ -1101,7 +1101,7 @@ function bindForms() {
   syncImportButtonLabel();
   $("#db-export").addEventListener("click", async () => {
     if (!requireVerified("main")) return;
-    if (await confirmAction("Export dữ liệu ra CSV?", "Các file CSV trong folder đích có cùng tên table có thể bị ghi đè bằng dữ liệu mới.")) {
+    if (await confirmAction("ĐÃ THAY ĐỔI PATH FOLDER EXPORT CHƯA?", "Các file CSV trong folder đích có cùng tên table có thể bị ghi đè bằng dữ liệu mới.")) {
       startAction("db_export", { csv_path: valueOf("db-csv-path"), settings: getDbSettings("main"), table_names: valueOf("db-export-tables"), confirmed: true });
     }
   });
