@@ -15,6 +15,7 @@ from autocompare_tool.excel_writer import WorkbookFixmeEntry
 from autocompare_tool.sql_excel_loader import ExcelSqlEntry
 from autocompare_tool.sql_tools import SqlFormatResult
 from autocompare_tool.web_app import (
+    AutoCompareServer,
     AutoCompareWebApplication,
     JobManager,
     _db_settings,
@@ -30,11 +31,21 @@ class WebApplicationTests(unittest.TestCase):
 
         self.assertEqual(9876, result["port"])
         self.assertEqual(str(Path.cwd()), result["cwd"])
+        self.assertTrue(result["build_marker"])
         self.assertTrue(result["compare_workflows"])
         self.assertIn("SQL Server", result["database_types"])
         self.assertIn("folder_compare_file", result)
         self.assertIn("excel_format_presets", result)
         self.assertEqual(result["compare_options"], {"copy_input": False, "sort_by_key": False})
+
+    def test_web_server_rejects_second_bind_on_same_port(self) -> None:
+        first = AutoCompareServer(("127.0.0.1", 0), object())
+        try:
+            with self.assertRaises(OSError):
+                second = AutoCompareServer(("127.0.0.1", first.server_address[1]), object())
+                second.server_close()
+        finally:
+            first.server_close()
 
     def test_compare_forwards_explicit_file_options(self) -> None:
         from autocompare_tool.processor import ProcessSummary
@@ -272,6 +283,7 @@ class WebApplicationTests(unittest.TestCase):
         self.assertEqual("PostgreSQL", settings.database_type)
         self.assertEqual("sample", settings.database)
         self.assertFalse(settings.trusted_connection)
+        self.assertFalse(settings.encrypt)
 
     def test_database_connection_history_hides_password_and_reuses_session_password(self) -> None:
         app = AutoCompareWebApplication()

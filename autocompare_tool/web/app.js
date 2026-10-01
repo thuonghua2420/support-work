@@ -691,7 +691,7 @@ function sanitizeDatabaseHistorySettings(settings) {
     password: "",
     trusted_connection: settings.trusted_connection === true,
     trust_server_certificate: settings.trust_server_certificate !== false,
-    encrypt: settings.encrypt !== false,
+    encrypt: settings.encrypt === true,
     updated_at: String(settings.updated_at || settings.saved_at || new Date().toISOString()),
   };
   if (!item.host.trim() && !item.database.trim()) return null;
@@ -817,13 +817,13 @@ function ensureDefaultMainDatabaseHost() {
 }
 
 function preferredSqlServerDriver(drivers) {
-  const choices = (Array.isArray(drivers) && drivers.length ? drivers : ["SQL Server Native Client RDA 11.0", "ODBC Driver 18 for SQL Server"]).filter(Boolean);
-  const keywords = ["SQL Server Native Client RDA", "SQL Server Native Client", "SQL Server Native"];
-  for (const keyword of keywords) {
+  const choices = (Array.isArray(drivers) && drivers.length ? drivers : ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server", "SQL Server Native Client RDA 11.0"]).filter(Boolean);
+  const modernKeywords = ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server", "ODBC Driver"];
+  for (const keyword of modernKeywords) {
     const match = choices.find((driver) => driver.toLocaleLowerCase().includes(keyword.toLocaleLowerCase()));
     if (match) return match;
   }
-  return choices[0] || "SQL Server Native Client RDA 11.0";
+  return choices[0] || "ODBC Driver 18 for SQL Server";
 }
 
 function ensureDefaultSqlServerDriver(scope) {
@@ -831,7 +831,7 @@ function ensureDefaultSqlServerDriver(scope) {
   const driverInput = $(`#db-${scope}-driver`);
   if (!driverInput) return;
   const preferred = preferredSqlServerDriver(state.bootstrap?.sqlserver_drivers || []);
-  if (!driverInput.value || driverInput.value === "ODBC Driver 18 for SQL Server") driverInput.value = preferred;
+  if (!driverInput.value) driverInput.value = preferred;
 }
 
 function bindForms() {
@@ -1387,7 +1387,7 @@ function renderConnectionForms() {
   $$('[data-db-scope]').forEach((form) => {
     const scope = form.dataset.dbScope;
     const defaults = state.bootstrap.database_defaults["SQL Server"] || { port: "1433", schema: "dbo" };
-    const drivers = state.bootstrap.sqlserver_drivers.length ? state.bootstrap.sqlserver_drivers : ["SQL Server Native Client RDA 11.0", "ODBC Driver 18 for SQL Server"];
+    const drivers = state.bootstrap.sqlserver_drivers.length ? state.bootstrap.sqlserver_drivers : ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server", "SQL Server Native Client RDA 11.0"];
     const defaultDriver = preferredSqlServerDriver(drivers);
     $(".connection-fields", form).innerHTML = `
       <label class="field connection-history-field"><span>K&#x1EBF;t n&#x1ED1;i &#x111;&#xE3; d&#xF9;ng</span><select id="db-${scope}-history" data-db-history-select="${scope}"></select><small>Ch&#x1ECD;n l&#x1EA1;i m&#xE1;y ch&#x1EE7;/CSDL &#x111;&#xE3; k&#x1EBF;t n&#x1ED1;i tr&#x1B0;&#x1EDB;c &#x111;&#xF3;. H&#x1EC7; th&#x1ED1;ng s&#x1EBD; t&#x1EF1; &#x111;&#x1ED9;ng k&#x1EBF;t n&#x1ED1;i l&#x1EA1;i b&#x1EB1;ng th&#xF4;ng tin &#x111;&#xE3; l&#x1B0;u tr&#xEA;n server local.</small></label>
@@ -1399,7 +1399,9 @@ function renderConnectionForms() {
       <label class="field auth-row" id="db-${scope}-driver-field"><span>Driver ODBC</span><select id="db-${scope}-driver">${drivers.map((item) => `<option ${item === defaultDriver ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label>
       <label class="field"><span>User</span><input id="db-${scope}-username" autocomplete="username"></label>
       <label class="field"><span>Password</span><input id="db-${scope}-password" type="password" autocomplete="current-password"></label>
-      <div class="check-row auth-row" id="db-${scope}-trusted-row"><label><input type="checkbox" id="db-${scope}-trusted" ${scope === "main" || scope === "source" || scope === "target" ? "checked" : ""}> Xác thực Windows</label></div>`;
+      <div class="check-row auth-row" id="db-${scope}-trusted-row"><label><input type="checkbox" id="db-${scope}-trusted" ${scope === "main" || scope === "source" || scope === "target" ? "checked" : ""}> Xác thực Windows</label></div>
+      <div class="check-row auth-row" id="db-${scope}-encrypt-row"><label><input type="checkbox" id="db-${scope}-encrypt"> Mã hóa kết nối</label></div>
+      <div class="check-row auth-row" id="db-${scope}-trust-cert-row"><label><input type="checkbox" id="db-${scope}-trust-cert" checked> Tin cậy chứng chỉ server</label></div>`;
 
     form.addEventListener("submit", (event) => event.preventDefault());
 
@@ -1408,12 +1410,15 @@ function renderConnectionForms() {
     settingsControls.forEach((input) => input.addEventListener("change", () => {
       if (input.id === `db-${scope}-type`) applyDatabaseType(scope, true);
       if (input.id === `db-${scope}-trusted`) syncAuthFields(scope);
+      if (input.id === `db-${scope}-encrypt`) syncEncryptionFields(scope);
       invalidateDbConnection(scope);
     }));
     $(`#db-${scope}-history`).addEventListener("change", () => applyDatabaseHistorySelection(scope));
     $(`#db-${scope}-trusted`).addEventListener("change", () => syncAuthFields(scope));
+    $(`#db-${scope}-encrypt`).addEventListener("change", () => syncEncryptionFields(scope));
     applyDatabaseType(scope, false);
     syncAuthFields(scope);
+    syncEncryptionFields(scope);
   });
   renderDatabaseHistorySelects();
 
@@ -1435,7 +1440,10 @@ function applyDatabaseType(scope, resetDefaults) {
   const sqlServer = type === "SQL Server";
   $(`#db-${scope}-driver-field`).classList.toggle("hidden", !sqlServer);
   $(`#db-${scope}-trusted-row`).classList.toggle("hidden", !sqlServer);
+  $(`#db-${scope}-encrypt-row`).classList.toggle("hidden", !sqlServer);
+  $(`#db-${scope}-trust-cert-row`).classList.toggle("hidden", !sqlServer);
   syncAuthFields(scope);
+  syncEncryptionFields(scope);
 }
 
 function syncAuthFields(scope) {
@@ -1444,7 +1452,18 @@ function syncAuthFields(scope) {
   $(`#db-${scope}-password`).disabled = trusted;
 }
 
+function syncEncryptionFields(scope) {
+  const sqlServer = valueOf(`db-${scope}-type`) === "SQL Server";
+  const encrypt = sqlServer && checked(`db-${scope}-encrypt`);
+  const trustRow = $(`#db-${scope}-trust-cert-row`);
+  const trustInput = $(`#db-${scope}-trust-cert`);
+  if (trustRow) trustRow.classList.toggle("hidden", !sqlServer);
+  if (trustInput) trustInput.disabled = !encrypt;
+}
+
 function getDbSettings(scope) {
+  const sqlServer = valueOf(`db-${scope}-type`) === "SQL Server";
+  const encrypt = sqlServer && checked(`db-${scope}-encrypt`);
   return {
     database_type: valueOf(`db-${scope}-type`),
     host: valueOf(`db-${scope}-host`),
@@ -1455,8 +1474,8 @@ function getDbSettings(scope) {
     username: valueOf(`db-${scope}-username`),
     password: valueOf(`db-${scope}-password`),
     trusted_connection: checked(`db-${scope}-trusted`),
-    trust_server_certificate: true,
-    encrypt: true,
+    trust_server_certificate: checked(`db-${scope}-trust-cert`),
+    encrypt,
   };
 }
 
@@ -1471,7 +1490,10 @@ function setDbSettings(scope, settings) {
   $(`#db-${scope}-username`).value = settings.username || "";
   $(`#db-${scope}-password`).value = settings.password || "";
   $(`#db-${scope}-trusted`).checked = !!settings.trusted_connection;
+  $(`#db-${scope}-encrypt`).checked = settings.encrypt === true;
+  $(`#db-${scope}-trust-cert`).checked = settings.trust_server_certificate !== false;
   syncAuthFields(scope);
+  syncEncryptionFields(scope);
   ensureDefaultSqlServerDriver(scope);
 }
 

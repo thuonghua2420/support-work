@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 from .processor import process_root
-from .web_app import DEFAULT_HOST, DEFAULT_PORT, serve
+from .web_app import BUILD_MARKER, DEFAULT_HOST, DEFAULT_PORT, serve
 
 
 def main() -> int:
@@ -27,6 +27,8 @@ def main() -> int:
         return 0
 
     if not args.root:
+        print(f"AutoCompare build marker: {BUILD_MARKER}")
+        print(f"AutoCompare package path: {Path(__file__).resolve()}")
         serve(args.host, args.port, open_browser=not args.no_browser)
         return 0
 

@@ -228,6 +228,8 @@ Behavior:
 - Windows-oriented startup via `run.bat`.
 - Dependencies: `openpyxl`, `pyodbc`, `mysql-connector-python`, `psycopg`, `oracledb`.
 - SQL Server connections require a Microsoft ODBC Driver for SQL Server.
+- SQL Server connections prefer modern Microsoft ODBC Driver 18/17 before falling back to SQL Server Native Client. To preserve compatibility with long-running legacy SQL Server setups, connection encryption is off by default and exposed as an explicit UI checkbox. Native Client and the legacy `SQL Server` driver omit `Encrypt` and `TrustServerCertificate`; modern ODBC Driver 17/18 connections include those options only in their supported connection-string form.
+- The web server rejects a second process on the same port. On Windows, enabling `SO_REUSEADDR` let an old backend and a newly launched backend both listen on port 8765, causing the browser to reach stale code. Keep `AutoCompareServer.allow_reuse_address` disabled.
 - CSV readers support `utf-8-sig`, `utf-8`, and `cp932`.
 - Some docs/constants may display Japanese names as mojibake depending on console encoding.
 - Runtime note values are stored in `fixme_notes.json` when users save notes in the GUI.

@@ -33,6 +33,7 @@ from .database_io import (
     export_csv_folder,
     get_available_sqlserver_drivers,
     import_csv_folder,
+    is_modern_sqlserver_odbc_driver,
     list_database_names,
     list_database_tables,
     normalize_csv_folder,
@@ -70,6 +71,7 @@ from .sql_tools import analyze_sql, format_sql
 from .sql_database_workspace import SqlDatabaseWorkspaceManager
 
 APP_TITLE = "AutoCompare"
+BUILD_MARKER = "DBFIX-20260927-01"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DB_CONNECTION_HISTORY_LIMIT = 50
@@ -261,6 +263,7 @@ class AutoCompareWebApplication:
         excel_format_presets = self.excel_format_preset_store.load()
         return {
             "app_title": APP_TITLE,
+            "build_marker": BUILD_MARKER,
             "cwd": str(Path.cwd()),
             "port": port,
             "compare_workflows": [
@@ -869,7 +872,11 @@ class AutoCompareWebApplication:
     def _db_test(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
         role = str(payload.get("role", "main"))
         settings = self._db_settings_for_role(payload.get("settings"), role)
-        test_database_connection(settings)
+        diagnostic = _log_db_connection_diagnostics(settings, log)
+        try:
+            test_database_connection(settings)
+        except Exception as exc:
+            raise RuntimeError(f"{diagnostic}; lỗi gốc: {exc}") from exc
         log("Kết nối CSDL thành công.")
         result: dict[str, Any] = {"verified": True, "role": role, "connection": _public_db_settings(settings)}
         tables: list[str] | None = None
@@ -883,7 +890,11 @@ class AutoCompareWebApplication:
     def _db_list_databases(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
         role = str(payload.get("role", "main"))
         settings = self._db_settings_for_role(payload.get("settings"), role)
-        names = list_database_names(settings)
+        diagnostic = _log_db_connection_diagnostics(settings, log)
+        try:
+            names = list_database_names(settings)
+        except Exception as exc:
+            raise RuntimeError(f"{diagnostic}; lỗi gốc: {exc}") from exc
         log(f"Đã tải {len(names)} CSDL.")
         self._remember_db_connection_history(settings)
         return {"databases": names, "role": role, "connection": _public_db_settings(settings)}
@@ -1213,7 +1224,9 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
 
 class AutoCompareServer(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # On Windows, SO_REUSEADDR allows a second process to bind the same port.
+    # Requests can then reach an older backend even after run.bat starts again.
+    allow_reuse_address = False
 
     def __init__(self, address: tuple[str, int], application: AutoCompareWebApplication) -> None:
         self.application = application
@@ -1267,7 +1280,7 @@ def _db_settings(raw_value: Any) -> DatabaseConnectionSettings:
         trusted_connection=raw_value.get("trusted_connection") is True,
         driver=str(raw_value.get("driver") or preferred_sqlserver_driver(get_available_sqlserver_drivers())),
         trust_server_certificate=raw_value.get("trust_server_certificate", True) is True,
-        encrypt=raw_value.get("encrypt", True) is True,
+        encrypt=raw_value.get("encrypt", False) is True,
     )
 
 
@@ -1285,6 +1298,30 @@ def _public_db_settings(settings: DatabaseConnectionSettings) -> dict[str, Any]:
         "trust_server_certificate": settings.trust_server_certificate,
         "encrypt": settings.encrypt,
     }
+
+
+def _log_db_connection_diagnostics(settings: DatabaseConnectionSettings, log: Logger) -> str:
+    if settings.normalized_type != "sqlserver":
+        message = f"Cấu hình kết nối CSDL: type={database_label(settings.database_type)}; host={settings.host or '(chưa nhập host)'}"
+        log(message)
+        return message
+    server = settings.host.strip() or "(chưa nhập server)"
+    if settings.port.strip():
+        server = f"{server},{settings.port.strip()}"
+    auth = "Windows Auth" if settings.trusted_connection else f"SQL Auth user={settings.username or '(chưa nhập user)'}"
+    if is_modern_sqlserver_odbc_driver(settings.driver):
+        encrypt = "yes" if settings.encrypt else "no"
+        trust = "yes" if settings.trust_server_certificate else "no"
+        encryption = f"Encrypt={encrypt}; TrustServerCertificate={trust}"
+    else:
+        encryption = "Encrypt keyword: omitted for legacy driver"
+    message = (
+        "Cấu hình kết nối SQL Server: "
+        f"server={server}; database={settings.database or '(chưa nhập database)'}; "
+        f"driver={settings.driver}; auth={auth}; {encryption}"
+    )
+    log(message)
+    return message
 
 
 def _db_connection_history_path() -> Path:

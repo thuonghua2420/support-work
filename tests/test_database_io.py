@@ -26,6 +26,7 @@ from autocompare_tool.database_io import (
     _build_export_select_sql,
     _build_delete_by_primary_key_sql,
     _build_import_mapping,
+    _build_sqlserver_connection_parts,
     _build_sync_columns,
     _build_sync_select_sql,
     _build_sync_update_sql,
@@ -40,6 +41,7 @@ from autocompare_tool.database_io import (
     canonical_row_hash,
     import_csv_folder,
     normalize_database_type,
+    preferred_sqlserver_driver,
     scan_import_csv_tables,
     validate_connection_settings,
 )
@@ -63,6 +65,86 @@ class DatabaseIoTests(unittest.TestCase):
 
         self.assertEqual(settings.schema, "public")
         self.assertEqual(settings.port, "5432")
+
+    def test_sqlserver_native_client_connection_omits_encryption_keywords(self) -> None:
+        parts = _build_sqlserver_connection_parts(
+            DatabaseConnectionSettings(
+                database_type="sqlserver",
+                host="localhost",
+                database="sample",
+                trusted_connection=True,
+                driver="SQL Server Native Client 11.0",
+            )
+        )
+
+        connection_string = ";".join(parts)
+        self.assertIn("DRIVER={SQL Server Native Client 11.0}", connection_string)
+        self.assertIn("Trusted_Connection=yes", connection_string)
+        self.assertNotIn("Encrypt=", connection_string)
+        self.assertNotIn("TrustServerCertificate=", connection_string)
+
+    def test_sqlserver_legacy_driver_connection_omits_encryption_keywords(self) -> None:
+        parts = _build_sqlserver_connection_parts(
+            DatabaseConnectionSettings(
+                database_type="sqlserver",
+                host="localhost",
+                database="sample",
+                trusted_connection=True,
+                driver="SQL Server",
+            )
+        )
+
+        connection_string = ";".join(parts)
+        self.assertIn("DRIVER={SQL Server}", connection_string)
+        self.assertNotIn("Encrypt=", connection_string)
+        self.assertNotIn("TrustServerCertificate=", connection_string)
+
+    def test_sqlserver_modern_odbc_connection_keeps_encryption_keywords(self) -> None:
+        parts = _build_sqlserver_connection_parts(
+            DatabaseConnectionSettings(
+                database_type="sqlserver",
+                host="localhost",
+                database="sample",
+                username="tester",
+                password="secret",
+                driver="ODBC Driver 18 for SQL Server",
+                encrypt=True,
+                trust_server_certificate=True,
+            )
+        )
+
+        connection_string = ";".join(parts)
+        self.assertIn("Encrypt=yes", connection_string)
+        self.assertIn("TrustServerCertificate=yes", connection_string)
+        self.assertIn("UID={tester}", connection_string)
+        self.assertIn("PWD={secret}", connection_string)
+
+    def test_sqlserver_modern_odbc_connection_defaults_encryption_off(self) -> None:
+        parts = _build_sqlserver_connection_parts(
+            DatabaseConnectionSettings(
+                database_type="sqlserver",
+                host="localhost",
+                database="sample",
+                trusted_connection=True,
+                driver="ODBC Driver 18 for SQL Server",
+            )
+        )
+
+        connection_string = ";".join(parts)
+        self.assertIn("Encrypt=no", connection_string)
+        self.assertIn("TrustServerCertificate=yes", connection_string)
+
+    def test_sqlserver_preferred_driver_uses_modern_odbc_before_native_client(self) -> None:
+        self.assertEqual(
+            preferred_sqlserver_driver(
+                [
+                    "SQL Server Native Client 11.0",
+                    "ODBC Driver 17 for SQL Server",
+                    "ODBC Driver 18 for SQL Server",
+                ]
+            ),
+            "ODBC Driver 18 for SQL Server",
+        )
 
     def test_import_mapping_skips_generated_and_identity_when_not_kept(self) -> None:
         table = DbeaverCsv(

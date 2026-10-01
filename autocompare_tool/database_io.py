@@ -55,7 +55,12 @@ DEFAULT_SCHEMAS = {
     DATABASE_POSTGRESQL: "public",
 }
 
-SQLSERVER_ODBC_DRIVER_DEFAULT = "SQL Server Native Client RDA 11.0"
+SQLSERVER_ODBC_DRIVER_DEFAULT = "ODBC Driver 18 for SQL Server"
+SQLSERVER_MODERN_DRIVER_KEYWORDS = (
+    "ODBC Driver 18 for SQL Server",
+    "ODBC Driver 17 for SQL Server",
+    "ODBC Driver",
+)
 SQLSERVER_NATIVE_DRIVER_KEYWORDS = (
     "SQL Server Native Client RDA",
     "SQL Server Native Client",
@@ -167,7 +172,7 @@ class DatabaseConnectionSettings:
     trusted_connection: bool = False
     driver: str = SQLSERVER_ODBC_DRIVER_DEFAULT
     trust_server_certificate: bool = True
-    encrypt: bool = True
+    encrypt: bool = False
 
     @property
     def normalized_type(self) -> str:
@@ -476,18 +481,7 @@ class SqlServerAdapter(DatabaseAdapter):
         except ImportError as exc:
             raise RuntimeError("Chưa cài pyodbc. Hãy chạy run.bat để cài thư viện kết nối SQL Server.") from exc
 
-        parts = [
-            f"DRIVER={_brace_value(settings.driver)}",
-            f"SERVER={_brace_value(_server_with_port(settings.host, settings.port))}",
-            f"DATABASE={_brace_value(settings.database)}",
-            f"Encrypt={'yes' if settings.encrypt else 'no'}",
-            f"TrustServerCertificate={'yes' if settings.trust_server_certificate else 'no'}",
-        ]
-        if settings.trusted_connection:
-            parts.append("Trusted_Connection=yes")
-        else:
-            parts.append(f"UID={_brace_value(settings.username)}")
-            parts.append(f"PWD={_brace_value(settings.password)}")
+        parts = _build_sqlserver_connection_parts(settings)
         return pyodbc.connect(";".join(parts), autocommit=False)
 
     def execute(self, cursor, sql: str, params: Sequence[object] = ()) -> None:
@@ -649,6 +643,23 @@ class SqlServerAdapter(DatabaseAdapter):
     ) -> None:
         if keep_identity and any(column.is_identity for column in columns):
             self.execute(cursor, f"SET IDENTITY_INSERT {self.qualified_table(metadata)} OFF")
+
+
+def _build_sqlserver_connection_parts(settings: DatabaseConnectionSettings) -> list[str]:
+    parts = [
+        f"DRIVER={_brace_value(settings.driver)}",
+        f"SERVER={_brace_value(_server_with_port(settings.host, settings.port))}",
+        f"DATABASE={_brace_value(settings.database)}",
+    ]
+    if is_modern_sqlserver_odbc_driver(settings.driver):
+        parts.append(f"Encrypt={'yes' if settings.encrypt else 'no'}")
+        parts.append(f"TrustServerCertificate={'yes' if settings.trust_server_certificate else 'no'}")
+    if settings.trusted_connection:
+        parts.append("Trusted_Connection=yes")
+    else:
+        parts.append(f"UID={_brace_value(settings.username)}")
+        parts.append(f"PWD={_brace_value(settings.password)}")
+    return parts
 
 
 class MySqlAdapter(DatabaseAdapter):
@@ -1161,12 +1172,25 @@ def get_available_sqlserver_drivers() -> list[str]:
     return list(pyodbc.drivers())
 
 
+def is_sqlserver_native_client_driver(driver: str) -> bool:
+    value = str(driver or "").lower()
+    return any(keyword.lower() in value for keyword in SQLSERVER_NATIVE_DRIVER_KEYWORDS)
+
+
+def is_modern_sqlserver_odbc_driver(driver: str) -> bool:
+    value = str(driver or "").lower()
+    return "odbc driver" in value and "sql server" in value
+
+
 def preferred_sqlserver_driver(drivers: Sequence[str] | None = None) -> str:
     choices = [str(driver) for driver in (drivers or []) if str(driver).strip()]
-    for keyword in SQLSERVER_NATIVE_DRIVER_KEYWORDS:
+    for keyword in SQLSERVER_MODERN_DRIVER_KEYWORDS:
         match = next((driver for driver in choices if keyword.lower() in driver.lower()), None)
         if match:
             return match
+    native_match = next((driver for driver in choices if is_sqlserver_native_client_driver(driver)), None)
+    if native_match:
+        return native_match
     if choices:
         return choices[0]
     return SQLSERVER_ODBC_DRIVER_DEFAULT
