@@ -89,13 +89,13 @@ AutoCompare là công cụ web chạy local dành cho kiểm thử CSV/UT trên 
 
 ## Khởi động
 
-Yêu cầu Python 3.10 trở lên.
+Yêu cầu Windows và Python 3.10–3.14. Python 3.15 hiện chưa phù hợp với các phiên bản `pyodbc`/`oracledb` trong `requirements.txt`.
 
 ```bat
 run.bat
 ```
 
-Lệnh trên tự tạo `.venv`, cài dependencies, khởi động server tại `http://127.0.0.1:8765` và mở trình duyệt.
+Lệnh trên ưu tiên môi trường `.runtime-venv` còn dùng được; nếu thiếu hoặc lỗi, nó chọn Python tương thích (ưu tiên bản mới hơn), tạo lại môi trường, cài dependencies, khởi động server tại `http://127.0.0.1:8765` và mở trình duyệt. Khi copy sang folder khác, không cần copy `.runtime-venv`; lần chạy đầu sẽ tạo lại. Máy mới vẫn cần có Python tương thích và mạng hoặc nguồn cài đặt dependency sẵn có.
 
 Để dùng port khác:
 
@@ -106,13 +106,13 @@ run.bat 9000
 Hoặc chạy trực tiếp:
 
 ```bat
-.venv\Scripts\python.exe -m autocompare_tool --port 9000
+.runtime-venv\Scripts\python.exe -m autocompare_tool --port 9000
 ```
 
 Các tùy chọn hữu ích:
 
 ```bat
-.venv\Scripts\python.exe -m autocompare_tool --host 127.0.0.1 --port 8765 --no-browser
+.runtime-venv\Scripts\python.exe -m autocompare_tool --host 127.0.0.1 --port 8765 --no-browser
 ```
 
 Server mặc định chỉ bind vào `127.0.0.1`; không nên dùng `0.0.0.0` trên máy hoặc mạng không tin cậy vì ứng dụng có quyền thao tác file local và kết nối database.
@@ -120,7 +120,7 @@ Server mặc định chỉ bind vào `127.0.0.1`; không nên dùng `0.0.0.0` tr
 Giao diện Tkinter cũ vẫn có thể mở tạm thời bằng:
 
 ```bat
-.venv\Scripts\python.exe -m autocompare_tool --desktop
+.runtime-venv\Scripts\python.exe -m autocompare_tool --desktop
 ```
 
 ## Chức năng
@@ -303,16 +303,16 @@ Export source CSV ghi theo chuẩn DBeaver: `NULL` là ô trống không quote, 
 ## Test
 
 ```bat
-.venv\Scripts\python.exe -m unittest discover -s tests
+.runtime-venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
 Bộ kiểm thử Source Data chạy SQL trên dữ liệu mẫu, trích xuất record theo key rồi nạp vào database rỗng để đối chiếu kết quả SQL gốc. SQLite được dùng cho các ca cơ bản; bộ mở rộng dùng DuckDB cho APPLY, CTE đệ quy, PIVOT, grouping sets và window. Cài thêm dependency kiểm thử để không bỏ qua các ca mở rộng:
 
 ```bat
-.venv\Scripts\python.exe -m pip install -r requirements-test.txt
-.venv\Scripts\python.exe -m unittest tests.test_sql_source_lineage tests.test_sql_advanced_lineage tests.test_sql_database_workspace tests.test_sql_tools
+.runtime-venv\Scripts\python.exe -m pip install -r requirements-test.txt
+.runtime-venv\Scripts\python.exe -m unittest tests.test_sql_source_lineage tests.test_sql_advanced_lineage tests.test_sql_database_workspace tests.test_sql_tools
 ```
 
 Các bài kiểm thử dùng database trong bộ nhớ, không ghi vào database đang kết nối của người dùng. Kiểm thử qua DuckDB không thay thế kiểm chứng cú pháp/thực thi trên SQL Server, PostgreSQL, MySQL và Oracle thực tế.
 
-Nếu `.venv` trỏ tới bản Python đã bị gỡ, hãy xóa `.venv` rồi chạy lại `run.bat` sau khi cài Python 3.10+ để tạo lại môi trường.
+Nếu `.runtime-venv` trỏ tới bản Python đã bị gỡ hoặc tải thư viện lỗi, `run.bat` sẽ tự tạo lại môi trường bằng Python 3.10–3.14 đang có trên máy; không cần xóa thủ công.
