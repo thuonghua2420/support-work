@@ -56,10 +56,62 @@ function prepareAdminatorLayout() {
     actions.append(button);
   }
   prepareComparePageToolbar();
+  prepareWorkspaceDesign();
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") document.querySelector(".panel-expanded .expand-panel")?.click();
   });
   window.lucide?.createIcons();
+}
+
+function prepareWorkspaceDesign() {
+  const groups = [["file-tools", "Công cụ workbook"], ["database", "Cơ sở dữ liệu"]];
+  for (const [page, label] of groups) {
+    const item = document.querySelector(`.nav-item[data-page="${page}"]`);
+    const heading = document.createElement("span");
+    heading.className = "nav-label nav-group-label";
+    heading.textContent = label;
+    item.before(heading);
+  }
+
+  const forms = [
+    ["folder-compare-form", "folders", "So sánh hai thư mục", "Chọn dữ liệu gốc và dữ liệu cần đối chiếu, sau đó chọn cách lưu kết quả."],
+    ["excel-compare-form", "file-diff", "Đối chiếu workbook", "So sánh giá trị từng ô và xem các thay đổi trong workbook kết quả."],
+    ["pdf-compare-form", "files", "Đối chiếu tài liệu PDF", "Kiểm tra nội dung và hình ảnh, kèm báo cáo các điểm khác biệt."],
+    ["copy-ut-form", "copy", "Sao chép dữ liệu UT", "Chọn thư mục nguồn và thư mục đích theo cấu trúc test của bạn."],
+  ];
+  for (const [id, icon, title, description] of forms) {
+    const form = document.getElementById(id);
+    if (!form) continue;
+    const header = document.createElement("div");
+    header.className = "workflow-heading";
+    header.innerHTML = `<span class="workflow-icon" aria-hidden="true"><i data-lucide="${icon}"></i></span><div><h3>${title}</h3><p>${description}</p></div>`;
+    form.prepend(header);
+  }
+
+  const sourceFields = [
+    ["folder-left", "Dữ liệu gốc", "OLD"], ["folder-right", "Dữ liệu đối chiếu", "NEW"],
+    ["excel-compare-old", "Workbook gốc", "OLD"], ["excel-compare-new", "Workbook đối chiếu", "NEW"],
+    ["pdf-compare-old", "Tài liệu gốc", "OLD"], ["pdf-compare-new", "Tài liệu đối chiếu", "NEW"],
+  ];
+  for (const [id, title, side] of sourceFields) {
+    const input = document.getElementById(id);
+    const field = input?.closest(".field");
+    const label = field?.querySelector(":scope > span:first-child");
+    if (!label) continue;
+    field.classList.add("comparison-source", side === "OLD" ? "source-old" : "source-new");
+    label.innerHTML = `<span class="source-badge">${side}</span>${title}`;
+  }
+
+  const hints = {
+    "compare-root": "Chọn thư mục chứa các case UT…",
+    "folder-left": "Đường dẫn thư mục gốc…", "folder-right": "Đường dẫn thư mục đối chiếu…",
+    "excel-format-root": "Chọn thư mục chứa workbook cần định dạng…",
+    "copy-source": "Thư mục chứa dữ liệu nguồn…", "copy-target": "Thư mục UT đích…",
+  };
+  for (const [id, placeholder] of Object.entries(hints)) {
+    const input = document.getElementById(id);
+    if (input) input.placeholder = placeholder;
+  }
 }
 
 function prepareComparePageToolbar() {

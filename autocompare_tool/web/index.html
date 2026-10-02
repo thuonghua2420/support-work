@@ -8,17 +8,18 @@
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/adminator.css">
   <link rel="stylesheet" href="/image-compare.css">
+  <link rel="stylesheet" href="/workspace-theme.css">
 </head>
-<body>
+<body class="workspace-theme">
   <div class="app-shell">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"><i data-lucide="panels-top-left"></i></span>
-        <span><strong>Support</strong><small>UT WORKSPACE</small></span>
+        <span><strong>Support<span class="brand-period">.</span></strong><small>Data workspace</small></span>
       </div>
 
       <nav class="nav-list" aria-label="Menu chính">
-        <span class="nav-label">Main Menu</span>
+        <span class="nav-label">So sánh dữ liệu</span>
         <button class="nav-item active" data-page="compare" type="button">
           <span class="nav-icon">⌁</span><span><strong>Compare Csv</strong><small>Xuất Compare &amp; review FIXME</small></span>
         </button>
@@ -89,7 +90,7 @@
               <label class="checkbox-line"><input type="checkbox" id="compare-copy-input"><span>Copy các file từ folder input qua before</span></label>
               <label class="checkbox-line"><input type="checkbox" id="compare-sort-by-key"><span>Sắp xếp record theo key và lưu vào CSV</span></label>
             </div>
-            <div class="form-actions"><span class="hint">Excel sẽ được tạo trong <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>ExportCompare</span><b>→</b></button></div>
+            <div class="form-actions"><span class="hint">Lưu kết quả tại <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>Tạo file so sánh</span><b>→</b></button></div>
           </form>
 
           <section class="card fixme-card collapsed" id="fixme-expand-card">

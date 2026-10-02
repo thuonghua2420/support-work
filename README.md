@@ -1,8 +1,8 @@
 # AutoCompare Tool
 
-Compare CSV and Database use compact inline checkbox/radio groups. CSV import can
+Compare CSV and Database use consistently styled checkbox/radio groups. CSV import can
 scan the folder and import either all CSV tables or selected CSV tables; export
-has a separate section sharing one CSV folder. SQL Workspace keeps its six
+has a separate section sharing one CSV folder. SQL Workspace keeps its five
 commands together and exposes Excel loading in the expandable "SQL tu Excel" row.
 Import modes, database-write confirmations and saved input behavior are unchanged.
 
@@ -12,11 +12,12 @@ and keeps the workbook selectors visible while the grid scrolls. Applying notes 
 every assigned note from all cases, workbooks and sheets in the current compare run;
 the active sheet only controls what is visible.
 
-## Giao diện Adminator
+## Giao diện Workspace
 
-Giao diện dùng bố cục từ bản Adminator offline trong repository: sidebar trắng có
-thể thu gọn, thanh tiêu đề gọn và các vùng thao tác/kết quả riêng. Compare có ba
-tab Cấu hình, Workbook và Danh sách FIXME; sau khi xuất thành công sẽ mở workbook.
+Giao diện dùng hệ thống màu trung tính sáng và xanh teal, font Inter, các control
+đồng bộ và sidebar chia nhóm chức năng. Các lựa chọn có trạng thái rõ ràng, vùng
+nguồn Old/New tách biệt và các tùy chọn nâng cao có thể thu gọn. Compare có hai
+tab Cấu hình và Workbook; sau khi xuất thành công sẽ mở workbook toàn màn hình.
 Các bảng kết quả có nút phóng to; Escape trả về kích thước ban đầu. Menu trên màn
 hình nhỏ đóng bằng Escape hoặc nhấn vùng bên ngoài.
 
@@ -24,23 +25,28 @@ Trang Excel chia riêng nguồn, định dạng và cách lưu. Database giữ c
 SQL Workspace, đồng bộ và dialog kết nối. Các xác nhận ghi/xóa dữ liệu vẫn được giữ.
 Font Inter và icon Lucide được phục vụ nội bộ, không cần CDN hoặc build frontend.
 
-`web/app.css` giữ các style bảng chuyên biệt; `web/adminator.css` là lớp thiết kế
-chung, `web/adminator.js` sắp xếp các control hiện có mà không thay đổi API nghiệp vụ.
+`web/workspace-theme.css` được tải cuối, quản lý màu sắc, typography, spacing,
+control và responsive cho cả chín trang. `web/app.css` giữ các style bảng chuyên
+biệt; `web/adminator.css` giữ cấu trúc workspace và chế độ phóng to;
+`web/adminator.js` sắp xếp các control hiện có mà không thay đổi API nghiệp vụ.
+Màu đánh dấu sai khác của workbook và màu cú pháp SQL được giữ riêng.
+LOG nằm trong sidebar và ẩn khi xem workbook toàn màn hình. Các control hỗ trợ
+focus bàn phím, giảm chuyển động và chế độ tương phản hệ thống.
 Không tải các script quảng cáo/analytics từ bản mẫu offline.
 
-Kiểm tra giao diện với server local đang chạy (chỉ xuất CSV fixture trong `.tmp`,
-không kết nối hoặc ghi database):
+Kiểm tra theme với server local đang chạy (không chạy tác vụ, không ghi file dữ
+liệu và không kết nối database; workbook kiểm thử dùng response giả lập):
 
 ```powershell
 npm.cmd install --prefix .tmp/ui-check --no-save playwright
 $env:NODE_PATH = "$PWD/.tmp/ui-check/node_modules"
 $env:AUTOCOMPARE_URL = "http://127.0.0.1:8770"
-node tests/web_layout_smoke.cjs
+node tests/web_theme_smoke.cjs
 ```
 
-Test dùng Chrome đã cài, kiểm tra sáu trang ở bốn chiều rộng, các tab/dialog,
-giữ giá trị input, điều hướng bàn phím, xuất workbook và lọc FIXME. Ảnh kiểm tra
-được lưu trong `.tmp/ui-screenshots`.
+Test dùng Chrome đã cài, kiểm tra chín trang ở năm chiều rộng (390–1920px), các
+tab/dialog, căn chữ SQL, menu, LOG và workbook toàn màn hình. Ảnh kiểm tra theme
+được lưu trong `.tmp/theme-screenshots`.
 
 ## Update Compare Keys
 
