@@ -38,6 +38,9 @@ cuộn trang để không che nội dung. Đồng bộ chia thành chọn table 
 giữ cảnh báo xóa dữ liệu hiển thị, thu gọn tùy chọn batch/record limit.
 `web/workspace-guides.js` cung cấp hướng dẫn thu gọn ở cuối từng chức năng, gồm
 các thao tác nhỏ, cách đọc kết quả và cảnh báo ghi/xóa dữ liệu.
+Hướng dẫn của các form nằm trong card tương ứng để không tràn chiều rộng;
+hộp kết nối hai CSDL không có hướng dẫn riêng. File / Folder dùng icon nét
+đồng bộ và hàng nút thao tác tách biệt khỏi vùng nhập liệu.
 Không tải các script quảng cáo/analytics từ bản mẫu offline.
 
 Kiểm tra theme với server local đang chạy (không chạy tác vụ, không ghi file dữ

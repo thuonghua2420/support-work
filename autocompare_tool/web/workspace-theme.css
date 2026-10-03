@@ -208,7 +208,16 @@ body.workspace-theme { color: var(--ink); background: var(--canvas); font-size: 
 .workspace-theme .import-table-chip.selected { background: #f1f4f7; border-color: #ccd6e1; color: #4b5c73; box-shadow: none; }
 .workspace-theme .tool-card h3 { font-size: 16px; margin-top: 0; }
 .workspace-theme .tool-card p { color: var(--muted); }
-.workspace-theme .tool-icon { border-radius: 11px; width: 40px; height: 40px; margin-bottom: 15px; }
+.workspace-theme .tool-heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 22px; }
+.workspace-theme .tool-heading > div { min-width: 0; }
+.workspace-theme .tool-heading h3 { margin: 0 0 5px; }
+.workspace-theme .tool-heading p { margin: 0; font-size: 12px; line-height: 1.6; }
+.workspace-theme .tool-icon { flex: 0 0 36px; width: 36px; height: 36px; border-radius: 9px; margin: 0; color: #667085; background: #f4f5f6; }
+.workspace-theme .tool-icon svg { width: 19px; height: 19px; stroke-width: 1.75; }
+.workspace-theme .tool-card > .two-column { align-items: start; }
+.workspace-theme .tool-card .two-column > .field { margin-top: 0; }
+.workspace-theme .tool-card > .tool-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+.workspace-theme .tool-actions > button { margin: 0; max-width: 100%; white-space: normal; }
 .workspace-theme .root-strip { padding: 20px 24px; margin-bottom: 20px; }
 .workspace-theme .flow-fields { gap: 18px; }
 .workspace-theme .flow-node { padding: 18px; border-radius: 12px; border: 1px solid var(--line); background: #fafafa; }
@@ -329,7 +338,7 @@ body.workspace-theme { color: var(--ink); background: var(--canvas); font-size: 
 .workspace-theme #db-sync-form .form-actions .hint { max-width: 65%; }
 
 /* Local guidelines sit below each feature; expand only when assistance is needed. */
-.workspace-theme .feature-guide { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--muted); flex: 0 0 auto; }
+.workspace-theme .feature-guide { min-width: 0; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--muted); flex: 0 0 auto; }
 .workspace-theme .feature-guide > summary { padding: 10px 14px; font-size: 12px; font-weight: 500; cursor: pointer; }
 .workspace-theme .feature-guide[open] > summary { border-bottom: 1px solid var(--line-soft); color: var(--ink); }
 .workspace-theme .guide-topics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 18px 24px; padding: 16px 18px; }

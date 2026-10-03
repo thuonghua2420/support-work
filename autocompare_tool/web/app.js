@@ -1435,7 +1435,7 @@ function renderConnectionForms() {
     const drivers = state.bootstrap.sqlserver_drivers.length ? state.bootstrap.sqlserver_drivers : ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server", "SQL Server Native Client RDA 11.0"];
     const defaultDriver = preferredSqlServerDriver(drivers);
     $(".connection-fields", form).innerHTML = `
-      <label class="field connection-history-field"><span>K&#x1EBF;t n&#x1ED1;i &#x111;&#xE3; d&#xF9;ng</span><select id="db-${scope}-history" data-db-history-select="${scope}"></select><small>Ch&#x1ECD;n l&#x1EA1;i m&#xE1;y ch&#x1EE7;/CSDL &#x111;&#xE3; k&#x1EBF;t n&#x1ED1;i tr&#x1B0;&#x1EDB;c &#x111;&#xF3;. H&#x1EC7; th&#x1ED1;ng s&#x1EBD; t&#x1EF1; &#x111;&#x1ED9;ng k&#x1EBF;t n&#x1ED1;i l&#x1EA1;i b&#x1EB1;ng th&#xF4;ng tin &#x111;&#xE3; l&#x1B0;u tr&#xEA;n server local.</small></label>
+      <label class="field connection-history-field"><span>K&#x1EBF;t n&#x1ED1;i &#x111;&#xE3; d&#xF9;ng</span><select id="db-${scope}-history" data-db-history-select="${scope}"></select></label>
       <label class="field"><span>Loại CSDL</span><select id="db-${scope}-type">${state.bootstrap.database_types.map((item) => `<option>${escapeHtml(item)}</option>`).join("")}</select></label>
       <label class="field"><span>Port</span><input id="db-${scope}-port" value="${escapeHtml(defaults.port)}"></label>
       <label class="field host-field"><span>Server / Host</span><input id="db-${scope}-host" value="${scope === "main" ? "localhost" : ""}" placeholder="localhost hoặc server\\instance"></label>
@@ -1445,8 +1445,8 @@ function renderConnectionForms() {
       <label class="field"><span>User</span><input id="db-${scope}-username" autocomplete="username"></label>
       <label class="field"><span>Password</span><input id="db-${scope}-password" type="password" autocomplete="current-password"></label>
       <div class="check-row auth-row" id="db-${scope}-trusted-row"><label><input type="checkbox" id="db-${scope}-trusted" ${scope === "main" || scope === "source" || scope === "target" ? "checked" : ""}> Xác thực Windows</label></div>
-      <div class="check-row auth-row" id="db-${scope}-encrypt-row"><label><input type="checkbox" id="db-${scope}-encrypt"> Mã hóa kết nối</label></div>
-      <div class="check-row auth-row" id="db-${scope}-trust-cert-row"><label><input type="checkbox" id="db-${scope}-trust-cert" checked> Tin cậy chứng chỉ server</label></div>`;
+      <div class="check-row auth-row" id="db-${scope}-encrypt-row"><label><input type="checkbox" id="db-${scope}-encrypt"> Encrypt</label></div>
+      <div class="check-row auth-row" id="db-${scope}-trust-cert-row"><label><input type="checkbox" id="db-${scope}-trust-cert" checked> Trust Server Certificate</label></div>`;
 
     form.addEventListener("submit", (event) => event.preventDefault());
 

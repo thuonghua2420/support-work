@@ -12,14 +12,14 @@ function prepareWorkspaceGuides() {
       ["Filter sai khác và số record", "Bật Filter sai khác để chỉ xem các dòng có ô ghi note sai khác.", "Khi hai phía lệch số record, bật Bỏ qua lệch số record để ẩn các cặp cột không có record tương ứng; bỏ tick để xem lại toàn bộ."],
       ["Check FIXME và gán note", "Check FIXME quét toàn bộ file/sheet của kết quả compare hiện tại. Chọn vị trí trong kết quả để mở sheet tương ứng.", "Tick dòng cần ghi chú, chọn note rồi Gán note cho dòng đã tick; cũng có thể nhập/chọn note ngay tại dòng.", "Quản lý Note dùng để quản lý danh sách mẫu. Áp dụng tất cả Note ghi các note đã gán trên toàn bộ kết quả, không chỉ sheet đang xem."],
     ]],
-    ["#page-folder-compare", [
+    ["#folder-compare-form", [
       ["Chọn nguồn và kiểu export", "Chọn folder Old (gốc) và New (đối chiếu), sau đó chọn nơi lưu kết quả.", "Export 1 file: một workbook kết quả. Export từng file: xuất riêng các cặp đã chọn. Gộp các pair vào 1 file: mỗi cặp là một sheet, tên theo CSV bên phải."],
       ["Quét và chọn cặp file", "Ở chế độ có danh sách pair, quét lại sau khi đổi thư mục và kiểm tra cặp Old/New trước khi xuất.", "Chọn các cặp cần xử lý, nhấn Tạo file so sánh và xem đường dẫn kết quả trong LOG."],
     ]],
-    ["#page-excel-compare", [
+    ["#excel-compare-form", [
       ["So sánh giá trị ô", "Chọn workbook Old, New và file kết quả. Hệ thống đối chiếu giá trị từng ô của các sheet tương ứng.", "Mỗi cặp sheet có hai sheet nguồn và một sheet _compare. Ô khác hiển thị Old:value # New:value; ô giống để trống. Đây là so sánh giá trị, không phải xác nhận mọi định dạng giống nhau."],
     ]],
-    ["#page-pdf-compare", [
+    ["#pdf-compare-form", [
       ["So sánh PDF và đọc bằng chứng", "Chọn PDF Old/New và đường dẫn báo cáo, sau đó tạo báo cáo.", "Xem tổng quan và từng trang Old/New/Diff. Chỉ kết luận giống theo các kiểm tra nội dung, form/annotation và pixel render; xem thêm JSON bằng chứng cạnh báo cáo. Giống hiển thị không đồng nghĩa file nhị phân giống nhau."],
     ]],
     ["#page-image-compare", [
@@ -31,8 +31,8 @@ function prepareWorkspaceGuides() {
     ["#delete-contains-form", [["Xóa theo tên", "Chọn đúng folder gốc và từ khóa, rồi chọn File/Folder cần xóa.", "Đọc kỹ xác nhận: các mục khớp có thể bị xóa vĩnh viễn. Hãy sao lưu trước; không dùng từ khóa quá rộng."]]],
     ["#rename-sheets-form", [["Đổi tên sheet", "Chọn workbook, nhập đoạn trong tên sheet cần tìm và đoạn thay thế.", "Xác nhận thao tác và kiểm tra kết quả trong LOG. Nên tạo bản sao workbook trước khi thay đổi."]]],
     ["#move-files-form", [["Di chuyển file", "Nhập đoạn tên file cần tìm và tên folder đích.", "File phù hợp được chuyển vào folder đích nằm cạnh file đó. Kiểm tra folder gốc dùng chung và xác nhận trước khi chạy."]]],
-    ['[data-tab-panel="file:empty"]', [["Kiểm tra / xóa folder trống", "Chọn folder gốc rồi Kiểm tra folder trống để xem phạm vi trong LOG.", "Chỉ nhấn Xóa folder trống sau khi đã kiểm tra và đồng ý với xác nhận."]]],
-    ["#page-excel-format", [
+    ['[data-tab-panel="file:empty"] > .tool-card', [["Kiểm tra / xóa folder trống", "Chọn folder gốc rồi Kiểm tra folder trống để xem phạm vi trong LOG.", "Chỉ nhấn Xóa folder trống sau khi đã kiểm tra và đồng ý với xác nhận."]]],
+    ["#excel-format-form", [
       ["Nguồn và định dạng chữ", "Chọn folder Excel và bật Quét folder con nếu cần. Tick riêng Đổi font chữ / Đổi cỡ chữ rồi nhập giá trị; mục không tick được giữ nguyên.", "Ảnh và nội dung không bị format lại. File có ảnh, VBA hoặc định dạng phức tạp cần Microsoft Excel Desktop theo thông báo của ứng dụng."],
       ["Ngoại lệ và preset", "Mở Quy tắc ngoại lệ và preset. Bật giữ cỡ chữ cho row khớp quy tắc; nhập mỗi quy tắc một dòng theo ví dụ trong ô.", "Chọn preset để dùng lại; nhập tên và Lưu để lưu bộ quy tắc. Xóa chỉ dùng cho preset được chọn."],
       ["Vị trí mở và lưu kết quả", "Chọn độc lập: ô A1, cuộn về đầu sheet và mở sheet đầu tiên. Bỏ tick để giữ trạng thái tương ứng.", "Chọn Bản sao trong Formatted để giữ file gốc; Ghi đè file gốc luôn yêu cầu xác nhận. Nhấn Format workbook rồi xem LOG."],
@@ -63,7 +63,6 @@ function prepareWorkspaceGuides() {
       ["Batch, tiến độ và hủy", "Batch size áp dụng cho chênh lệch/điều kiện. Giới hạn record chỉ dùng cho append/truncate; đồng bộ chính xác cần toàn bộ record.", "Nhấn nút đồng bộ, đọc xác nhận rồi theo dõi tiến độ/LOG. Hủy là yêu cầu dừng tác vụ; các table đã hoàn tất trước đó có thể đã được ghi."],
     ]],
     ['[data-tab-panel="database:primary-key"]', [["Trích xuất / xóa key compare", "Chọn Database 1 hoặc 2 đã kết nối, nhấn Trích xuất key để đọc primary key của các table và lưu cấu hình compare.", "Danh sách bên dưới cho biết table/key đã lưu. Xóa key xóa cấu hình key, không xóa primary key trong database."]]],
-    ["#db-connection-dialog .modal-shell", [["Kết nối, lịch sử và đổi chiều", "Chọn loại CSDL, host/port, database/schema, driver và thông tin xác thực. Tải CSDL để chọn database; Test để xác nhận kết nối.", "Chọn kết nối đã dùng sẽ tự kiểm tra lại. Switch DB 1 ⇄ DB 2 đổi cấu hình nguồn/đích: kiểm tra lại tên database trước khi chạy thao tác ghi."]]],
     ["#notes-dialog .modal-shell", [["Quản lý Note", "Chọn mẫu để sửa hoặc nhập Ghi chú và Ý nghĩa rồi Lưu ghi chú. Nút Xóa dùng để xóa mẫu đang chọn.", "Quản lý mẫu không tự ghi vào workbook. Quay lại Workbook, gán note cho dòng rồi Áp dụng tất cả Note."]]],
     [".activity-body", [["Nhật ký, xóa log và hủy tác vụ", "Mở LOG trong menu để xem tiến độ, lỗi và đường dẫn kết quả. Nhấn × hoặc header để đóng; Clear log chỉ xóa nội dung nhật ký đang hiển thị, không xóa file kết quả.", "Khi có Hủy tác vụ, nhấn để yêu cầu dừng và đợi thông báo kết thúc. Việc đóng khung LOG không dừng tác vụ đang chạy."]]],
     ["#path-dialog .modal-shell", [["Chọn đường dẫn", "Đi đến thư mục cần dùng trong hộp chọn đường dẫn; chỉ các file đúng loại được hiển thị khi chọn file.", "Kiểm tra đường dẫn đã chọn trước khi xác nhận. Hủy hoặc × để quay lại mà không chạy thao tác trên file."]]],

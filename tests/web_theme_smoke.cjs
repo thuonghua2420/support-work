@@ -41,6 +41,11 @@ const path = require('node:path');
     await page.waitForSelector('#compare-workflows input');
     assert.equal(await page.locator('.nav-item[data-page="copy-ut"], #page-copy-ut, #copy-ut-form').count(), 0);
     assert.ok(await page.locator('.feature-guide').count() >= 20, 'Help covers features and subfeatures');
+    assert.equal(await page.locator('#db-connection-dialog .feature-guide').count(), 0, 'Connection dialog has no usage guide');
+    assert.equal(await page.locator('#page-file-tools .tool-heading .tool-icon svg').count(), 6, 'All file tools use vector icons');
+    for (const id of ['folder-compare-form', 'excel-compare-form', 'pdf-compare-form', 'excel-format-form']) {
+      assert.equal(await page.locator(`#${id} > .feature-guide`).count(), 1, 'Guide belongs inside its feature card');
+    }
     async function capture(name) {
       await page.screenshot({ path: path.join(output, `${name}.png`), fullPage: true });
       const overflow = await page.evaluate(() => ({
@@ -52,6 +57,12 @@ const path = require('node:path');
         }).slice(0, 10).map(el => `${el.tagName}#${el.id}.${el.className}`),
       }));
       if (overflow.width > overflow.viewport + 1) overflows.push({ name, ...overflow });
+      const guideOverflow = await page.locator('.page.active .feature-guide').evaluateAll(guides => guides.filter(guide => {
+        const box = guide.getBoundingClientRect();
+        const parent = guide.parentElement.getBoundingClientRect();
+        return box.width && (box.left < parent.left - 1 || box.right > parent.right + 1);
+      }).length);
+      assert.equal(guideOverflow, 0, `${name}: guides stay within their feature`);
     }
     for (const width of [1440, 1920, 1024, 768, 390]) {
       await page.setViewportSize({ width, height: 960 });
@@ -59,9 +70,28 @@ const path = require('node:path');
         if (width <= 900) await page.locator('#menu-toggle').click();
         await page.locator(`.nav-item[data-page="${key}"]`).click();
         await capture(`${width}-${key}`);
+        if (['folder-compare', 'excel-compare', 'pdf-compare', 'excel-format'].includes(key) && [1920, 390].includes(width)) {
+          const guide = page.locator('.page.active form > .feature-guide');
+          await guide.locator('summary').click();
+          await capture(`${width}-${key}-guide`);
+          await guide.locator('summary').click();
+        }
         if (key === 'file-tools') {
           for (const tab of await page.locator('[data-tab-group="file"]').all()) {
             await tab.click();
+            const layoutErrors = await page.locator('#page-file-tools .tool-card:visible').evaluateAll(cards => cards.flatMap(card => {
+              const actions = card.querySelector('.tool-actions');
+              const previous = actions.previousElementSibling;
+              const errors = [];
+              if (actions.getBoundingClientRect().top - previous.getBoundingClientRect().bottom < 16) errors.push('Missing action spacing');
+              const columns = card.querySelector('.two-column');
+              if (columns && getComputedStyle(columns).gridTemplateColumns.split(' ').length === 2) {
+                const inputs = [...columns.querySelectorAll('input')];
+                if (Math.abs(inputs[0].getBoundingClientRect().top - inputs[1].getBoundingClientRect().top) > 1) errors.push('Inputs are misaligned');
+              }
+              return errors;
+            }));
+            assert.deepEqual(layoutErrors, [], 'File tools have separate action rows and aligned fields');
             await capture(`${width}-file-${await tab.getAttribute('data-tab')}`);
           }
         }
@@ -107,6 +137,11 @@ const path = require('node:path');
       }
       await page.locator('#db-open-connections').click();
       assert.ok(await page.locator('dialog[open]').isVisible());
+      if (width >= 1440) {
+        assert.equal(await page.locator('#db-connection-dialog').evaluate(dialog =>
+          [dialog, ...dialog.querySelectorAll('*')].some(el => ['auto', 'scroll'].includes(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight + 1)
+        ), false, 'Desktop connection dialog fits without an inner scrollbar');
+      }
       await capture(`${width}-connections`);
       await page.keyboard.press('Escape');
     }

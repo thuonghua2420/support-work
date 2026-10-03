@@ -56,12 +56,39 @@ function prepareAdminatorLayout() {
   }
   prepareComparePageToolbar();
   prepareWorkspaceDesign();
+  prepareFileToolsLayout();
   prepareSyncWorkspace();
   prepareWorkspaceGuides();
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") document.querySelector(".panel-expanded .expand-panel")?.click();
   });
   window.lucide?.createIcons();
+}
+
+function prepareFileToolsLayout() {
+  const icons = { "rename-exact-form": "text-cursor-input", "rename-contains-form": "replace", "delete-contains-form": "trash-2", "rename-sheets-form": "file-spreadsheet", "move-files-form": "folder-input" };
+  document.querySelectorAll("#page-file-tools .tool-card").forEach(card => {
+    if (card.querySelector(".tool-heading")) return;
+    const icon = card.querySelector(":scope > .tool-icon");
+    const title = card.querySelector(":scope > h3");
+    const description = card.querySelector(":scope > p");
+    const heading = document.createElement("div");
+    heading.className = "tool-heading";
+    icon.className = "tool-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = `<i data-lucide="${icons[card.id] || "folder-search"}"></i>`;
+    const text = document.createElement("div");
+    text.append(title, description);
+    heading.append(icon, text);
+    card.prepend(heading);
+    const actions = card.querySelector(":scope > .inline-actions") || document.createElement("div");
+    actions.classList.add("tool-actions");
+    card.querySelectorAll(":scope > button").forEach(button => {
+      button.classList.remove("full");
+      actions.append(button);
+    });
+    card.append(actions);
+  });
 }
 
 function prepareSyncWorkspace() {
