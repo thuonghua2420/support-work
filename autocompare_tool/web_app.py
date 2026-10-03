@@ -22,7 +22,6 @@ from .compare_workbook_view import (
     read_compare_sheet,
     scan_compare_workbook_fixmes,
 )
-from .copy_ut import run_copy_ut_files
 from .database_io import (
     DatabaseConnectionSettings,
     OperationCancelledError,
@@ -212,7 +211,6 @@ class AutoCompareWebApplication:
         "folder_compare": "Đang so sánh hai folder CSV...",
         "excel_compare": "Đang so sánh hai file Excel...",
         "pdf_compare": "Đang so sánh hai file PDF...",
-        "copy_ut": "Đang sao chép file UT...",
         "format_excel_workbooks": "Đang định dạng workbook Excel...",
         "sql_format": "Đang format câu SQL...",
         "sql_analyze": "Đang phân tích toàn bộ câu SQL...",
@@ -623,7 +621,6 @@ class AutoCompareWebApplication:
         operations: dict[str, Callable[[Logger], dict[str, Any]]] = {
             "compare": lambda log: self._compare(payload, log),
             "folder_compare": lambda log: self._folder_compare(payload, log),
-            "copy_ut": lambda log: self._copy_ut(payload, log),
             "format_excel_workbooks": lambda log: self._file_summary(
                 format_excel_workbooks(
                     _text(payload, "root"),
@@ -868,9 +865,6 @@ class AutoCompareWebApplication:
             "compare_view": self.compare_view_index(),
         }
 
-    def _copy_ut(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
-        log_path = run_copy_ut_files(_text(payload, "source"), _text(payload, "target"), log)
-        return {"log_path": str(log_path)}
 
     def _db_test(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
         role = str(payload.get("role", "main"))

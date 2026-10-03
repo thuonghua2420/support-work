@@ -14,7 +14,7 @@ the active sheet only controls what is visible.
 
 ## Giao diện Workspace
 
-Giao diện dùng hệ thống màu trung tính sáng và xanh teal, font Inter, các control
+Giao diện dùng hệ thống màu trắng/xám trung tính và điểm nhấn slate, font Inter, các control
 đồng bộ và sidebar chia nhóm chức năng. Các lựa chọn có trạng thái rõ ràng, vùng
 nguồn Old/New tách biệt và các tùy chọn nâng cao có thể thu gọn. Compare có hai
 tab Cấu hình và Workbook; sau khi xuất thành công sẽ mở workbook toàn màn hình.
@@ -26,12 +26,18 @@ SQL Workspace, đồng bộ và dialog kết nối. Các xác nhận ghi/xóa d�
 Font Inter và icon Lucide được phục vụ nội bộ, không cần CDN hoặc build frontend.
 
 `web/workspace-theme.css` được tải cuối, quản lý màu sắc, typography, spacing,
-control và responsive cho cả chín trang. `web/app.css` giữ các style bảng chuyên
+control và responsive cho cả tám trang. `web/app.css` giữ các style bảng chuyên
 biệt; `web/adminator.css` giữ cấu trúc workspace và chế độ phóng to;
 `web/adminator.js` sắp xếp các control hiện có mà không thay đổi API nghiệp vụ.
 Màu đánh dấu sai khác của workbook và màu cú pháp SQL được giữ riêng.
 LOG nằm trong sidebar và ẩn khi xem workbook toàn màn hình. Các control hỗ trợ
 focus bàn phím, giảm chuyển động và chế độ tương phản hệ thống.
+CSV ↔ Database và Input SQL căn chiều cao vùng dữ liệu theo màn hình desktop;
+nội dung dài cuộn bên trong khung. Màn hình hẹp hoặc khi mở hướng dẫn vẫn có thể
+cuộn trang để không che nội dung. Đồng bộ chia thành chọn table và cách đồng bộ,
+giữ cảnh báo xóa dữ liệu hiển thị, thu gọn tùy chọn batch/record limit.
+`web/workspace-guides.js` cung cấp hướng dẫn thu gọn ở cuối từng chức năng, gồm
+các thao tác nhỏ, cách đọc kết quả và cảnh báo ghi/xóa dữ liệu.
 Không tải các script quảng cáo/analytics từ bản mẫu offline.
 
 Kiểm tra theme với server local đang chạy (không chạy tác vụ, không ghi file dữ
@@ -44,7 +50,7 @@ $env:AUTOCOMPARE_URL = "http://127.0.0.1:8770"
 node tests/web_theme_smoke.cjs
 ```
 
-Test dùng Chrome đã cài, kiểm tra chín trang ở năm chiều rộng (390–1920px), các
+Test dùng Chrome đã cài, kiểm tra tám trang ở năm chiều rộng (390–1920px), các
 tab/dialog, căn chữ SQL, menu, LOG và workbook toàn màn hình. Ảnh kiểm tra theme
 được lưu trong `.tmp/theme-screenshots`.
 
@@ -137,7 +143,6 @@ Giao diện Tkinter cũ vẫn có thể mở tạm thời bằng:
 - **Compare PDF**: kiểm tra SHA-256 của file, text, form/annotation và ảnh render RGB 200 DPI của từng trang. Output gồm báo cáo PDF có ảnh Old/New/Diff tô đỏ và manifest JSON chứa hash, verdict, số pixel cùng tọa độ vùng khác biệt.
 - **Compare Image**: paste bằng Ctrl+V / nút Paste, import hoặc kéo thả ảnh Old và New (PNG, JPEG, WebP, BMP; ảnh tĩnh 8-bit, tối đa 12 MB và 12 triệu pixel mỗi ảnh). So sánh chính xác RGBA, độ trong suốt, kích thước và thông tin màu sau khi áp dụng hướng EXIF; không tự resize hay bỏ qua pixel gần giống. Xem song song, kéo thanh Old/New hoặc tô đỏ vùng sai khác; zoom và chuyển từng vùng. Tải báo cáo HTML độc lập có ảnh + SHA-256, ảnh Diff PNG hoặc JSON. Ảnh được xử lý trên server local và không ghi đè file nguồn.
 - **Tiện ích file**: đổi tên, xóa, di chuyển file/folder, đổi tên sheet Excel và tìm/xóa folder trống.
-- **Sao chép file UT**: chạy logic tương thích từ `copy_ut_files.py` và tạo log chi tiết trong `copy_logs`.
 - **Format ảnh Excel**: resize và sắp xếp ảnh theo 6 vùng Evidence (hệ thống cũ/mới × Input/Steps/Output), đồng thời giữ nguyên ảnh, VBA và button.
 - **SQL Studio**: format SQL và phân tích table/alias, điều kiện, CTE, subquery, SELECT expression theo cây cú pháp.
 - **CSV ↔ Database**: test kết nối, quét CSV, import toàn bộ hoặc chỉ các table đã chọn, và export table cho SQL Server, MySQL, PostgreSQL và Oracle.
@@ -272,9 +277,10 @@ id,amount,empty_value,null_value,text
 
 Trong dòng trên, `empty_value` là chuỗi rỗng và `null_value` là `NULL`.
 
-## Sao chép file UT
+## Sao chép file UT (legacy)
 
-Workflow này tiếp tục dùng `copy_ut_files.py`:
+Chức năng này đã được gỡ khỏi menu và API web. Các script legacy
+`copy_ut_files.py` vẫn được giữ để tương thích công cụ cũ, không xóa dữ liệu/log:
 
 - Sao chép từ `UT*/input` của nguồn sang cấu trúc input ở đích.
 - Sao chép từ `UT*/output` của nguồn sang cấu trúc output hệ thống hiện tại ở đích.

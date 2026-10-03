@@ -8,7 +8,6 @@ function prepareAdminatorLayout() {
     "pdf-compare": ["files", "Compare PDF"],
     "image-compare": ["images", "Compare Image"],
     "file-tools": ["folder-cog", "File / Folder"],
-    "copy-ut": ["copy", "Sao chép UT"],
     "excel-format": ["file-spreadsheet", "Format Excel"],
     database: ["database", "Database"],
   };
@@ -57,10 +56,46 @@ function prepareAdminatorLayout() {
   }
   prepareComparePageToolbar();
   prepareWorkspaceDesign();
+  prepareSyncWorkspace();
+  prepareWorkspaceGuides();
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") document.querySelector(".panel-expanded .expand-panel")?.click();
   });
   window.lucide?.createIcons();
+}
+
+function prepareSyncWorkspace() {
+  const form = document.getElementById("db-sync-form");
+  if (!form || form.querySelector(".sync-workspace-grid")) return;
+  const heading = form.querySelector(":scope > .card-heading");
+  heading.querySelector(".step-number").textContent = "1";
+  heading.querySelector("h3").textContent = "Chọn table";
+  const scopeToggle = form.querySelector(":scope > .switch-row");
+  const picker = form.querySelector(".table-picker");
+  const method = form.querySelector(":scope > .import-mode-fieldset");
+  const condition = document.getElementById("sync-condition-panel");
+  const [technical, safety] = form.querySelectorAll(":scope > .two-column");
+  const progress = document.getElementById("sync-progress-panel");
+  const actions = form.querySelector(":scope > .form-actions");
+  const direction = document.createElement("div");
+  direction.className = "sync-route";
+  direction.innerHTML = '<span><b>Database 1</b> Nguồn</span><span aria-hidden="true">→</span><span><b>Database 2</b> Đích</span><small>Cấu hình và kiểm tra cả hai trong “Kết nối CSDL”.</small>';
+  const grid = document.createElement("div");
+  grid.className = "sync-workspace-grid";
+  const scope = document.createElement("section");
+  scope.className = "sync-scope-section";
+  scope.append(heading, scopeToggle, picker);
+  const settings = document.createElement("section");
+  settings.className = "sync-settings-section";
+  settings.innerHTML = '<div class="card-heading"><div><span class="step-number">2</span><h3>Cách đồng bộ</h3></div></div>';
+  const advanced = document.createElement("details");
+  advanced.className = "sync-advanced";
+  advanced.innerHTML = '<summary>Tùy chọn kỹ thuật · số record và batch size</summary>';
+  advanced.append(technical);
+  safety.classList.add("sync-safety-options");
+  settings.append(method, safety, advanced);
+  grid.append(scope, settings);
+  form.append(direction, grid, condition, progress, actions);
 }
 
 function prepareWorkspaceDesign() {
@@ -77,7 +112,6 @@ function prepareWorkspaceDesign() {
     ["folder-compare-form", "folders", "So sánh hai thư mục", "Chọn dữ liệu gốc và dữ liệu cần đối chiếu, sau đó chọn cách lưu kết quả."],
     ["excel-compare-form", "file-diff", "Đối chiếu workbook", "So sánh giá trị từng ô và xem các thay đổi trong workbook kết quả."],
     ["pdf-compare-form", "files", "Đối chiếu tài liệu PDF", "Kiểm tra nội dung và hình ảnh, kèm báo cáo các điểm khác biệt."],
-    ["copy-ut-form", "copy", "Sao chép dữ liệu UT", "Chọn thư mục nguồn và thư mục đích theo cấu trúc test của bạn."],
   ];
   for (const [id, icon, title, description] of forms) {
     const form = document.getElementById(id);
@@ -106,7 +140,6 @@ function prepareWorkspaceDesign() {
     "compare-root": "Chọn thư mục chứa các case UT…",
     "folder-left": "Đường dẫn thư mục gốc…", "folder-right": "Đường dẫn thư mục đối chiếu…",
     "excel-format-root": "Chọn thư mục chứa workbook cần định dạng…",
-    "copy-source": "Thư mục chứa dữ liệu nguồn…", "copy-target": "Thư mục UT đích…",
   };
   for (const [id, placeholder] of Object.entries(hints)) {
     const input = document.getElementById(id);

@@ -21,10 +21,10 @@ const path = require('node:path');
     });
     await page.goto(base);
     await page.waitForSelector('#compare-workflows input');
-    assert.equal(await page.locator('.nav-item svg').count(), 9);
+    assert.equal(await page.locator('.nav-item svg').count(), 8);
     for (const width of [1440, 1024, 768, 390]) {
       await page.setViewportSize({ width, height: 1000 });
-      for (const key of ['compare', 'folder-compare', 'excel-compare', 'pdf-compare', 'image-compare', 'file-tools', 'copy-ut', 'excel-format', 'database']) {
+      for (const key of ['compare', 'folder-compare', 'excel-compare', 'pdf-compare', 'image-compare', 'file-tools', 'excel-format', 'database']) {
         if (width <= 900) await page.locator('#menu-toggle').click();
         await page.locator(`.nav-item[data-page="${key}"]`).click();
         if (key === 'excel-format') {
@@ -46,8 +46,12 @@ const path = require('node:path');
         await tab.click();
         const key = await tab.getAttribute('data-tab');
         if (key === 'csv') {
-          assert.ok(await page.locator('#db-import-tables').evaluate(el => Math.round(el.getBoundingClientRect().height) === 380));
-          assert.ok(await page.locator('#db-export-tables').evaluate(el => Math.round(el.getBoundingClientRect().height) === 380));
+          for (const id of ['db-import-tables', 'db-export-tables']) {
+            assert.ok(await page.locator(`#${id}`).evaluate(el => {
+              const height = el.getBoundingClientRect().height;
+              return height >= 100 && height <= 300;
+            }));
+          }
           assert.equal(await page.locator('#db-copy-all-tables').count(), 1);
           for (const mode of ['delete_matching_keys', 'truncate_table', 'append']) {
             await page.locator(`input[name="db-import-mode"][value="${mode}"]`).check();
@@ -198,7 +202,7 @@ const path = require('node:path');
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     }
     assert.deepEqual(errors, []);
-    console.log('PASS: 9 pages, 4 widths, database tabs/dialog, compare tabs, input retention, keyboard, expanded results, real CSV export and value-difference filters.');
+    console.log('PASS: 8 pages, 4 widths, database tabs/dialog, compare tabs, input retention, keyboard, expanded results, real CSV export and value-difference filters.');
   } finally {
     await browser.close();
   }

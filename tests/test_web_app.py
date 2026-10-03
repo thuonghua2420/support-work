@@ -25,6 +25,13 @@ from autocompare_tool.web_app import (
 
 
 class WebApplicationTests(unittest.TestCase):
+    def test_retired_copy_ut_action_is_rejected_without_starting_a_job(self) -> None:
+        app = AutoCompareWebApplication()
+        with patch.object(app.jobs, "start") as start:
+            with self.assertRaisesRegex(ValueError, "copy_ut"):
+                app.start_action("copy_ut", {"source": "unused", "target": "unused", "confirmed": True})
+            start.assert_not_called()
+
     def test_bootstrap_contains_web_defaults_and_workflows(self) -> None:
         app = AutoCompareWebApplication()
 

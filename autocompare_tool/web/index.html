@@ -38,9 +38,6 @@
         <button class="nav-item" data-page="file-tools" type="button">
           <span class="nav-icon">◇</span><span><strong>File/Folder</strong><small>Đổi tên, xóa, di chuyển</small></span>
         </button>
-        <button class="nav-item" data-page="copy-ut" type="button">
-          <span class="nav-icon">⧉</span><span><strong>Sao chép UT</strong><small>Copy theo cấu trúc test</small></span>
-        </button>
           <button class="nav-item" data-page="excel-format" type="button">
             <span class="nav-icon">▦</span><span><strong>Format Excel</strong><small>Font · cỡ chữ · vị trí sheet</small></span>
         </button>
@@ -310,17 +307,6 @@
           <div class="tab-panel" data-tab-panel="file:empty"><div class="card tool-card wide-tool"><div class="tool-icon cyan">□</div><h3>Folder trống</h3><p>Quét cây thư mục trước, sau đó chỉ xóa khi bạn xác nhận.</p><div class="inline-actions"><button class="secondary-button" id="find-empty" type="button">Kiểm tra folder trống</button><button class="danger-button" id="delete-empty" type="button">Xóa folder trống</button></div></div></div>
         </section>
 
-        <section class="page" id="page-copy-ut" data-title="Sao chép file UT" data-eyebrow="WORKSPACE / COPY UT">
-          <div class="page-intro"><div><span class="section-kicker">Copy workflow</span><h2>Chuyển dữ liệu theo cấu trúc UT</h2><p>File CSV tại đích sẽ được so sánh và ghi log chi tiết trước khi ghi đè.</p></div><div class="visual-chip folder-flow"><b>Source</b><span>→</span><b>UT*</b><span>→</span><b>Target</b></div></div>
-          <form class="card form-card" id="copy-ut-form">
-            <div class="flow-fields">
-              <label class="field flow-node"><span><i>1</i> Đường dẫn nguồn</span><span class="path-control"><input id="copy-source" required><button class="browse-button" type="button" data-browse-target="copy-source" data-browse-kind="directory">Chọn</button></span></label>
-              <span class="flow-arrow">→</span>
-              <label class="field flow-node"><span><i>2</i> Đường dẫn đích</span><span class="path-control"><input id="copy-target" required><button class="browse-button" type="button" data-browse-target="copy-target" data-browse-kind="directory">Chọn</button></span></label>
-            </div>
-            <div class="form-actions"><span class="hint">Log chi tiết được lưu trong folder <code>copy_logs</code>.</span><button class="primary-button" type="submit">Bắt đầu sao chép <b>→</b></button></div>
-          </form>
-        </section>
 
         <section class="page" id="page-excel-format" data-title="Format workbook Excel" data-eyebrow="WORKSPACE / EXCEL FORMAT">
           <div class="page-intro">
@@ -636,6 +622,7 @@
   <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
   <script src="/vendor/lucide.min.js" defer></script>
   <script src="/adminator.js" defer></script>
+  <script src="/workspace-guides.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/image-compare.js" defer></script>
 </body>

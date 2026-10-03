@@ -457,7 +457,7 @@ function syncDatabaseCommonLayout(group, tab) {
   if (group !== "database") return;
   $("#db-connection-hub")?.classList.toggle("sync-mode", tab === "sync");
   $("#sql-page-toolbar")?.classList.toggle("hidden", tab !== "sql-workspace");
-  if (tab === "sql-workspace") scheduleSqlEditorViewportFit();
+  scheduleSqlEditorViewportFit();
 }
 
 function scheduleSqlEditorViewportFit() {
@@ -466,6 +466,7 @@ function scheduleSqlEditorViewportFit() {
 }
 
 function fitSqlEditorToViewport() {
+  fitCsvTablesToViewport();
   const editor = $("#sql-input");
   const databasePage = $("#page-database");
   const workspacePanel = $('[data-tab-panel="database:sql-workspace"]');
@@ -474,9 +475,31 @@ function fitSqlEditorToViewport() {
       !workspacePanel?.classList.contains("active") || !inputPanel?.classList.contains("active")) return;
 
   const documentTop = editor.getBoundingClientRect().top + currentPageScrollTop();
-  const availableHeight = Math.floor(window.innerHeight - documentTop - 12);
-  editor.style.setProperty("--sql-editor-fit-height", `${Math.max(240, availableHeight)}px`);
+  const belowEditor = inputPanel.getBoundingClientRect().bottom - editor.getBoundingClientRect().bottom;
+  const bottomPadding = parseFloat(getComputedStyle($(".content")).paddingBottom) || 0;
+  const availableHeight = Math.floor(window.innerHeight - documentTop - belowEditor - bottomPadding - 8);
+  editor.style.setProperty("--sql-editor-fit-height", `${Math.max(180, availableHeight)}px`);
   renderSqlEditorHighlight();
+}
+
+function fitCsvTablesToViewport() {
+  const panel = $('[data-tab-panel="database:csv"]');
+  const form = $("#db-csv-form");
+  if (!$("#page-database")?.classList.contains("active") || !panel?.classList.contains("active")) return;
+  const headings = $$(".csv-zone-heading", form);
+  headings.forEach(el => { el.style.minHeight = "0px"; });
+  if (window.innerWidth <= 1100) {
+    form.style.removeProperty("--csv-table-fit-height");
+    return;
+  }
+  const headingHeight = Math.max(...headings.map(el => el.getBoundingClientRect().height));
+  headings.forEach(el => { el.style.minHeight = `${headingHeight}px`; });
+  const grids = [$("#db-import-tables"), $("#db-export-tables")];
+  const top = Math.max(...grids.map(el => el.getBoundingClientRect().top)) + currentPageScrollTop();
+  const tail = panel.getBoundingClientRect().bottom - Math.max(...grids.map(el => el.getBoundingClientRect().bottom));
+  const bottomPadding = parseFloat(getComputedStyle($(".content")).paddingBottom) || 0;
+  const height = Math.max(100, Math.min(300, Math.floor(window.innerHeight - top - tail - bottomPadding - 8)));
+  form.style.setProperty("--csv-table-fit-height", `${height}px`);
 }
 
 function bindActivityPanel() {
@@ -905,10 +928,6 @@ function bindForms() {
   $$('input[name="folder-export-mode"]').forEach((control) => control.addEventListener("change", updateFolderCompareMode));
   $("#load-folder-pairs")?.addEventListener("click", loadFolderComparePairs);
   ["folder-left", "folder-right"].forEach((id) => $(`#${id}`)?.addEventListener("change", resetFolderComparePairs));
-  $("#copy-ut-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    startAction("copy_ut", { source: valueOf("copy-source"), target: valueOf("copy-target") });
-  });
   $("#excel-format-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const root = valueOf("excel-format-root");
@@ -980,6 +999,7 @@ function bindForms() {
     new ResizeObserver(renderSqlEditorHighlight).observe($("#sql-input"));
   }
   window.addEventListener("resize", scheduleSqlEditorViewportFit);
+  $(".sql-excel-details")?.addEventListener("toggle", scheduleSqlEditorViewportFit);
   renderSqlEditorHighlight();
   $("#copy-current-sql").addEventListener("click", copyCurrentSql);
   $("#copy-sql-tables")?.addEventListener("click", copyAnalyzedSqlTables);
@@ -1665,6 +1685,7 @@ function renderImportCsvTables() {
     return `<button class="import-table-chip${isSelected ? " selected" : ""}" type="button" data-import-table="${escapeHtml(name)}" aria-pressed="${isSelected ? "true" : "false"}"><span>${escapeHtml(name)}</span><small>/${escapeHtml(rowLabel + headerLabel)}</small></button>`;
   }).join("") : `<p>Chưa quét file CSV.</p>`;
   count.textContent = `${tables.length} table`;
+  scheduleSqlEditorViewportFit();
   if (hint) {
     hint.textContent = tables.length
       ? `${state.selectedImportCsvTables.length} table đã chọn.`
