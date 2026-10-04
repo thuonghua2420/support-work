@@ -7,6 +7,7 @@ function prepareAdminatorLayout() {
     "excel-compare": ["file-diff", "Compare Excel"],
     "pdf-compare": ["files", "Compare PDF"],
     "image-compare": ["images", "Compare Image"],
+    "text-compare": ["columns-3", "File Compare"],
     "file-tools": ["folder-cog", "File / Folder"],
     "excel-format": ["file-spreadsheet", "Format Excel"],
     database: ["database", "Database"],
@@ -117,7 +118,7 @@ function prepareSyncWorkspace() {
   settings.innerHTML = '<div class="card-heading"><div><span class="step-number">2</span><h3>Cách đồng bộ</h3></div></div>';
   const advanced = document.createElement("details");
   advanced.className = "sync-advanced";
-  advanced.innerHTML = '<summary>Tùy chọn kỹ thuật · số record và batch size</summary>';
+  advanced.innerHTML = '<summary>Tùy chọn kỹ thuật · số record, batch và thời gian chờ</summary>';
   advanced.append(technical);
   safety.classList.add("sync-safety-options");
   settings.append(method, safety, advanced);

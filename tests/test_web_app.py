@@ -25,6 +25,14 @@ from autocompare_tool.web_app import (
 
 
 class WebApplicationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Never read or overwrite the user's saved credentials during tests.
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        history = patch("autocompare_tool.web_app.DB_CONNECTION_HISTORY_FILE", str(Path(directory.name) / "history.json"))
+        history.start()
+        self.addCleanup(history.stop)
+
     def test_retired_copy_ut_action_is_rejected_without_starting_a_job(self) -> None:
         app = AutoCompareWebApplication()
         with patch.object(app.jobs, "start") as start:
@@ -255,7 +263,7 @@ class WebApplicationTests(unittest.TestCase):
             result = app._operation(
                 "sql_format",
                 {"sql": "select * from x", "dialect": "tsql"},
-            )(lambda _message: None)
+            )(lambda _message: None, CancelToken())
 
         self.assertEqual("SELECT\n  *\nFROM x", result["formatted_sql"])
         self.assertEqual("select * from x", format_mock.call_args.args[0])
@@ -279,7 +287,7 @@ class WebApplicationTests(unittest.TestCase):
                 result = app._operation(
                     "sql_load_excel",
                     {"excel_path": "input.xlsx", "sheet_name": "SQLList", "dialect": "tsql"},
-                )(lambda _message: None)
+                )(lambda _message: None, CancelToken())
 
         load_mock.assert_called_once_with("input.xlsx", "SQLList")
         self.assertEqual(entries, format_mock.call_args.args[0])
@@ -335,7 +343,7 @@ class WebApplicationTests(unittest.TestCase):
                 "trusted_connection": False,
                 "driver": "ODBC Driver 18 for SQL Server",
                 "trust_server_certificate": True,
-                "encrypt": True,
+                "encrypt": False,
             },
             "target",
         )
@@ -393,13 +401,14 @@ class WebApplicationTests(unittest.TestCase):
         }
 
         with patch(
-            "autocompare_tool.web_app.sync_database_tables",
+            "autocompare_tool.web_app.run_sync_isolated",
             return_value=DatabaseSyncSummary(),
         ) as sync_mock:
             app._database_sync(payload, lambda _message: None)
 
         self.assertEqual("incremental", sync_mock.call_args.kwargs["sync_mode"])
         self.assertEqual("5000", sync_mock.call_args.kwargs["batch_size"])
+        self.assertEqual(120, sync_mock.call_args.kwargs["step_timeout"])
         self.assertTrue(sync_mock.call_args.kwargs["delete_target_only"])
         self.assertTrue(sync_mock.call_args.kwargs["keep_identity"])
 
@@ -408,7 +417,7 @@ class JobManagerTests(unittest.TestCase):
     def test_job_collects_logs_and_result(self) -> None:
         manager = JobManager()
 
-        manager.start("sample", "Đang chạy...", lambda log: self._successful_operation(log))
+        manager.start("sample", "Đang chạy...", lambda log, cancel: self._successful_operation(log))
         snapshot = self._wait_until_finished(manager)
 
         self.assertEqual("succeeded", snapshot["state"])
@@ -432,7 +441,7 @@ class JobManagerTests(unittest.TestCase):
         return {"value": 42}
 
     @staticmethod
-    def _failed_operation(_log):
+    def _failed_operation(_log, _cancel):
         raise ValueError("test failure")
 
     def _wait_until_finished(self, manager: JobManager) -> dict:

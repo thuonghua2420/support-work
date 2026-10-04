@@ -101,6 +101,14 @@ const path = require('node:path');
         const key = await tab.getAttribute('data-tab');
         if (key === 'sync') {
           assert.equal(await page.locator('.sync-workspace-grid > section').count(), 2);
+          const advanced = page.locator('.sync-advanced');
+          await advanced.locator('summary').click();
+          assert.equal(await page.locator('#sync-step-timeout').inputValue(), '120');
+          assert.equal(await page.locator('#sync-step-timeout').getAttribute('min'), '10');
+          assert.equal(await page.locator('#sync-step-timeout').getAttribute('max'), '3600');
+          assert.equal(await page.locator('#sync-batch-size').getAttribute('max'), '500');
+          await capture(`${width}-sync-advanced`);
+          await advanced.locator('summary').click();
           for (const mode of ['append', 'truncate_table', 'condition', 'incremental']) {
             await page.locator(`input[name="sync-mode"][value="${mode}"]`).check();
             assert.equal(await page.locator('#sync-condition-panel').isVisible(), mode === 'condition');

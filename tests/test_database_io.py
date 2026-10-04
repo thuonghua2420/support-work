@@ -14,6 +14,7 @@ from autocompare_tool.database_io import (
     DatabaseConnectionSettings,
     DatabaseCsvSummary,
     DatabaseSyncSummary,
+    OperationCancelledError,
     IMPORT_MODE_DELETE_MATCHING_KEYS,
     IMPORT_MODE_TRUNCATE_TABLE,
     SYNC_DUPLICATE_UPSERT,
@@ -32,6 +33,7 @@ from autocompare_tool.database_io import (
     _build_sync_update_sql,
     _format_csv_value,
     _format_db_value,
+    _fetch_target_rows_by_keys,
     _import_one_csv,
     _parse_record_limit,
     _parse_sync_batch_size,
@@ -43,11 +45,84 @@ from autocompare_tool.database_io import (
     normalize_database_type,
     preferred_sqlserver_driver,
     scan_import_csv_tables,
+    sync_database_tables,
     validate_connection_settings,
 )
 
 
 class DatabaseIoTests(unittest.TestCase):
+    def test_sync_caps_old_large_batch_setting_before_workflow(self):
+        from unittest.mock import Mock
+        settings = DatabaseConnectionSettings(database_type="sqlserver", host=".", database="test", trusted_connection=True)
+        adapter = Mock()
+        with patch("autocompare_tool.database_io.get_adapter", return_value=adapter), patch("autocompare_tool.database_io._sync_one_table") as sync:
+            sync_database_tables(settings, settings, table_names=["items"], batch_size=100000)
+        self.assertEqual(sync.call_args.kwargs["batch_size"], 500)
+
+    def test_cancel_before_commit_rolls_back_all_sync_modes(self):
+        metadata = TableMetadata("dbo", "items", [_column("id", data_type="int", is_primary_key=True), _column("name", data_type="nvarchar")])
+        settings = DatabaseConnectionSettings(database_type="sqlserver", host=".", database="test")
+        for mode in ["append", "truncate_table", "incremental", "condition"]:
+            with self.subTest(mode=mode):
+                cancelled = False
+
+                class CancelBeforeCommitAdapter(DeltaRecordingAdapter):
+                    def truncate_table(self, *args):
+                        pass
+
+                    def after_import(self, *args):
+                        nonlocal cancelled
+                        cancelled = True
+
+                def check():
+                    if cancelled:
+                        raise OperationCancelledError("cancel before commit")
+
+                source, target = SyncConnection([(1, "A")]), SyncConnection([])
+                with self.assertRaises(OperationCancelledError):
+                    _sync_one_table(source, target, DeltaRecordingAdapter(metadata), CancelBeforeCommitAdapter(metadata),
+                                    settings, settings, "items", None, True, False, DatabaseSyncSummary(), lambda _: None,
+                                    sync_mode=mode, batch_size=100, where_clause="id > 0" if mode == "condition" else "",
+                                    target_read_connection=SyncConnection([]), cancel=check)
+                self.assertTrue(target.rolled_back)
+                self.assertFalse(target.committed)
+
+    def test_sqlserver_target_read_finishes_and_releases_locks_before_writes(self):
+        metadata = TableMetadata("dbo", "customers", [_column("id", data_type="int", is_primary_key=True), _column("name", data_type="nvarchar")])
+        source = SyncConnection([(1, "new"), (3, "added")])
+        read = SyncConnection([(1, "old"), (2, "removed")])
+        write = SyncConnection([])
+
+        class LockCheckingAdapter(DeltaRecordingAdapter, SqlServerAdapter):
+            def executemany(inner, cursor, sql, rows):
+                self.assertTrue(read.rolled_back, "Read transaction must release locks before any write")
+                super().executemany(cursor, sql, rows)
+
+        adapter = LockCheckingAdapter(metadata)
+        summary = DatabaseSyncSummary()
+        settings = DatabaseConnectionSettings(database_type="sqlserver", host=".", database="test", schema="dbo")
+        _sync_one_table(source, write, DeltaRecordingAdapter(metadata), adapter, settings, settings,
+                        "customers", None, True, False, summary, lambda _: None,
+                        sync_mode=SYNC_MODE_INCREMENTAL, batch_size=100, target_read_connection=read)
+        self.assertEqual(summary.errors, [])
+        self.assertEqual(adapter.rows_for("insert"), [(3, "added")])
+        self.assertEqual(adapter.rows_for("update"), [("new", 1)])
+        self.assertEqual(adapter.rows_for("delete"), [(2,)])
+        self.assertTrue(write.committed)
+
+    def test_conditional_lookup_groups_2000_composite_keys_without_losing_records(self):
+        columns = [_column("tenant_id", is_primary_key=True), _column("id", is_primary_key=True), _column("name", data_type="varchar")]
+        metadata = TableMetadata("dbo", "orders", columns)
+        rows = [(i // 10, i, f"Name {i}") for i in range(2000)]
+        connection = ConditionalSyncConnection(rows)
+        adapter = DatabaseAdapter()
+        with patch.object(adapter, "execute", wraps=adapter.execute) as execute:
+            result = _fetch_target_rows_by_keys(adapter, connection, metadata, columns, columns[:2], [row[:2] for row in rows] + [rows[0][:2]])
+        self.assertEqual(len(result), 2000)
+        self.assertEqual(execute.call_count, 20)
+        self.assertTrue(all(len(call.args[2]) <= 900 for call in execute.call_args_list))
+        self.assertEqual(set(result.values()), set(rows))
+
     def test_normalize_database_type_accepts_common_aliases(self) -> None:
         self.assertEqual(normalize_database_type("SQL Server"), "sqlserver")
         self.assertEqual(normalize_database_type("postgress"), "postgresql")
@@ -1008,7 +1083,10 @@ class ConditionalSyncCursor:
         if "COUNT(*)" in sql:
             self.rows = [(len(self.source_rows),)]
         elif params:
-            self.rows = [row for row in self.source_rows if row[: len(params)] == params]
+            group_count = sql.count(" OR ") + 1
+            key_size = len(params) // group_count
+            keys = {params[i:i + key_size] for i in range(0, len(params), key_size)}
+            self.rows = [row for row in self.source_rows if row[:key_size] in keys]
         else:
             self.rows = list(self.source_rows)
 

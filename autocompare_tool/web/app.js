@@ -561,6 +561,7 @@ function shouldCacheControl(control) {
   if (["password", "button", "submit", "reset", "file", "hidden"].includes(type)) return false;
   const id = control.id.toLowerCase();
   if (id.includes("password")) return false;
+  if (control.closest("#page-text-compare")) return false;
   if (control.matches("[data-db-history-select]")) return false;
   if (id === "activity-log" || id === "path-current" || id === "path-root-select" || id === "save-file-name") return false;
   if (id.startsWith("note-") || id.startsWith("confirm-")) return false;
@@ -1160,8 +1161,9 @@ function bindForms() {
         ? "Trước khi xóa hoặc ghi đè record trùng key, hệ thống sẽ backup record hiện có ở DB đích vào folder db_sync_backups trong project."
         : "",
       syncMode === "incremental" || syncMode === "condition"
-        ? `Dữ liệu được đọc và ghi theo batch ${batchSize || "5000"} record; không nạp toàn bộ table vào RAM.`
+        ? `Dữ liệu được đọc và ghi theo batch tối đa ${Math.min(Number(batchSize) || 500, 500)} record; không nạp toàn bộ table vào RAM.`
         : (limit ? `Mỗi table chỉ đồng bộ tối đa ${limit} record.` : "Đồng bộ toàn bộ record trong mỗi table."),
+      "Hủy sẽ ngắt tiến trình ngay, không chờ batch. CSDL có thể cần thời gian rollback; table đã commit không được hoàn tác. TRUNCATE/DDL trên CSDL tự commit có thể không rollback được.",
     ].filter(Boolean).join("\n\n");
     if (await confirmAction("Xác nhận đồng bộ cơ sở dữ liệu", detail)) {
       resetSyncProgress(tableNames);
@@ -1169,6 +1171,7 @@ function bindForms() {
         source_settings: getDbSettings("main"), target_settings: getDbSettings("target"), table_names: tableNames,
         record_limit: limit, keep_identity: checked("sync-keep-identity"), sync_mode: syncMode,
         batch_size: batchSize, delete_target_only: deleteTargetOnly,
+        step_timeout: valueOf("sync-step-timeout") || 120,
         where_clause: syncMode === "condition" ? whereClause : "",
         duplicate_mode: duplicateMode,
         truncate_before_sync: syncMode === "truncate_table", confirmed: true,
@@ -1746,7 +1749,9 @@ function syncSyncModeControls() {
   const limitInput = $("#sync-record-limit");
   limitInput.disabled = incremental || condition;
   if (incremental || condition) limitInput.value = "";
-  $("#sync-batch-size").disabled = !(incremental || condition);
+  const batchInput = $("#sync-batch-size");
+  batchInput.disabled = false;
+  batchInput.value = Math.min(500, Math.max(100, Number(batchInput.value) || 500));
   $("#sync-delete-target-only").disabled = !incremental;
   $("#sync-delete-target-only-row").classList.toggle("disabled", !incremental);
   $("#sync-condition-panel").classList.toggle("hidden", !condition);
@@ -3271,6 +3276,7 @@ function updateJobState(job) {
 
 function consumeJobResult(job) {
   const result = job.result || {};
+  if (job.action === "text_folder_compare") window.textCompare?.showFolders(result);
   if (result.update_compare_keys) {
     state.bootstrap.update_compare_keys = result.update_compare_keys;
     renderCompareKeys();
@@ -4368,6 +4374,7 @@ async function updateSqlSource(relationId) {
 }
 
 function summaryMessage(job) {
+  if (job.action === "text_folder_compare") return `Đã đối chiếu ${job.result?.rows?.length || 0} mục. ${job.result?.counts?.different || 0} file khác nội dung; ${job.result?.counts?.error || 0} lỗi đọc. Xem kết quả tại File Compare → So sánh thư mục.`;
   if (job.action === "compare_keys_extract") return `Đã lưu key cho ${job.result.saved_count} table; ${job.result.existing_count} key không đổi; bỏ qua ${job.result.skipped.length} table. Chi tiết trong log.`;
   if (job.action === "compare_keys_remove") return `Đã xóa key của ${job.result.removed_count} table khỏi config.`;
   const result = job.result || {};

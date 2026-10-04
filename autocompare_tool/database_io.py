@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import pickle
 import re
+import tempfile
 import time as time_module
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
@@ -1410,6 +1412,7 @@ def sync_database_tables(
     duplicate_mode: str = SYNC_DUPLICATE_ERROR,
     backup_root: str | Path | None = None,
     cancel: CancelChecker | None = None,
+    activity: Callable[[str], None] | None = None,
 ) -> DatabaseSyncSummary:
     source_settings = validate_connection_settings(source_settings)
     target_settings = validate_connection_settings(target_settings)
@@ -1433,15 +1436,32 @@ def sync_database_tables(
         raise ValueError("Chế độ đồng bộ theo điều kiện không dùng giới hạn record.")
     logger = log or (lambda message: None)
     summary = DatabaseSyncSummary()
+    # Limit memory and single-call latency even for an old cached 100000-row setting.
+    if parsed_batch_size > 500:
+        logger(f"Chia batch {parsed_batch_size} thành các lượt tối đa 500 record để giảm thời gian chờ và bộ nhớ.")
+        parsed_batch_size = 500
+
+    def connect(adapter, settings, label):
+        _check_cancel(cancel)
+        if activity:
+            activity(f"Kết nối {label}")
+        connection = adapter.connect(settings)
+        if activity:
+            from .database_sync_worker import ObservedConnection
+            fast_batch = settings.normalized_type == DATABASE_SQLSERVER and settings.driver in {
+                "ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server",
+            }
+            connection = ObservedConnection(connection, activity, label, fast_batch=fast_batch)
+        return connection
 
     source_connection = None
     target_connection = None
     target_read_connection = None
     try:
-        source_connection = source_adapter.connect(source_settings)
-        target_connection = target_adapter.connect(target_settings)
+        source_connection = connect(source_adapter, source_settings, "nguồn")
+        target_connection = connect(target_adapter, target_settings, "đích ghi")
         target_read_connection = (
-            target_adapter.connect(target_settings)
+            connect(target_adapter, target_settings, "đích đọc")
             if mode == SYNC_MODE_INCREMENTAL
             else target_connection
         )
@@ -2014,7 +2034,7 @@ def _sync_one_table(
                 )
             return
 
-        source_cursor = source_connection.cursor()
+        source_cursor = source_adapter.stream_cursor(source_connection)
         source_sql = _build_sync_select_sql(source_adapter, source_metadata, source_columns)
         _check_cancel(cancel)
         source_adapter.execute(source_cursor, source_sql)
@@ -2097,6 +2117,7 @@ def _sync_one_table(
                 logger(f"{raw_table_name} -> lỗi khi dọn trạng thái identity: {cleanup_exc}")
             if sync_error is not None:
                 raise sync_error
+            _check_cancel(cancel)
             target_connection.commit()
         except Exception:
             target_connection.rollback()
@@ -2231,6 +2252,8 @@ def _sync_one_table_condition(
             for row in rows
         )
         backup_row_count += backup_writer.write_rows(formatted_rows)
+        # The worker may be stopped mid-batch. Persist backups BEFORE mutating DB.
+        backup_writer.flush()
 
     try:
         _check_cancel(cancel)
@@ -2342,6 +2365,7 @@ def _sync_one_table_condition(
             raise operation_error
         if cleanup_error is not None:
             raise cleanup_error
+        _check_cancel(cancel)
         target_connection.commit()
     except Exception:
         target_connection.rollback()
@@ -2482,13 +2506,27 @@ def _sync_one_table_incremental(
             target_adapter.executemany(target_write_cursor, insert_sql, insert_rows)
             insert_rows.clear()
 
+    target_snapshot = None
     try:
         _check_cancel(cancel)
         source_adapter.execute(source_cursor, source_sql)
         _check_cancel(cancel)
         target_adapter.execute(target_read_cursor, target_sql)
         source_iterator = _iter_cursor_rows(source_cursor, batch_size)
-        target_iterator = _iter_cursor_rows(target_read_cursor, batch_size)
+        if isinstance(target_adapter, SqlServerAdapter) and target_read_connection is not target_write_connection:
+            # A streaming SELECT can retain page/table locks and block our own
+            # writer on its separate connection. Drain it to disk before DML.
+            target_snapshot = tempfile.TemporaryFile()
+            progress_logger(f"{target_metadata.name} -> đọc bản đối chiếu đích vào file tạm trước khi ghi để tránh tự chặn khóa.")
+            for batch in _iter_cursor_batches(target_read_cursor, batch_size, cancel):
+                pickle.dump([tuple(bytes(v) if isinstance(v, memoryview) else v for v in row) for row in batch], target_snapshot)
+            _close_cursor(target_read_cursor)
+            target_read_cursor = None
+            target_read_connection.rollback()
+            target_snapshot.seek(0)
+            target_iterator = _iter_sync_snapshot(target_snapshot)
+        else:
+            target_iterator = _iter_cursor_rows(target_read_cursor, batch_size)
         previous_source_key = None
         previous_target_key = None
 
@@ -2590,6 +2628,7 @@ def _sync_one_table_incremental(
             raise operation_error
         if cleanup_error is not None:
             raise cleanup_error
+        _check_cancel(cancel)
         target_write_connection.commit()
     except Exception:
         target_write_connection.rollback()
@@ -2598,6 +2637,8 @@ def _sync_one_table_incremental(
         _close_cursor(source_cursor)
         _close_cursor(target_read_cursor)
         _close_cursor(target_write_cursor)
+        if target_snapshot is not None:
+            target_snapshot.close()
 
     _log_sync_progress(
         progress_logger,
@@ -2748,6 +2789,16 @@ def _build_sync_update_sql(
     return f"UPDATE {adapter.qualified_table(metadata)} SET {set_sql} WHERE {where_sql}"
 
 
+def _iter_sync_snapshot(snapshot):
+    # Only read our own anonymous temporary file; never deserialize user files.
+    while True:
+        try:
+            rows = pickle.load(snapshot)
+        except EOFError:
+            return
+        yield from rows
+
+
 def _iter_cursor_rows(cursor, batch_size: int):
     while True:
         rows = cursor.fetchmany(batch_size)
@@ -2791,12 +2842,24 @@ def _fetch_target_rows_by_keys(
 
     key_index_by_name = {column.name.lower(): index for index, column in enumerate(columns)}
     key_indexes = [key_index_by_name[column.name.lower()] for column in primary_key_columns]
-    select_sql = _build_select_by_primary_key_sql(adapter, metadata, columns, primary_key_columns)
+    selected = ", ".join(adapter.quote_identifier(column.name) for column in columns)
+    # Bound both the parameter count (SQL Server: 2100) and OR-expression depth.
+    keys_per_query = max(1, min(100, 900 // len(primary_key_columns)))
     cursor = connection.cursor()
     try:
-        for raw_key in unique_keys:
+        for offset in range(0, len(unique_keys), keys_per_query):
             _check_cancel(cancel)
-            adapter.execute(cursor, select_sql, tuple(raw_key))
+            key_batch = unique_keys[offset:offset + keys_per_query]
+            predicates = []
+            params = []
+            for raw_key in key_batch:
+                parts = []
+                for column, value in zip(primary_key_columns, raw_key):
+                    parts.append(f"{adapter.quote_identifier(column.name)} = {adapter.placeholder(len(params))}")
+                    params.append(value)
+                predicates.append("(" + " AND ".join(parts) + ")")
+            select_sql = f"SELECT {selected} FROM {adapter.qualified_table(metadata)} WHERE " + " OR ".join(predicates)
+            adapter.execute(cursor, select_sql, tuple(params))
             for row in cursor.fetchall():
                 row_tuple = tuple(row)
                 result[_sync_key_from_row(row_tuple, key_indexes, primary_key_columns)] = row_tuple

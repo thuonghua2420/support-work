@@ -43,6 +43,21 @@ hộp kết nối hai CSDL không có hướng dẫn riêng. File / Folder dùng
 đồng bộ và hàng nút thao tác tách biệt khỏi vùng nhập liệu.
 Không tải các script quảng cáo/analytics từ bản mẫu offline.
 
+### File Compare — văn bản và cây thư mục
+
+Mục **File Compare** trong menu có hai tab, độc lập với Compare CSV theo folder:
+
+- **So sánh văn bản:** mở hai hoặc ba file bằng đường dẫn/bộ chọn file, hoặc dán vào editor. Ba file dùng B ở giữa làm mốc A↔B và B↔C, không tự merge. Tô màu dòng và đoạn ký tự khác, đánh số dòng, word-wrap, chỉnh sửa/undo, cú pháp theo tên file hoặc chọn thủ công, điều hướng Trước/Sau (Alt+↑/↓), thanh tổng quan có thể click và chế độ phóng to (Escape để thoát).
+- Nhận diện dòng di chuyển dựa trên nguyên dòng trùng duy nhất ở hai bên và thuộc vùng thay đổi; đánh dấu tím, bấm ↔ để đến dòng đối ứng. Dòng lặp/đoạn đã sửa không được khẳng định là di chuyển. Đây không phải bản sao toàn bộ thuật toán WinMerge.
+- Editor hỗ trợ UTF-8 (có/không BOM), UTF-16/32 có BOM và CP932, tối đa 1 MB / 10.000 dòng mỗi file. So màu dùng văn bản chuẩn hóa EOL; metadata và kết luận byte phân biệt BOM/encoding/LF/CRLF. Nội dung chỉ ở bộ nhớ trình duyệt, không lưu localStorage. Khi chưa chỉnh sửa, kết luận byte dựa trên SHA-256 của các file đã mở, không tự theo dõi thay đổi ngoài ứng dụng.
+- **Lưu file** yêu cầu xác nhận, giữ encoding/BOM gốc, kiểm tra snapshot/byte hiện tại rồi thay file bằng bản tạm cùng thư mục. Chặn file chỉ đọc và file đổi bên ngoài, không tự tạo backup. File EOL hỗn hợp phải chọn LF/CRLF trước khi lưu. **Tải UTF-8** tải bản sao LF mà không ghi đè nguồn. Luôn sao lưu trước khi sửa tài liệu quan trọng.
+- **So sánh thư mục:** quét đệ quy và đối chiếu byte (kể cả file nhị phân/lớn), phân loại giống/khác, Left only/Right only, khác loại, lỗi đọc, bỏ qua symlink/junction. Có cây thư mục thu gọn, danh sách phẳng, lọc trạng thái và mở cặp file bằng một click. Thư mục hai bên được hiển thị như nhóm, không được gắn nhãn "giống" chỉ vì tên khớp.
+- Regex Python chạy trên đường dẫn tương đối dùng `/`, phân biệt hoa/thường; `(?i)` để không phân biệt. Bộ lọc loại trừ ưu tiên, cắt cả cây con; mặc định bỏ `.git`, `node_modules`, `__pycache__`, `.log`, `.tmp`. Bao gồm áp dụng cho file; nhóm thư mục được giữ để thể hiện cấu trúc. Tối đa 20.000 mục mỗi phía. Quét là read-only, chạy trong tiến trình riêng, có Hủy và giới hạn 30 giây cho bước không tiến triển (kể cả regex gây kẹt).
+
+Triển khai: `text_compare.py` (đọc/lưu/quét), `web/text-compare.js` và `.css` (UI). Thư viện editor được đóng gói offline trong `web/vendor/codemirror`: CodeMirror 5.65.21 (MIT), diff-match-patch 1.0.5 (Apache-2.0), kèm LICENSE; bản diff-match-patch chỉ thêm guard CommonJS để chạy trực tiếp trong browser. Không cần npm hoặc Internet khi chạy ứng dụng. Cú pháp hỗ trợ JavaScript/TypeScript, JSON, Python, SQL, C/C++/C#/Java, HTML/XML, CSS, Markdown, Shell và YAML.
+
+Kiểm thử: `python -B -m unittest discover -s tests -p test_text_compare.py`; kiểm thử trình duyệt `node tests/web_text_compare_smoke.cjs` với Playwright từ `.tmp/ui-check/node_modules` và server local cổng 8799. Smoke test chỉ ghi fixture trong `.tmp`, không ghi dữ liệu người dùng hay kết nối CSDL.
+
 Kiểm tra theme với server local đang chạy (không chạy tác vụ, không ghi file dữ
 liệu và không kết nối database; workbook kiểm thử dùng response giả lập):
 
@@ -263,7 +278,13 @@ Giao diện cung cấp ba phương thức:
 - **Insert thêm**: insert toàn bộ record nguồn mà không so sánh dữ liệu hiện có.
 - **Truncate & insert lại**: xóa toàn bộ table đích rồi insert lại dữ liệu nguồn.
 
-Chế độ chênh lệch yêu cầu table nguồn và đích có cùng primary key, hỗ trợ primary key ghép. Nếu key là identity phải bật **Giữ identity**. Dữ liệu được đọc bằng `fetchmany()` và thay đổi được ghi theo batch, mặc định 5.000 record, nên không nạp toàn bộ table vào RAM. Chế độ này không cho dùng giới hạn record vì việc dừng giữa table có thể khiến kết quả không còn phản ánh chính xác dữ liệu nguồn.
+Chế độ chênh lệch yêu cầu table nguồn và đích có cùng primary key, hỗ trợ primary key ghép. Nếu key là identity phải bật **Giữ identity**. Dữ liệu được đọc bằng `fetchmany()` và thay đổi được ghi theo batch tối đa 500 record mỗi lượt (giá trị cũ lớn hơn được chia nhỏ), không nạp toàn bộ table vào RAM. Chế độ này không cho dùng giới hạn record vì việc dừng giữa table có thể khiến kết quả không còn phản ánh chính xác dữ liệu nguồn.
+
+Đồng bộ trên web chạy trong tiến trình riêng (`database_sync_worker.py`), tách driver khỏi server và giao diện. **Hủy tác vụ** ngắt tiến trình cùng các kết nối của tác vụ, không chờ kết nối/SELECT/batch insert trả về. Mỗi bước có watchdog mặc định 120 giây, chỉnh từ 10–3600 giây trong Tùy chọn kỹ thuật; quá hạn sẽ ngắt và báo bước bị kẹt. LOG vẫn cập nhật trạng thái chờ mỗi 10 giây. Không tự retry thao tác ghi sau lỗi hoặc hủy.
+
+Đây là ngắt ở phía ứng dụng, **không phải cam kết rollback tức thì trên server**. CSDL có thể cần thời gian phát hiện mất kết nối, rollback và giải phóng khóa. Table đã commit được giữ nguyên; ngắt đúng lúc commit thì kết quả có thể chưa xác định, cần kiểm tra đích trước khi chạy lại. TRUNCATE/DDL tự commit (ví dụ MySQL/Oracle), table không hỗ trợ transaction và tác động ngoài transaction của trigger không được đảm bảo hoàn tác. Không tự KILL các session khác hoặc khởi động lại dịch vụ CSDL. Cơ chế ngắt tiến trình này áp dụng cho đồng bộ web; các tác vụ khác vẫn hủy tại checkpoint.
+
+Tối ưu đồng bộ: tra primary key theo nhóm tối đa 100 key/900 tham số thay cho từng record; dùng parameter-array batch trên Microsoft ODBC Driver 17/18; ghi backup theo điều kiện ra file trước mỗi lượt thay đổi. Với đồng bộ chênh lệch SQL Server, dữ liệu đối chiếu đích được đọc theo batch vào file tạm tự dọn rồi giải phóng transaction đọc trước khi ghi, tránh luồng đọc chặn luồng ghi của cùng tác vụ. Cần đủ dung lượng ổ tạm cho dữ liệu đích. Vẫn giữ transaction ghi theo table, không commit từng batch để đổi lấy tốc độ.
 
 Không bật **Xóa record chỉ có ở đích** nếu muốn giữ dữ liệu riêng của database đích. Khi bật, sau khi chạy thành công database đích sẽ giống nguồn đối với các column có thể đồng bộ. Nên tránh ghi đồng thời vào hai table trong lúc đồng bộ; datatype và collation của primary key cần tương thích để thứ tự streaming nhất quán.
 

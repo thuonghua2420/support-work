@@ -1,0 +1,100 @@
+/* Only writes generated fixtures under .tmp. No real DB or user file mutation. */
+const { chromium } = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+
+(async () => {
+  const root = await fs.mkdtemp(path.resolve('.tmp/text-compare-test-'));
+  const left = path.join(root, 'left'), right = path.join(root, 'right');
+  await fs.mkdir(left); await fs.mkdir(right);
+  const a = path.join(left, 'sample.js'), b = path.join(right, 'sample.js');
+  const eolA = path.join(root, 'LF.txt'), eolB = path.join(root, 'CRLF.txt');
+  await fs.writeFile(eolA, 'equal\n'); await fs.writeFile(eolB, 'equal\r\n');
+  await fs.writeFile(a, 'const label = "old";\r\nconsole.log(label);\r\n');
+  await fs.writeFile(b, 'const label = "new";\nconsole.log(label);\n');
+  await fs.writeFile(path.join(left, 'left-only.txt'), 'left');
+  await fs.mkdir(path.join(left, 'nested')); await fs.mkdir(path.join(right, 'nested'));
+  for (const dir of [left, right]) await fs.writeFile(path.join(dir, 'nested', 'same.bin'), Buffer.from([0, 1, 2]));
+  const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--disable-gpu-sandbox'] });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await fs.mkdir('.tmp/text-compare-screenshots', { recursive: true });
+  const capture = async name => {
+    await page.screenshot({ path: `.tmp/text-compare-screenshots/${name}.png`, fullPage: true });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), `${name}: page overflow`);
+  };
+  try {
+    await page.goto('http://127.0.0.1:8799/#text-compare');
+    await page.waitForSelector('#page-text-compare.active .CodeMirror');
+    await page.locator('#tc-path-0').fill(eolA); await page.locator('#tc-path-1').fill(eolB);
+    await page.locator('#tc-open').click();
+    await page.waitForFunction(() => document.querySelector('#tc-summary').textContent.includes('xuống dòng khác'));
+    await page.locator('#tc-path-1').fill(eolA); await page.locator('#tc-open').click();
+    await page.waitForFunction(() => document.querySelector('#tc-summary').textContent.includes('100% về byte'));
+    await page.locator('#tc-path-0').fill(a); await page.locator('#tc-path-1').fill(b);
+    await page.locator('#tc-open').click();
+    await page.waitForFunction(() => document.querySelector('#tc-summary').textContent.includes('vùng sai khác'));
+    assert.equal(await page.locator('#tc-editor .CodeMirror').count(), 2);
+    assert.ok(await page.locator('#tc-editor .cm-keyword').count() > 0, 'Syntax highlighting enabled for JS');
+    await capture('two-files');
+    await page.locator('#tc-next').click(); assert.match(await page.locator('#tc-position').innerText(), /^1 \/ /);
+    await page.evaluate(() => document.querySelector('#tc-editor .CodeMirror').CodeMirror.setValue('const label = "edited";\nconsole.log(label);\n'));
+    await page.waitForFunction(() => document.querySelector('.tc-dirty'));
+    assert.match(await fs.readFile(a, 'utf8'), /old/, 'Editing alone does not write the file');
+    await page.locator('.tc-document').first().getByRole('button', { name: 'Lưu file', exact: true }).click();
+    await page.locator('#confirm-accept').click();
+    await page.waitForFunction(() => document.querySelector('#tc-message').textContent.includes('Đã lưu'));
+    assert.equal(await fs.readFile(a, 'utf8'), 'const label = "edited";\r\nconsole.log(label);\r\n');
+    await fs.writeFile(a, 'external change');
+    await page.evaluate(() => document.querySelector('#tc-editor .CodeMirror').CodeMirror.setValue('do not overwrite external'));
+    await page.locator('.tc-document').first().getByRole('button', { name: 'Lưu file', exact: true }).click();
+    await page.locator('#confirm-accept').click();
+    await page.waitForFunction(() => document.querySelector('#tc-message').textContent.includes('bên ngoài'));
+    assert.equal(await fs.readFile(a, 'utf8'), 'external change');
+    await page.locator('#tc-count').selectOption('3');
+    assert.equal(await page.locator('#tc-editor .CodeMirror').count(), 3);
+    assert.equal(await page.locator('.tc-document').count(), 3);
+    await page.evaluate(() => {
+      const editors = [...document.querySelectorAll('#tc-editor .CodeMirror')].map(node => node.CodeMirror);
+      editors[0].setValue('function movedBlock() {\n  return "move me";\n}\nconst a = 1;\nconst b = 2;\nconst c = 3;\n');
+      editors[1].setValue('const a = 1;\nconst b = 2;\nconst c = 3;\nfunction movedBlock() {\n  return "move me";\n}\n');
+      editors[2].setValue('const a = 1;\nconst b = 200;\nconst c = 3;\nfunction movedBlock() {\n  return "move me";\n}\n');
+    });
+    await page.waitForFunction(() => document.querySelector('#tc-summary').textContent.includes('dòng di chuyển'));
+    await capture('three-files-moved');
+    await page.locator('#tc-expand').click(); await capture('three-files-fullscreen');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#tc-expand').getAttribute('aria-pressed'), 'false');
+    const openNew = page.locator('#tc-open').click();
+    await openNew; await page.locator('#confirm-dialog button[value="cancel"]').click();
+    assert.equal(await page.locator('#tc-editor .CodeMirror').count(), 3, 'Cancelling replacement preserves all drafts');
+    await page.locator('#tc-editable').uncheck();
+    assert.ok(await page.evaluate(() => [...document.querySelectorAll('#tc-editor .CodeMirror')].every(node => node.CodeMirror.getOption('readOnly'))));
+    await page.locator('#tc-editable').check(); await page.locator('#tc-wrap').uncheck(); await page.locator('#tc-wrap').check();
+    await page.locator('[data-tc-tab="folder"]').click();
+    await page.locator('#tc-folder-left').fill(left); await page.locator('#tc-folder-right').fill(right);
+    await page.locator('#tc-folder-run').click();
+    await page.waitForFunction(() => document.querySelector('#tc-folder-summary').textContent.includes('Left only'), { timeout: 15000 });
+    await page.locator('#tc-folder-results summary').filter({ hasText: 'nested' }).click();
+    await page.getByRole('button', { name: 'same.bin', exact: true }).waitFor();
+    await capture('folder-tree');
+    await page.locator('#tc-folder-status').selectOption('different');
+    assert.equal(await page.locator('#tc-folder-results .tc-file-row').count(), 1);
+    await page.locator('#tc-tree').uncheck();
+    await capture('folder-filtered');
+    await page.getByRole('button', { name: 'sample.js', exact: true }).click();
+    await page.locator('#confirm-accept').click();
+    await page.waitForFunction(() => !document.querySelector('#tc-text-panel').classList.contains('hidden'));
+    assert.equal(await page.locator('#tc-editor .CodeMirror').count(), 2, 'Folder pair opens in two panes');
+    assert.equal(await page.locator('#tc-count').inputValue(), '2');
+    for (const width of [1920, 1024, 768, 390]) {
+      await page.setViewportSize({ width, height: 960 });
+      await page.locator('[data-tc-tab="text"]').click(); await capture(`${width}-text`);
+      await page.locator('[data-tc-tab="folder"]').click(); await capture(`${width}-folder`);
+    }
+    assert.deepEqual(errors, []);
+    console.log('Text compare smoke passed: 2/3 panes, syntax, moved lines, editing, confirmed save, CRLF preservation, conflict protection, folder scan/tree/filter and five widths.');
+  } finally { await browser.close(); }
+})();

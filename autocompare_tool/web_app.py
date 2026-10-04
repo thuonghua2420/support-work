@@ -38,10 +38,11 @@ from .database_io import (
     normalize_csv_folder,
     preferred_sqlserver_driver,
     scan_import_csv_tables,
-    sync_database_tables,
     test_database_connection,
 )
 from .excel_image_formatter import format_excel_workbooks
+from .database_sync_worker import run_sync_isolated
+from .text_compare import TextCompareFiles, run_folder_compare, DEFAULT_EXCLUDE
 from .excel_compare import compare_excel_workbooks
 from .pdf_compare import compare_pdf_files
 from .image_compare import compare_images
@@ -164,7 +165,13 @@ class JobManager:
                 raise ValueError("Tác vụ cần hủy không còn là tác vụ đang chạy.")
             self._current.cancel_token.cancel()
             self._current.status = "Đang hủy tác vụ..."
-            self._current.logs.append("Đã gửi yêu cầu hủy. Hệ thống sẽ dừng tại điểm an toàn gần nhất.")
+            self._current.logs.append(
+                "Đã yêu cầu ngắt tiến trình đồng bộ ngay, không chờ batch. CSDL có thể cần thời gian rollback."
+                if self._current.action == "db_sync"
+                else "Đã yêu cầu ngắt quét thư mục. Không thay đổi file nguồn."
+                if self._current.action == "text_folder_compare"
+                else "Đã gửi yêu cầu hủy. Hệ thống sẽ dừng tại điểm an toàn gần nhất."
+            )
             return {"cancel_requested": True, "job": self._current.snapshot()}
 
     def _run(self, job: WebJob, operation: Callable[[Logger, CancelToken], dict[str, Any]]) -> None:
@@ -230,6 +237,7 @@ class AutoCompareWebApplication:
         "db_import": "Đang nhập CSV vào CSDL...",
         "db_export": "Đang xuất CSDL ra CSV...",
         "db_sync": "Đang đồng bộ hai CSDL...",
+        "text_folder_compare": "Đang so sánh cấu trúc và nội dung thư mục...",
         "apply_fixmes": "Đang áp dụng ghi chú FIXME...",
         "check_fixmes": "Đang kiểm tra FIXME còn lại...",
     }
@@ -249,6 +257,7 @@ class AutoCompareWebApplication:
         self.excel_format_preset_store = ExcelFormatPresetStore()
         self.sql_workspace = SqlDatabaseWorkspaceManager(self.config.database_workspace)
         self.jobs = JobManager()
+        self.text_compare_files = TextCompareFiles()
         self._state_lock = threading.Lock()
         self._fixme_entries: list[WorkbookFixmeEntry] = []
         self._compare_workbooks: list[CompareWorkbookReference] = []
@@ -522,6 +531,12 @@ class AutoCompareWebApplication:
         }
 
     def _operation(self, action: str, payload: dict[str, Any]) -> Callable[[Logger, CancelToken], dict[str, Any]]:
+        if action == "text_folder_compare":
+            return lambda log, cancel: run_folder_compare(
+                _text(payload, "left"), _text(payload, "right"),
+                str(payload.get("include", "")), str(payload.get("exclude", DEFAULT_EXCLUDE)),
+                log=log, cancel=cancel.throw_if_cancelled,
+            )
         if action == "compare_keys_extract":
             role = str(payload.get("role", "main"))
             if role not in {"main", "target"}:
@@ -907,7 +922,7 @@ class AutoCompareWebApplication:
         return {"tables": tables, "role": role, "connection": _public_db_settings(settings)}
 
     def _database_sync(self, payload: dict[str, Any], log: Logger, cancel: CancelToken | None = None) -> dict[str, Any]:
-        summary = sync_database_tables(
+        summary = run_sync_isolated(
             self._db_settings_for_role(payload.get("source_settings"), "main"),
             self._db_settings_for_role(payload.get("target_settings"), "target"),
             table_names=payload.get("table_names"),
@@ -920,6 +935,7 @@ class AutoCompareWebApplication:
             delete_target_only=_bool(payload, "delete_target_only", True),
             where_clause=str(payload.get("where_clause", "")),
             duplicate_mode=str(payload.get("duplicate_mode", "error")),
+            step_timeout=payload.get("step_timeout", 120),
             cancel=cancel.throw_if_cancelled if cancel else None,
         )
         return {
@@ -1115,6 +1131,15 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             payload = self._read_json_body()
+            if parsed.path == "/api/text-compare/open":
+                self._send_json(self.app.text_compare_files.open(_text(payload, "path")))
+                return
+            if parsed.path == "/api/text-compare/save":
+                current_job = self.app.jobs.snapshot()
+                if current_job and current_job["state"] in {"queued", "running"}:
+                    raise RuntimeError("Đợi tác vụ hiện tại kết thúc trước khi ghi file.")
+                self._send_json(self.app.text_compare_files.save(payload))
+                return
             if parsed.path == "/api/image-compare":
                 self._send_json(compare_images(payload.get("old"), payload.get("new")))
                 return

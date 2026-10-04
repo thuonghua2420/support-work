@@ -9,6 +9,9 @@
   <link rel="stylesheet" href="/adminator.css">
   <link rel="stylesheet" href="/image-compare.css">
   <link rel="stylesheet" href="/workspace-theme.css">
+  <link rel="stylesheet" href="/vendor/codemirror/codemirror.css">
+  <link rel="stylesheet" href="/vendor/codemirror/merge.css">
+  <link rel="stylesheet" href="/text-compare.css">
 </head>
 <body class="workspace-theme">
   <div class="app-shell">
@@ -34,6 +37,9 @@
         </button>
         <button class="nav-item" data-page="image-compare" type="button">
           <span class="nav-icon">I</span><span><strong>Compare Image</strong><small>Paste hoặc import hai ảnh</small></span>
+        </button>
+        <button class="nav-item" data-page="text-compare" type="button">
+          <span class="nav-icon"><i data-lucide="columns-3"></i></span><span><strong>File Compare</strong><small>Văn bản &amp; cây thư mục</small></span>
         </button>
         <button class="nav-item" data-page="file-tools" type="button">
           <span class="nav-icon">◇</span><span><strong>File/Folder</strong><small>Đổi tên, xóa, di chuyển</small></span>
@@ -71,6 +77,35 @@
       </header>
 
       <main class="content">
+        <section class="page" id="page-text-compare" data-title="File Compare" data-eyebrow="WORKSPACE / FILE COMPARE">
+          <div class="tabs"><button class="tab active" type="button" data-tc-tab="text">So sánh văn bản</button><button class="tab" type="button" data-tc-tab="folder">So sánh thư mục</button></div>
+          <div id="tc-text-panel">
+            <div class="card tc-card">
+              <div class="tc-toolbar"><div><h3>Đối chiếu từng thay đổi</h3><p>Chọn file hoặc dán văn bản vào các khung bên dưới. Chỉnh sửa chưa lưu không thay đổi file gốc.</p></div><div class="inline-actions"><label class="tc-inline">Số file <select id="tc-count"><option value="2">2 file</option><option value="3">3 file</option></select></label><button class="primary-button" type="button" id="tc-open">Mở &amp; so sánh</button></div></div>
+              <div class="tc-sources" id="tc-sources">
+                <label class="field"><span>File A · trái</span><span class="path-control"><input id="tc-path-0" placeholder="Đường dẫn file A hoặc dán nội dung bên dưới"><button class="browse-button" type="button" data-browse-target="tc-path-0" data-browse-kind="file">Chọn file A</button></span></label>
+                <label class="field"><span>File B · phải / mốc giữa khi so 3 file</span><span class="path-control"><input id="tc-path-1" placeholder="Đường dẫn file B"><button class="browse-button" type="button" data-browse-target="tc-path-1" data-browse-kind="file">Chọn file B</button></span></label>
+                <label class="field hidden" id="tc-third"><span>File C · phải</span><span class="path-control"><input id="tc-path-2" placeholder="Đường dẫn file C"><button class="browse-button" type="button" data-browse-target="tc-path-2" data-browse-kind="file">Chọn file C</button></span></label>
+              </div>
+              <div class="tc-options"><label><input type="checkbox" id="tc-wrap" checked> Ngắt dòng</label><label><input type="checkbox" id="tc-editable" checked> Cho phép chỉnh sửa</label><label><input type="checkbox" id="tc-moved" checked> Nhận diện dòng di chuyển</label><label class="tc-inline">Cú pháp <select id="tc-language"><option value="auto">Tự nhận diện theo tên file</option><option value="text/plain">Văn bản</option><option value="javascript">JavaScript / TypeScript</option><option value="application/json">JSON</option><option value="text/x-python">Python</option><option value="text/x-sql">SQL</option><option value="text/x-csharp">C#</option><option value="text/x-java">Java</option><option value="text/x-c++src">C / C++</option><option value="text/html">HTML</option><option value="application/xml">XML</option><option value="text/css">CSS</option><option value="text/x-markdown">Markdown</option><option value="text/x-sh">Shell</option><option value="text/x-yaml">YAML</option></select></label></div>
+            </div>
+            <div class="tc-result-toolbar"><span id="tc-summary" role="status">Chọn file hoặc dán văn bản để bắt đầu.</span><div class="inline-actions"><button class="secondary-button" type="button" id="tc-prev" title="Sai khác trước (Alt+↑)">↑ Trước</button><span id="tc-position">0 / 0</span><button class="secondary-button" type="button" id="tc-next" title="Sai khác tiếp (Alt+↓)">Sau ↓</button><button class="secondary-button" type="button" id="tc-expand" aria-pressed="false">Phóng to</button></div></div>
+            <div class="tc-editor-card"><div id="tc-headings" class="tc-headings"></div><div class="tc-editor-body"><div id="tc-editor"></div><div id="tc-map" aria-label="Tổng quan vị trí sai khác"></div></div></div>
+            <div class="tc-legend"><span class="tc-key tc-changed">Dòng / từ khác</span><span class="tc-key tc-move-key">Di chuyển (khớp nguyên dòng duy nhất)</span><span>Khoảng trống nối dòng: một bên thiếu nội dung · nền trắng: dòng giống nhau</span></div>
+            <p id="tc-message" class="tc-message" role="status"></p>
+            <details class="feature-guide"><summary>Hướng dẫn · so sánh và chỉnh sửa an toàn</summary><div class="guide-topics"><section><h4>2 hoặc 3 file</h4><ol><li>Chọn đường dẫn rồi Mở &amp; so sánh, hoặc dán trực tiếp. Khi so 3 file, B là mốc: hiển thị A ↔ B và B ↔ C, không tự merge.</li><li>Dùng Trước / Sau, Alt+↑ / Alt+↓ hoặc thanh tổng quan bên phải. Bấm dấu di chuyển để tới vị trí tương ứng.</li></ol></section><section><h4>Lưu và độ chính xác</h4><ol><li>Chỉnh sửa cập nhật sai khác tự động, hỗ trợ Ctrl+Z. Lưu file cần xác nhận và bị chặn nếu file đã đổi bên ngoài. Tải UTF-8 tạo bản sao.</li><li>Tô màu dòng dựa trên văn bản chuẩn hóa xuống dòng; encoding, BOM và LF/CRLF khác nhau được báo riêng. File nhị phân chỉ so sánh byte trong tab thư mục. Giới hạn editor: 1 MB / 10.000 dòng mỗi file.</li></ol></section></div></details>
+          </div>
+          <div id="tc-folder-panel" class="hidden">
+            <form id="tc-folder-form" class="card tc-card">
+              <div class="tc-toolbar"><div><h3>So sánh cấu trúc thư mục</h3><p>So sánh chính xác nội dung byte; không sao chép, xóa hoặc đồng bộ file.</p></div><button class="primary-button" type="submit" id="tc-folder-run">Quét &amp; so sánh</button></div>
+              <div class="two-column"><label class="field"><span>Thư mục trái</span><span class="path-control"><input id="tc-folder-left" required><button class="browse-button" type="button" data-browse-target="tc-folder-left" data-browse-kind="directory">Chọn folder trái</button></span></label><label class="field"><span>Thư mục phải</span><span class="path-control"><input id="tc-folder-right" required><button class="browse-button" type="button" data-browse-target="tc-folder-right" data-browse-kind="directory">Chọn folder phải</button></span></label></div>
+              <details class="tc-filters"><summary>Bộ lọc file · Regular Expressions</summary><div class="two-column"><label class="field"><span>Bao gồm <em>— trống là tất cả</em></span><input id="tc-include" placeholder="Ví dụ: \.(py|js|cs|txt)$" maxlength="1000"></label><label class="field"><span>Loại trừ <em>— bỏ qua cả thư mục khớp</em></span><input id="tc-exclude" value="(^|/)(\.git|node_modules|__pycache__)(/|$)|\.(log|tmp)$" maxlength="1000"></label></div><small>Regex Python, phân biệt hoa/thường; đường dẫn tương đối dùng dấu /. Thêm (?i) để không phân biệt hoa/thường.</small></details>
+            </form>
+            <div class="tc-result-toolbar"><span id="tc-folder-summary" role="status">Chưa có kết quả.</span><div class="inline-actions"><label class="tc-inline">Hiển thị <select id="tc-folder-status"><option value="all">Tất cả</option><option value="changes">Chỉ khác biệt</option><option value="different">Khác nội dung</option><option value="left-only">Left only</option><option value="right-only">Right only</option><option value="same">Giống nhau</option><option value="error">Lỗi / bỏ qua</option></select></label><label><input type="checkbox" id="tc-tree" checked> Dạng cây</label></div></div>
+            <div id="tc-folder-results" class="card tc-tree-results"><p class="empty-note">Chọn hai thư mục để xem file giống, khác và chỉ có ở một phía.</p></div>
+            <details class="feature-guide"><summary>Hướng dẫn · đọc kết quả thư mục</summary><div class="guide-topics"><section><h4>Phân loại và mở file</h4><ol><li>Giống nhau = cùng byte; khác encoding/xuống dòng vẫn là khác. Left only / Right only là mục chỉ có ở một phía.</li><li>Bấm tên file để mở cặp trong tab văn bản. File nhị phân/quá lớn vẫn được so sánh trong cây nhưng không mở editor. Thư mục có thể thu gọn riêng.</li></ol></section><section><h4>Phạm vi quét</h4><ol><li>Loại trừ được ưu tiên; .git, node_modules và file log/tmp được bỏ qua mặc định. Xóa regex để đưa chúng vào.</li><li>Không đi theo symlink/junction. Lỗi đọc và file đổi khi quét được ghi rõ; kết quả là ảnh chụp tại thời điểm quét. Tối đa 20.000 mục mỗi bên; có thể Hủy trong LOG.</li></ol></section></div></details>
+          </div>
+        </section>
         <section class="page active" id="page-compare" data-title="Compare CSV" data-eyebrow="WORKSPACE / SO SÁNH">
           <div class="page-intro">
             <div><span class="section-kicker">Quy trình chính</span><h2>Compare CSV HTC/HTM</h2><p>Chọn thư mục chứa các case <code>UT*</code>, bật những luồng cần chạy rồi theo dõi kết quả ở bảng FIXME.</p></div>
@@ -578,7 +613,8 @@
               </section>
               <div class="two-column">
                 <label class="field"><span>Số record mỗi table <em>— chỉ append/truncate</em></span><input type="number" min="1" id="sync-record-limit" placeholder="Toàn bộ" disabled></label>
-                <label class="field"><span>Batch size <em>— chênh lệch/điều kiện</em></span><input type="number" min="100" max="100000" value="5000" id="sync-batch-size"></label>
+                <label class="field"><span>Batch size <em>— tối đa 500 record mỗi lượt</em></span><input type="number" min="100" max="500" value="500" id="sync-batch-size"></label>
+                <label class="field"><span>Giới hạn chờ mỗi bước <em>— giây</em></span><input type="number" min="10" max="3600" value="120" id="sync-step-timeout"><small>Tự ngắt nếu một bước kết nối/đọc/ghi bị kẹt. Hủy tác vụ không phải chờ hết thời gian này.</small></label>
               </div>
               <div class="two-column">
                 <label class="switch-row compact-switch"><span><strong>Giữ identity</strong><small>Cần bật nếu primary key là identity.</small></span><input class="switch" type="checkbox" id="sync-keep-identity" checked></label>
@@ -625,5 +661,20 @@
   <script src="/workspace-guides.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/image-compare.js" defer></script>
+  <script src="/vendor/codemirror/codemirror.js" defer></script>
+  <script src="/vendor/codemirror/diff-match-patch.js" defer></script>
+  <script src="/vendor/codemirror/merge.js" defer></script>
+  <script src="/vendor/codemirror/meta.js" defer></script>
+  <script src="/vendor/codemirror/javascript.js" defer></script>
+  <script src="/vendor/codemirror/python.js" defer></script>
+  <script src="/vendor/codemirror/sql.js" defer></script>
+  <script src="/vendor/codemirror/xml.js" defer></script>
+  <script src="/vendor/codemirror/css.js" defer></script>
+  <script src="/vendor/codemirror/htmlmixed.js" defer></script>
+  <script src="/vendor/codemirror/clike.js" defer></script>
+  <script src="/vendor/codemirror/markdown.js" defer></script>
+  <script src="/vendor/codemirror/shell.js" defer></script>
+  <script src="/vendor/codemirror/yaml.js" defer></script>
+  <script src="/text-compare.js" defer></script>
 </body>
 </html>

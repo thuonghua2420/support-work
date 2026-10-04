@@ -147,6 +147,10 @@ class TypedDbeaverCsvRowWriter:
             written += 1
         return written
 
+    def flush(self) -> None:
+        if self._file is not None:
+            self._file.flush()
+
     def close(self) -> None:
         if self._file is not None:
             self._file.close()
