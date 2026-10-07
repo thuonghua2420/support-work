@@ -121,6 +121,7 @@
             <div class="inline-actions compare-file-options">
               <label class="checkbox-line"><input type="checkbox" id="compare-copy-input"><span>Copy các file từ folder input qua before</span></label>
               <label class="checkbox-line"><input type="checkbox" id="compare-sort-by-key"><span>Sắp xếp record theo key và lưu vào CSV</span></label>
+              <label class="field compare-zoom-field"><span>Zoom sheet (%)</span><input id="compare-sheet-zoom" type="number" min="10" max="400" step="1" value="100" required></label>
             </div>
             <div class="form-actions"><span class="hint">Lưu kết quả tại <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>Tạo file so sánh</span><b>→</b></button></div>
           </form>
@@ -196,7 +197,7 @@
                         <input id="compare-filter-differences" type="checkbox">
                         <span>Filter sai khác</span>
                       </label>
-                      <label class="compare-diff-filter-control hidden" id="compare-filter-record-count-control" title="Bỏ qua sai khác thuộc record chỉ có ở một phía">
+                      <label class="compare-diff-filter-control hidden" id="compare-filter-record-count-control" title="Ẩn sai khác do lệch số record; gán note cho dòng còn hiển thị sẽ thay note của cả ô FIXME">
                         <input id="compare-filter-record-count" type="checkbox">
                         <span>Bỏ qua lệch số record</span>
                       </label>

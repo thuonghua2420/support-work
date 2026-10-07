@@ -803,6 +803,7 @@ class AutoCompareWebApplication:
             _text(payload, "root"), log=log, selected_workflow_keys=set(map(str, selected)),
             copy_input=payload.get("copy_input") is True,
             sort_by_key=payload.get("sort_by_key") is True,
+            sheet_zoom=payload.get("sheet_zoom", 100),
         )
         workbooks = [
             CompareWorkbookReference(

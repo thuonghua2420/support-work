@@ -65,12 +65,23 @@ def process_root(
     *,
     copy_input: bool | None = None,
     sort_by_key: bool | None = None,
+    sheet_zoom: int = 100,
 ) -> ProcessSummary:
     root = Path(root_path).expanduser().resolve()
     logger = log or (lambda message: None)
     app_config = config or load_app_config()
     copy_input = app_config.copy_input_default if copy_input is None else copy_input
     sort_by_key = app_config.sort_by_key_default if sort_by_key is None else sort_by_key
+    try:
+        if isinstance(sheet_zoom, bool):
+            raise ValueError
+        if isinstance(sheet_zoom, float) and not sheet_zoom.is_integer():
+            raise ValueError
+        sheet_zoom = int(sheet_zoom)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Zoom sheet phải là số nguyên từ 10 đến 400%.") from exc
+    if not 10 <= sheet_zoom <= 400:
+        raise ValueError("Zoom sheet phải là số nguyên từ 10 đến 400%.")
     selected_keys = set(selected_workflow_keys) if selected_workflow_keys is not None else default_selected_workflow_keys(app_config)
 
     if not root.exists():
@@ -94,7 +105,7 @@ def process_root(
 
     logger(f"Tìm thấy {len(test_cases)} folder case test.")
     for case_path in test_cases:
-        result = _process_test_case(case_path, logger, app_config, selected_keys, copy_input, sort_by_key)
+        result = _process_test_case(case_path, logger, app_config, selected_keys, copy_input, sort_by_key, sheet_zoom)
         summary.test_cases.append(result)
         summary.errors.extend(result.errors)
 
@@ -123,6 +134,7 @@ def _process_test_case(
     selected_workflow_keys: set[str],
     copy_input: bool,
     sort_by_key: bool,
+    sheet_zoom: int,
 ) -> TestCaseResult:
     result = TestCaseResult(case_path=case_path)
     log(f"[{case_path.name}] Bắt đầu")
@@ -167,7 +179,7 @@ def _process_test_case(
                         raise FileNotFoundError(f"Thiếu folder compare: {folder}")
                 keys = sort_csv_folders_by_key(folders_to_compare, config.update_compare_keys, log) if sort_by_key else {}
                 workbook_result = _write_workflow_workbook(
-                    case_path, output_dir, compare_dir, workflow, config, keys,
+                    case_path, output_dir, compare_dir, workflow, config, keys, sheet_zoom,
                 )
             except Exception as exc:
                 message = f"[{case_path.name}/{workflow.key}] ERROR: {exc}"
@@ -194,6 +206,7 @@ def _write_workflow_workbook(
     workflow: CompareWorkflowConfig,
     config: AppConfig,
     keys_by_table: dict[str, tuple[str, ...]],
+    sheet_zoom: int,
 ) -> WorkbookResult:
     left_dir = output_dir / workflow.left_dir_name
     right_dir = output_dir / workflow.right_dir_name
@@ -209,6 +222,7 @@ def _write_workflow_workbook(
         include_left_only_files=is_update_compare or workflow.include_left_only_files,
         include_right_only_files=not is_update_compare,
         keys_by_table=keys_by_table,
+        sheet_zoom=sheet_zoom,
     )
     return WorkbookResult(
         output_path=write_result.output_path,

@@ -43,6 +43,24 @@ class CompareFileSafetyTests(unittest.TestCase):
         self.assertEqual(self.snapshot(), original)
         self.assertFalse((self.case / self.folders.input_dir).exists())
 
+    def test_sheet_zoom_applies_to_every_generated_sheet(self):
+        result = process_root(self.case, config=self.config, sheet_zoom=75)
+        self.assertFalse(result.errors)
+        for generated in result.test_cases[0].workbooks:
+            workbook = load_workbook(generated.output_path)
+            try:
+                self.assertTrue(workbook.worksheets)
+                self.assertTrue(all(sheet.sheet_view.zoomScale == 75 for sheet in workbook.worksheets))
+            finally:
+                workbook.close()
+
+    def test_invalid_sheet_zoom_does_not_modify_csv(self):
+        original = self.snapshot()
+        for zoom in (0, 401, 75.5, "abc"):
+            with self.subTest(zoom=zoom), self.assertRaises(ValueError):
+                process_root(self.case, config=self.config, sheet_zoom=zoom)
+        self.assertEqual(self.snapshot(), original)
+
     def test_copy_is_explicit_and_overwrites_without_clearing_before(self):
         source = self.case / self.folders.input_dir / "orders.csv"
         write_dbeaver_csv(source, self.headers, [["9", "X", "1", "input"]])

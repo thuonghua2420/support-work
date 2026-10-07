@@ -79,6 +79,7 @@ def write_compare_workbook_with_fixmes(
     aligned_before_files: set[Path] | None = None,
     omit_equal_sheets: bool = False,
     keys_by_table: dict[str, tuple[str, ...]] | None = None,
+    sheet_zoom: int = 100,
 ) -> CompareWorkbookWriteResult:
     pairs = _iter_compare_csv_files(
         before_dir,
@@ -97,6 +98,7 @@ def write_compare_workbook_with_fixmes(
         aligned_before_files=aligned_before_files,
         omit_equal_sheets=omit_equal_sheets,
         keys_by_table=keys_by_table,
+        sheet_zoom=sheet_zoom,
     )
 
 
@@ -110,6 +112,7 @@ def write_compare_workbook_for_pairs(
     aligned_before_files: set[Path] | None = None,
     omit_equal_sheets: bool = False,
     keys_by_table: dict[str, tuple[str, ...]] | None = None,
+    sheet_zoom: int = 100,
 ) -> CompareWorkbookWriteResult:
     app_config = None if excel_headers is not None and excel_style is not None else load_app_config()
     headers = excel_headers or app_config.excel_headers
@@ -134,6 +137,7 @@ def write_compare_workbook_for_pairs(
 
         sheet_name = sanitize_sheet_name(Path(csv_display_name).with_suffix("").as_posix(), used_sheet_names)
         worksheet = workbook.create_sheet(sheet_name)
+        worksheet.sheet_view.zoomScale = sheet_zoom
         sheet_entries = _write_sheet(
             worksheet,
             comparison,
@@ -152,6 +156,7 @@ def write_compare_workbook_for_pairs(
 
     if sheet_count == 0:
         worksheet = workbook.create_sheet("Summary")
+        worksheet.sheet_view.zoomScale = sheet_zoom
         worksheet["A1"] = headers.no_csv_message
         worksheet["A1"].font = styles.base_font
         worksheet.column_dimensions["A"].width = 40

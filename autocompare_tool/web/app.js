@@ -871,6 +871,7 @@ function bindForms() {
       root: valueOf("compare-root"), workflows,
       copy_input: $("#compare-copy-input").checked,
       sort_by_key: $("#compare-sort-by-key").checked,
+      sheet_zoom: Number($("#compare-sheet-zoom").value),
     });
   });
   $("#extract-compare-keys").addEventListener("click", () => {
@@ -2690,11 +2691,14 @@ function safeCssColor(value) {
 
 function compareCellContent(cell, fixmeIndices) {
   if (fixmeIndices.length) {
+    const allFixmeIndices = Array.isArray(cell.fixme_indices) ? cell.fixme_indices : fixmeIndices;
     const workbookValue = String(cell.value || "");
-    const existingNote = workbookValue && workbookValue !== "FIXME" && !fixmeIndices.some((index) => state.fixmeSelections[index])
-      ? `<div class="compare-existing-note">${escapeHtml(workbookValue)}</div>`
+    const selectedNotes = compareSelectedFixmeNotes(allFixmeIndices);
+    const existingNote = workbookValue && workbookValue !== "FIXME" && !allFixmeIndices.some((index) => state.fixmeSelections[index])
+      ? `<div class="compare-existing-note">Đã lưu trong Excel:\n${escapeHtml(workbookValue)}</div>`
       : "";
-    return `<input class="compare-fixme-note-input" data-compare-fixme-indices="${escapeHtml(fixmeIndices.join(","))}" data-compare-fixme-value="${escapeHtml(workbookValue)}" list="fixme-note-values" value="${escapeHtml(compareFixmeInputValue(fixmeIndices, workbookValue))}" placeholder="Nhập hoặc chọn note">${existingNote}`;
+    const summary = selectedNotes.length > 1 ? `Đã gán:\n${selectedNotes.join("\n")}` : "";
+    return `<input class="compare-fixme-note-input" data-compare-fixme-indices="${escapeHtml(allFixmeIndices.join(","))}" data-compare-fixme-value="${escapeHtml(workbookValue)}" list="fixme-note-values" value="${escapeHtml(compareFixmeInputValue(allFixmeIndices, workbookValue))}" placeholder="${summary ? "Chọn note để thay tất cả" : "Nhập hoặc chọn note"}"><div class="compare-note-summary${summary ? "" : " hidden"}" title="Các note đã gán cho những record khác nhau">${escapeHtml(summary)}</div>${existingNote}`;
   }
   return `<div class="compare-cell-value" tabindex="0" title="Click để chọn/copy value">${escapeHtml(cell.value)}</div>`;
 }
@@ -2717,12 +2721,16 @@ function selectCompareCellText(cell) {
 }
 
 function compareFixmeInputValue(indices, workbookValue = "") {
-  let selectedValues = uniqueStrings(indices.map((index) => state.fixmeSelections[index]).filter(Boolean));
+  let selectedValues = compareSelectedFixmeNotes(indices);
   if (!selectedValues.length && workbookValue && workbookValue !== "FIXME") {
     const noteValues = new Set(state.notes.map((note) => note.value));
     selectedValues = uniqueStrings(workbookValue.split(/\r?\n/).map((value) => value.trim()).filter((value) => noteValues.has(value)));
   }
   return selectedValues.length === 1 ? selectedValues[0] : "";
+}
+
+function compareSelectedFixmeNotes(indices) {
+  return uniqueStrings(indices.map((index) => state.fixmeSelections[index]).filter(Boolean));
 }
 
 function bindCompareFixmeControls() {
@@ -2777,26 +2785,43 @@ function toggleVisibleCompareFixmeRows(event) {
 
 function assignCompareBulkNote() {
   const note = valueOf("compare-bulk-note");
-  const targets = checkedFixmeIndices();
+  const checkedVisible = checkedVisibleCompareFixmeIndices();
   if (!note) {
     showToast("Vui lòng chọn note cần gán.", "error");
     $("#compare-bulk-note")?.focus();
     return;
   }
-  if (!targets.length) {
+  if (!checkedVisible.length) {
     showToast("Vui lòng tick ít nhất một dòng sai khác trong preview.", "error");
     return;
   }
-  targets.forEach((index) => { state.fixmeSelections[index] = note; });
+  const targets = compareAllFixmeIndicesForVisibleSelection(checkedVisible);
+  targets.forEach((index) => {
+    state.fixmeSelections[index] = note;
+    state.fixmeCheckedRows.delete(index);
+  });
   invalidateCompareSheetHtmlCache();
   renderFixmes();
+  syncFixmeRowChecks();
   syncComparePreviewNoteControls();
   updateCompareBulkToolbarState();
-  showToast(`Đã gán note cho ${targets.length} dòng đã tick.`, "success");
+  showToast(`Đã gán note cho ${checkedVisible.length} dòng đã tick.`, "success");
+}
+
+function compareAllFixmeIndicesForVisibleSelection(checkedVisible) {
+  const checked = new Set(checkedVisible.map(String));
+  const targets = [];
+  (state.compareView.sheet?.rows || []).forEach((row) => {
+    (row.cells || []).forEach((cell) => {
+      const indices = Array.isArray(cell.fixme_indices) ? cell.fixme_indices.map(String) : [];
+      if (indices.some((index) => checked.has(index))) targets.push(...indices);
+    });
+  });
+  return uniqueStrings(targets);
 }
 
 function clearCompareRowSelection() {
-  state.fixmeCheckedRows.clear();
+  visibleCompareFixmeIndices().forEach((index) => state.fixmeCheckedRows.delete(index));
   invalidateCompareSheetHtmlCache();
   syncFixmeRowChecks();
   syncComparePreviewNoteControls();
@@ -2804,9 +2829,8 @@ function clearCompareRowSelection() {
   updateCompareBulkToolbarState();
 }
 
-function checkedFixmeIndices() {
-  const valid = new Set(state.fixmes.map((entry) => String(entry.index)));
-  return [...state.fixmeCheckedRows].filter((index) => valid.has(String(index)));
+function checkedVisibleCompareFixmeIndices() {
+  return visibleCompareFixmeIndices().filter((index) => state.fixmeCheckedRows.has(index));
 }
 
 function updateCompareBulkToolbarState() {
@@ -2814,7 +2838,7 @@ function updateCompareBulkToolbarState() {
   if (!toolbar) return;
   const visible = visibleCompareFixmeIndices();
   const checkedCount = visible.filter((index) => state.fixmeCheckedRows.has(index)).length;
-  const totalCheckedCount = checkedFixmeIndices().length;
+  const totalCheckedCount = checkedCount;
   toolbar.classList.remove("hidden");
   $("#compare-checked-count").textContent = `${totalCheckedCount} dòng đã tick`;
   const checkAll = $("#compare-check-visible");
@@ -2852,7 +2876,14 @@ function syncComparePreviewNoteControls() {
     if (document.activeElement !== input) {
       input.value = compareFixmeInputValue(indices, input.dataset.compareFixmeValue || "");
     }
-    const existingNote = input.nextElementSibling;
+    const selectedNotes = compareSelectedFixmeNotes(indices);
+    const summary = input.parentElement?.querySelector(".compare-note-summary");
+    if (summary) {
+      summary.textContent = selectedNotes.length > 1 ? `Đã gán:\n${selectedNotes.join("\n")}` : "";
+      summary.classList.toggle("hidden", selectedNotes.length <= 1);
+    }
+    input.placeholder = selectedNotes.length > 1 ? "Chọn note để thay tất cả" : "Nhập hoặc chọn note";
+    const existingNote = input.parentElement?.querySelector(".compare-existing-note");
     if (existingNote?.classList.contains("compare-existing-note")) {
       existingNote.classList.toggle("hidden", indices.some((index) => state.fixmeSelections[index]));
     }

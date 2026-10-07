@@ -43,6 +43,9 @@ Important rule:
 - After/after compare sheets are based on the union of both after CSV folders.
 - Rows are matched by the first column plus occurrence order.
 - Compare workflow selection is controlled by GUI checkboxes and defaults in `autocompare_config.ini`.
+- The Compare page accepts a 10–400% sheet zoom for generated Excel workbooks; the web UI remembers the last value locally.
+- Preview bulk notes apply only to checked rows currently visible under the active filters. Each row has one FIXME cell shared by its differing records, so assigning a note replaces the prior note for every record represented by that cell, including records hidden by the filter. Other rows retain their notes; assigned ticks are cleared.
+- A single FIXME cell can collect differences from several records. When those records have different selected notes, the preview lists every note in that cell while the input remains available to replace all of them.
 - Configured workbook outputs for unchecked workflows are removed from `Output\Compare` during that run.
 
 Current compare workflows:

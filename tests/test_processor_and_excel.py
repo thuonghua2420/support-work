@@ -156,6 +156,49 @@ class ProcessorAndExcelTests(unittest.TestCase):
             workbook = load_workbook(workbook_path)
             self.assertEqual(workbook["table"]["H3"].value, "KNOWN_DIFF")
             self.assertEqual(workbook["table"]["H4"].value, "SPEC_CHANGE")
+            workbook.close()
+
+            apply_fixme_replacements(entries, {0: "LATEST_NOTE", 1: "SPEC_CHANGE"})
+            workbook = load_workbook(workbook_path)
+            try:
+                self.assertEqual(workbook["table"]["H3"].value, "LATEST_NOTE")
+                self.assertEqual(workbook["table"]["H4"].value, "SPEC_CHANGE")
+            finally:
+                workbook.close()
+
+    def test_apply_fixme_replacements_overwrites_shared_cell_with_latest_note(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            before = root / "before"
+            after = root / "after"
+            before.mkdir()
+            after.mkdir()
+            _write_text(before / "table.csv", "id,name\n1,old\n2,only_before\n")
+            _write_text(after / "table.csv", "id,name\n1,new\n")
+            workbook_path = root / "compare.xlsx"
+            result = write_compare_workbook_with_fixmes(before, after, workbook_path)
+            entries = result.fixme_entries
+            name_indices = {
+                entry.record_number: index
+                for index, entry in enumerate(entries)
+                if entry.column_name == "name"
+            }
+            self.assertEqual(set(name_indices), {1, 2})
+            self.assertEqual(entries[name_indices[1]].fixme_cell, entries[name_indices[2]].fixme_cell)
+
+            apply_fixme_replacements(entries, {name_indices[1]: "NOTE_1", name_indices[2]: "NOTE_1"})
+            workbook = load_workbook(workbook_path)
+            try:
+                self.assertEqual(workbook["table"][entries[name_indices[1]].fixme_cell].value, "NOTE_1")
+            finally:
+                workbook.close()
+
+            apply_fixme_replacements(entries, {name_indices[1]: "NOTE_2", name_indices[2]: "NOTE_2"})
+            workbook = load_workbook(workbook_path)
+            try:
+                self.assertEqual(workbook["table"][entries[name_indices[1]].fixme_cell].value, "NOTE_2")
+            finally:
+                workbook.close()
 
     def test_apply_fixme_replacements_updates_all_selected_workbooks_and_sheets(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

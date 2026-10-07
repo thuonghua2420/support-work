@@ -24,30 +24,37 @@ const path = require('node:path');
     await page.waitForSelector('#compare-workflows input');
     const copy = page.locator('#compare-copy-input');
     const sort = page.locator('#compare-sort-by-key');
+    const zoom = page.locator('#compare-sheet-zoom');
     assert.equal(await copy.isChecked(), false);
     assert.equal(await sort.isChecked(), false);
+    assert.equal(await zoom.inputValue(), '100');
     await Promise.all([
       page.waitForResponse(response => response.url().endsWith('/api/actions')),
       page.locator('#compare-form button[type="submit"]').click(),
     ]);
     assert.equal(actions[0].copy_input, false);
     assert.equal(actions[0].sort_by_key, false);
+    assert.equal(actions[0].sheet_zoom, 100);
     await copy.check();
     await sort.check();
+    await zoom.fill('75');
     await page.waitForFunction(() => {
       const cache = JSON.parse(localStorage.getItem('autocompare:last-inputs:v1'));
-      return cache?.fields['compare-copy-input'] === true && cache?.fields['compare-sort-by-key'] === true;
+      return cache?.fields['compare-copy-input'] === true && cache?.fields['compare-sort-by-key'] === true
+        && cache?.fields['compare-sheet-zoom'] === '75';
     });
     await page.reload();
     await page.waitForSelector('#compare-workflows input');
     assert.equal(await copy.isChecked(), true);
     assert.equal(await sort.isChecked(), true);
+    assert.equal(await zoom.inputValue(), '75');
     await Promise.all([
       page.waitForResponse(response => response.url().endsWith('/api/actions')),
       page.locator('#compare-form button[type="submit"]').click(),
     ]);
     assert.equal(actions[1].copy_input, true);
     assert.equal(actions[1].sort_by_key, true);
+    assert.equal(actions[1].sheet_zoom, 75);
     const output = path.resolve('.tmp/ui-screenshots');
     await fs.mkdir(output, { recursive: true });
     for (const width of [1440, 390]) {
@@ -57,7 +64,7 @@ const path = require('node:path');
         await page.waitForFunction(() => document.querySelector('.sidebar').getBoundingClientRect().right <= 0);
       }
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
-      for (const selector of ['#compare-copy-input', '#compare-sort-by-key']) {
+      for (const selector of ['#compare-copy-input', '#compare-sort-by-key', '#compare-sheet-zoom']) {
         assert.ok(await page.locator(selector).isVisible());
         assert.ok(await page.locator(selector).locator('..').evaluate(el => el.scrollWidth <= el.clientWidth + 1));
       }
