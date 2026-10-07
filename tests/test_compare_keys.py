@@ -131,7 +131,7 @@ class CompareKeyTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             app.start_action("compare_keys_remove", {})
 
-    def test_extracted_key_is_used_by_next_compare_to_remove_c003(self):
+    def test_extracted_key_is_used_by_next_compare_without_dropping_records(self):
         self.csv("customers", ["CustomerId", "value"], [
             ["C001", "same"], ["C002", "same"], ["C004", "new"],
         ])
@@ -148,12 +148,17 @@ class CompareKeyTests(unittest.TestCase):
             result = app._operation("compare_keys_extract", {"role": "target"})(lambda _: None, CancelToken())
             self.assertEqual(result["saved_count"], 1)
             self.adapter.connect.assert_called_with(validate_connection_settings(self.settings))
-            summary = app._compare({"root": str(self.root), "workflows": ["htm_before_after", "htc_before_after", "after_htc_vs_htm"]}, lambda _: None)
+            summary = app._compare({
+                "root": str(self.root),
+                "workflows": ["htm_before_after", "htc_before_after", "after_htc_vs_htm"],
+                "copy_input": True,
+                "sort_by_key": True,
+            }, lambda _: None)
             self.assertEqual((summary["workbook_count"], summary["error_count"]), (3, 0))
             config = load_app_config(self.path)
             for name in (config.folders.before_htm_dir, config.folders.before_htc_dir):
                 before = self.case / "output" / name / "customers.csv"
-                self.assertEqual([row[0] for row in read_dbeaver_csv(before).rows], ["C001", "C002", "C004"])
+                self.assertEqual([row[0] for row in read_dbeaver_csv(before).rows], ["C001", "C002", "C003", "C004"])
             self.assertEqual(originals, {p: p.read_bytes() for p in originals})
             app._operation("compare_keys_remove", {"confirmed": True})(lambda _: None, CancelToken())
             self.assertEqual(app.bootstrap(8765)["update_compare_keys"], {})

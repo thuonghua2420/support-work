@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from zipfile import ZipFile
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -75,10 +77,7 @@ def write_compare_workbook_with_fixmes(
     include_left_only_files: bool = False,
     include_right_only_files: bool = True,
     recursive: bool = False,
-    pair_by_record_order: bool = False,
-    aligned_before_files: set[Path] | None = None,
     omit_equal_sheets: bool = False,
-    keys_by_table: dict[str, tuple[str, ...]] | None = None,
     sheet_zoom: int = 100,
 ) -> CompareWorkbookWriteResult:
     pairs = _iter_compare_csv_files(
@@ -94,10 +93,7 @@ def write_compare_workbook_with_fixmes(
         excel_headers=excel_headers,
         excel_style=excel_style,
         case_folder_name=case_folder_name,
-        pair_by_record_order=pair_by_record_order,
-        aligned_before_files=aligned_before_files,
         omit_equal_sheets=omit_equal_sheets,
-        keys_by_table=keys_by_table,
         sheet_zoom=sheet_zoom,
     )
 
@@ -108,10 +104,7 @@ def write_compare_workbook_for_pairs(
     excel_headers: ExcelHeaderConfig | None = None,
     excel_style: ExcelCompareStyleConfig | None = None,
     case_folder_name: str = "",
-    pair_by_record_order: bool = False,
-    aligned_before_files: set[Path] | None = None,
     omit_equal_sheets: bool = False,
-    keys_by_table: dict[str, tuple[str, ...]] | None = None,
     sheet_zoom: int = 100,
 ) -> CompareWorkbookWriteResult:
     app_config = None if excel_headers is not None and excel_style is not None else load_app_config()
@@ -129,11 +122,7 @@ def write_compare_workbook_for_pairs(
     for before_csv, after_csv, csv_display_name in csv_pairs:
         before_table = read_csv_table(before_csv) if before_csv.exists() else CsvTable([], [])
         after_table = read_csv_table(after_csv) if after_csv.exists() else CsvTable([], [])
-        comparison = build_sheet_comparison(
-            Path(csv_display_name).stem, before_table, after_table,
-            pair_by_record_order=pair_by_record_order or before_csv in (aligned_before_files or set()),
-            key_columns=(keys_by_table or {}).get(Path(csv_display_name).stem.casefold(), ()),
-        )
+        comparison = build_sheet_comparison(Path(csv_display_name).stem, before_table, after_table)
 
         sheet_name = sanitize_sheet_name(Path(csv_display_name).with_suffix("").as_posix(), used_sheet_names)
         worksheet = workbook.create_sheet(sheet_name)
@@ -165,6 +154,7 @@ def write_compare_workbook_for_pairs(
         temporary_path = Path(temporary.name)
     try:
         workbook.save(temporary_path)
+        preserve_compare_workbook_line_endings(temporary_path)
         temporary_path.replace(output_path)
     finally:
         workbook.close()
@@ -268,6 +258,7 @@ def _write_sheet(
     fixme_col = 3 + (total_records * 2) + 1
 
     for row_index, column_name in enumerate(comparison.columns, start=3):
+        _check_excel_cell_length(column_name, csv_file_name, column_name)
         before_name_cell = worksheet.cell(row_index, 1)
         after_name_cell = worksheet.cell(row_index, 2)
         before_name_cell.value = column_name if column_name in comparison.before_headers else ""
@@ -284,6 +275,8 @@ def _write_sheet(
 
             before_value = cell_value(pair.before, column_name)
             after_value = cell_value(pair.after, column_name)
+            _check_excel_cell_length(before_value, csv_file_name, column_name)
+            _check_excel_cell_length(after_value, csv_file_name, column_name)
             before_cell.value = before_value
             after_cell.value = after_value
 
@@ -323,6 +316,45 @@ def _write_sheet(
     worksheet.freeze_panes = "C3"
     _set_column_widths(worksheet, total_records, fixme_col)
     return fixme_entries
+
+
+def _check_excel_cell_length(value: str, csv_file_name: str, column_name: str) -> None:
+    if len(value) > 32767:
+        raise ValueError(
+            f"{csv_file_name}: giá trị cột {column_name} dài hơn giới hạn 32767 ký tự của Excel; "
+            "không tạo workbook để tránh cắt mất dữ liệu."
+        )
+
+
+def preserve_compare_workbook_line_endings(workbook_path: Path) -> None:
+    """Keep CSV carriage returns when openpyxl serializes worksheet XML."""
+    # et_xmlfile writes text-mode temporary XML. On Windows it turns each LF
+    # into CRLF, so an original CRLF becomes CRCRLF. XML parsers then normalize
+    # literal CRs to LF. Character references retain the original CR instead.
+    carriage_return = re.compile(rb"\r(?!\n)" if os.linesep == "\r\n" else rb"\r")
+    corrected_path: Path | None = None
+    try:
+        with ZipFile(workbook_path) as source:
+            corrections: dict[str, bytes] = {}
+            for info in source.infolist():
+                if info.filename.startswith("xl/worksheets/") and info.filename.endswith(".xml"):
+                    original = source.read(info.filename)
+                    corrected = carriage_return.sub(b"&#13;", original)
+                    if corrected != original:
+                        corrections[info.filename] = corrected
+            if not corrections:
+                return
+            with NamedTemporaryFile(dir=workbook_path.parent, suffix=".xlsx", delete=False) as temporary:
+                corrected_path = Path(temporary.name)
+            with ZipFile(corrected_path, "w") as target:
+                target.comment = source.comment
+                for info in source.infolist():
+                    data = corrections[info.filename] if info.filename in corrections else source.read(info.filename)
+                    target.writestr(info, data)
+        corrected_path.replace(workbook_path)
+    finally:
+        if corrected_path is not None:
+            corrected_path.unlink(missing_ok=True)
 
 
 def _build_styles(style_config: ExcelCompareStyleConfig) -> CompareWorkbookStyles:

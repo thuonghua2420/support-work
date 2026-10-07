@@ -92,7 +92,7 @@ class CompareFileSafetyTests(unittest.TestCase):
         self.assertFalse((self.output / self.folders.before_htm_dir).exists())
         self.assertFalse((self.output / self.folders.before_htc_dir).exists())
 
-    def test_sort_writes_both_sides_and_pairs_composite_keys_without_removing_records(self):
+    def test_sort_writes_both_sides_then_pairs_rows_by_position(self):
         original_rows = {path: Counter(map(tuple, read_dbeaver_csv(path).rows)) for path in self.snapshot()}
         result = process_root(self.case, config=self.config, sort_by_key=True)
         self.assertFalse(result.errors)
@@ -105,8 +105,83 @@ class CompareFileSafetyTests(unittest.TestCase):
             sheet = workbook["orders"]
             self.assertEqual((sheet["C3"].value, sheet["D3"].value), ("3", "30"))
             self.assertEqual((sheet["C4"].value, sheet["D4"].value), ("A", "A"))
-            self.assertEqual((sheet["G4"].value, sheet["H4"].value), ("B", None))
-            self.assertEqual((sheet["I4"].value, sheet["J4"].value), (None, "C"))
+            self.assertEqual((sheet["G4"].value, sheet["H4"].value), ("B", "C"))
+            self.assertIsNone(sheet["I4"].value)
+        finally:
+            workbook.close()
+
+    def test_after_after_four_records_stay_four_pairs_with_or_without_sort(self):
+        current = self.output / self.folders.after_htc_dir / "orders.csv"
+        new = self.output / self.folders.after_htm_dir / "orders.csv"
+        write_dbeaver_csv(current, self.headers, [
+            ["1", "B", "1", "same"], ["2", "A", "1", "same"],
+            ["3", "D", "1", "old-D"], ["4", "C", "1", "old-C"],
+        ])
+        write_dbeaver_csv(new, self.headers, [
+            ["1", "B", "1", "same"], ["2", "A", "1", "same"],
+            ["30", "C", "1", "new-C"], ["40", "D", "1", "new-D"],
+        ])
+        original = (current.read_bytes(), new.read_bytes())
+        workflow = {"after_htc_vs_htm"}
+
+        unsorted = process_root(self.case, config=self.config, selected_workflow_keys=workflow, sort_by_key=False)
+        self.assertFalse(unsorted.errors)
+        self.assertEqual((current.read_bytes(), new.read_bytes()), original)
+        workbook = load_workbook(unsorted.test_cases[0].workbooks[0].output_path)
+        try:
+            sheet = workbook["orders"]
+            self.assertEqual([sheet.cell(3, column).value for column in (3, 5, 7, 9)], ["1", "2", "3", "4"])
+            self.assertEqual([sheet.cell(3, column).value for column in (4, 6, 8, 10)], ["1", "2", "30", "40"])
+        finally:
+            workbook.close()
+
+        sorted_result = process_root(self.case, config=self.config, selected_workflow_keys=workflow, sort_by_key=True)
+        self.assertFalse(sorted_result.errors)
+        self.assertEqual([row[1] for row in read_dbeaver_csv(current).rows], ["A", "B", "C", "D"])
+        self.assertEqual([row[1] for row in read_dbeaver_csv(new).rows], ["A", "B", "C", "D"])
+        workbook = load_workbook(sorted_result.test_cases[0].workbooks[0].output_path)
+        try:
+            sheet = workbook["orders"]
+            self.assertEqual([sheet.cell(3, column).value for column in (3, 5, 7, 9)], ["2", "1", "4", "3"])
+            self.assertEqual([sheet.cell(3, column).value for column in (4, 6, 8, 10)], ["2", "1", "30", "40"])
+            self.assertEqual([sheet.cell(4, column).value for column in (3, 5, 7, 9)], ["A", "B", "C", "D"])
+            self.assertEqual([sheet.cell(4, column).value for column in (4, 6, 8, 10)], ["A", "B", "C", "D"])
+        finally:
+            workbook.close()
+
+    def test_checked_sort_with_missing_config_key_reports_error_without_writing(self):
+        config = replace(self.config, update_compare_keys={})
+        original = self.snapshot()
+        result = process_root(self.case, config=config, selected_workflow_keys={"after_htc_vs_htm"}, sort_by_key=True)
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("[update_compare_keys]", result.errors[0])
+        self.assertFalse(result.test_cases[0].workbooks)
+        self.assertEqual(self.snapshot(), original)
+
+    def test_checked_sort_validates_all_tables_before_reordering_any_csv(self):
+        for name in (self.folders.after_htc_dir, self.folders.after_htm_dir):
+            write_dbeaver_csv(self.output / name / "unconfigured.csv", ["id"], [["2"], ["1"]])
+        original = self.snapshot()
+
+        result = process_root(self.case, config=self.config, selected_workflow_keys={"after_htc_vs_htm"}, sort_by_key=True)
+
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("[unconfigured]", result.errors[0])
+        self.assertFalse(result.test_cases[0].workbooks)
+        self.assertEqual(self.snapshot(), original)
+
+    def test_before_after_sort_ignores_after_only_csv_without_key(self):
+        after_only = self.output / self.folders.after_htm_dir / "after_only.csv"
+        write_dbeaver_csv(after_only, ["id"], [["2"], ["1"]])
+        original_after_only = after_only.read_bytes()
+
+        result = process_root(self.case, config=self.config, selected_workflow_keys={"htm_before_after"}, sort_by_key=True)
+
+        self.assertFalse(result.errors)
+        self.assertEqual(after_only.read_bytes(), original_after_only)
+        workbook = load_workbook(result.test_cases[0].workbooks[0].output_path)
+        try:
+            self.assertNotIn("after_only", workbook.sheetnames)
         finally:
             workbook.close()
 

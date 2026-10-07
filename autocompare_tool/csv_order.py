@@ -11,24 +11,41 @@ def sort_csv_folders_by_key(
     folders: list[Path],
     keys_by_table: dict[str, tuple[str, ...]],
     log: Callable[[str], None],
+    *,
+    require_keys: bool = False,
+    include_right_only_files: bool = True,
 ) -> dict[str, tuple[str, ...]]:
     """Reorder raw CSV records without changing their values, quoting or encoding."""
     tables: dict[str, list[Path]] = {}
-    for folder in dict.fromkeys(folders):
+    unique_folders = list(dict.fromkeys(folders))
+    left_tables = (
+        {path.stem.casefold() for path in unique_folders[0].glob("*.csv") if path.is_file()}
+        if unique_folders else set()
+    )
+    for folder in unique_folders:
         for path in sorted(folder.glob("*.csv")):
-            if path.is_file():
+            if path.is_file() and (include_right_only_files or path.stem.casefold() in left_tables):
                 tables.setdefault(path.stem.casefold(), []).append(path)
-    valid_keys: dict[str, tuple[str, ...]] = {}
+    plans_by_table: dict[str, tuple[tuple[str, ...], list[tuple[Path, bytes, bytes]]]] = {}
     for table, paths in tables.items():
         columns = keys_by_table.get(table)
         if not columns:
+            message = f"[{table}] No key in [update_compare_keys]; extract the database key before sorting."
+            if require_keys:
+                raise ValueError(message)
             log(f"[{table}] Skip ordering: no key in [update_compare_keys].")
             continue
         try:
             plans = [(path, *_ordered_csv(path, columns)) for path in paths]
         except ValueError as exc:
+            if require_keys:
+                raise ValueError(f"[{table}] Cannot sort CSV by configured key: {exc}") from exc
             log(f"[{table}] Skip ordering: {exc}")
             continue
+        plans_by_table[table] = (columns, plans)
+
+    valid_keys: dict[str, tuple[str, ...]] = {}
+    for table, (columns, plans) in plans_by_table.items():
         staged: list[tuple[Path, Path]] = []
         try:
             # Validate both sides before staging; replace whole files to avoid truncation.

@@ -330,6 +330,8 @@ class ProcessorAndExcelTests(unittest.TestCase):
             _write_text(before / "table.csv", 'id,text,nullish\r\n1,"line1\r\nline2",\r\n')
             _write_text(after / "table.csv", 'id,text,nullish\r\n1,"line1\nline2","NULL"\r\n')
             output = root / "compare.xlsx"
+            before_bytes = (before / "table.csv").read_bytes()
+            after_bytes = (after / "table.csv").read_bytes()
 
             result = write_compare_workbook_with_fixmes(before, after, output)
 
@@ -337,6 +339,45 @@ class ProcessorAndExcelTests(unittest.TestCase):
             text_entry = next(entry for entry in result.fixme_entries if entry.column_name == "text")
             self.assertEqual(text_entry.left_value, "line1\r\nline2")
             self.assertEqual(text_entry.right_value, "line1\nline2")
+            workbook = load_workbook(output)
+            try:
+                worksheet = workbook["table"]
+                self.assertEqual(worksheet["C4"].value, "line1\r\nline2")
+                self.assertEqual(worksheet["D4"].value, "line1\nline2")
+                self.assertTrue(all(cell.alignment.wrap_text is not True for row in worksheet for cell in row))
+            finally:
+                workbook.close()
+            apply_fixme_replacements(result.fixme_entries, {0: "reviewed"})
+            workbook = load_workbook(output)
+            try:
+                worksheet = workbook["table"]
+                self.assertEqual(worksheet["C4"].value, "line1\r\nline2")
+                self.assertEqual(worksheet["D4"].value, "line1\nline2")
+                self.assertTrue(all(cell.alignment.wrap_text is not True for row in worksheet for cell in row))
+            finally:
+                workbook.close()
+            self.assertEqual((before / "table.csv").read_bytes(), before_bytes)
+            self.assertEqual((after / "table.csv").read_bytes(), after_bytes)
+
+    def test_compare_rejects_values_excel_would_truncate_without_touching_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            before = root / "before"
+            after = root / "after"
+            before.mkdir()
+            after.mkdir()
+            value = "a" * 32768
+            _write_text(before / "table.csv", f'id,text\r\n1,"{value}"\r\n')
+            _write_text(after / "table.csv", 'id,text\r\n1,"short"\r\n')
+            output = root / "compare.xlsx"
+            original = [(path, path.read_bytes()) for path in (before / "table.csv", after / "table.csv")]
+
+            with self.assertRaisesRegex(ValueError, "32767"):
+                write_compare_workbook_with_fixmes(before, after, output)
+
+            self.assertFalse(output.exists())
+            for path, content in original:
+                self.assertEqual(path.read_bytes(), content)
 
     def test_compare_workbook_uses_configurable_style_colors(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

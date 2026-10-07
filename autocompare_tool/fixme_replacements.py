@@ -3,12 +3,13 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Mapping, Sequence
 
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 
-from .excel_writer import WorkbookFixmeEntry
+from .excel_writer import WorkbookFixmeEntry, preserve_compare_workbook_line_endings
 
 
 @dataclass(frozen=True)
@@ -42,15 +43,23 @@ def apply_fixme_replacements(
 
     for workbook_path, cell_updates in by_workbook.items():
         workbook = load_workbook(workbook_path)
-        for sheet_name, row, column, notes in cell_updates:
-            if sheet_name not in workbook.sheetnames:
-                continue
-            worksheet = workbook[sheet_name]
-            unique_notes = _unique_in_order(notes)
-            cell = worksheet.cell(row, column)
-            cell.value = "\n".join(unique_notes)
-            cell.alignment = Alignment(wrap_text=False)
-        workbook.save(workbook_path)
+        with NamedTemporaryFile(dir=workbook_path.parent, suffix=".xlsx", delete=False) as temporary:
+            temporary_path = Path(temporary.name)
+        try:
+            for sheet_name, row, column, notes in cell_updates:
+                if sheet_name not in workbook.sheetnames:
+                    continue
+                worksheet = workbook[sheet_name]
+                unique_notes = _unique_in_order(notes)
+                cell = worksheet.cell(row, column)
+                cell.value = "\n".join(unique_notes)
+                cell.alignment = Alignment(wrap_text=False)
+            workbook.save(temporary_path)
+            preserve_compare_workbook_line_endings(temporary_path)
+            temporary_path.replace(workbook_path)
+        finally:
+            workbook.close()
+            temporary_path.unlink(missing_ok=True)
 
     return FixmeReplacementResult(
         workbook_count=len(by_workbook),

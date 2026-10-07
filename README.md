@@ -100,10 +100,10 @@ Compare CSV > Cấu hình has two independent checkboxes, both off by default:
   clearing existing files. With this off, compare uses the existing before folders.
   After HTC versus HTM never requires Input or before and ignores this checkbox.
 - **Sắp xếp record theo key và lưu vào CSV** sorts both sides of selected workflows
-  in place by every configured key column, using ascending text order. Full keys
-  also drive workbook pairing, so insert/delete records remain on their own side.
-  Missing columns/config or duplicate/blank/NULL keys skip ordering for that table
-  with a log entry and leave the CSVs unchanged. Original CSV encoding, quoting,
+  in place by every configured key column, using ascending text order. The workbook
+  then pairs records by position from top to bottom. Missing columns/config or
+  duplicate/blank/NULL keys stop the selected workflow with an error instead of
+  creating an unsorted workbook. Original CSV encoding, quoting,
   values and record counts are preserved, including NULL versus quoted empty string.
 
 Default checkbox states are `copy_input_enabled` and `sort_by_key_enabled` under
@@ -243,7 +243,7 @@ Mỗi case có thể tạo tối đa ba workbook theo các checkbox đang bật:
 
 Chỉ copy CSV từ `Input` vào hai folder before khi bật checkbox copy. Compare không tự xóa record, CSV hay folder before. Checkbox sắp xếp ghi thứ tự theo key vào CSV và giữ nguyên số lượng record. Workbook của workflow không được chọn được giữ nguyên.
 
-Record được ghép bằng cột đầu tiên của CSV cộng với thứ tự xuất hiện khi key bị trùng. Record chỉ có ở một phía được giữ lại với giá trị phía còn lại để trống. Các cột metadata `ValidationErrors`, `HasErrors`, `TargetProperties` và `DataState` được bỏ qua khi compare.
+Record được ghép theo thứ tự từ trên xuống dưới của hai CSV, kể cả khi giá trị cột đầu tiên khác nhau. Nếu một phía ít record hơn, vị trí còn thiếu được để trống. Các cột metadata `ValidationErrors`, `HasErrors`, `TargetProperties` và `DataState` được bỏ qua khi compare.
 
 ## FIXME review
 

@@ -177,9 +177,15 @@ def _process_test_case(
                 for folder in folders_to_compare:
                     if not folder.is_dir():
                         raise FileNotFoundError(f"Thiếu folder compare: {folder}")
-                keys = sort_csv_folders_by_key(folders_to_compare, config.update_compare_keys, log) if sort_by_key else {}
+                if sort_by_key:
+                    sort_csv_folders_by_key(
+                        folders_to_compare, config.update_compare_keys, log, require_keys=True,
+                        include_right_only_files=workflow.key not in {
+                            WORKFLOW_HTM_BEFORE_AFTER, WORKFLOW_HTC_BEFORE_AFTER,
+                        },
+                    )
                 workbook_result = _write_workflow_workbook(
-                    case_path, output_dir, compare_dir, workflow, config, keys, sheet_zoom,
+                    case_path, output_dir, compare_dir, workflow, config, sheet_zoom,
                 )
             except Exception as exc:
                 message = f"[{case_path.name}/{workflow.key}] ERROR: {exc}"
@@ -205,7 +211,6 @@ def _write_workflow_workbook(
     compare_dir: Path,
     workflow: CompareWorkflowConfig,
     config: AppConfig,
-    keys_by_table: dict[str, tuple[str, ...]],
     sheet_zoom: int,
 ) -> WorkbookResult:
     left_dir = output_dir / workflow.left_dir_name
@@ -221,7 +226,6 @@ def _write_workflow_workbook(
         case_folder_name=case_path.name,
         include_left_only_files=is_update_compare or workflow.include_left_only_files,
         include_right_only_files=not is_update_compare,
-        keys_by_table=keys_by_table,
         sheet_zoom=sheet_zoom,
     )
     return WorkbookResult(

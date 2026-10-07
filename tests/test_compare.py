@@ -7,23 +7,15 @@ from autocompare_tool.csv_table import CsvTable
 
 
 class CompareTests(unittest.TestCase):
-    def test_shared_keys_stay_aligned_when_order_or_membership_changes(self) -> None:
-        for after_ids, expected_before, expected_after in [
-            (["C001", "C002", "C004"], ["C001", "C002", "C004", "C003"],
-             ["C001", "C002", "C004", ""]),
-            (["C004", "C002", "C001", "C003"], ["C004", "C002", "C001", "C003"],
-             ["C004", "C002", "C001", "C003"]),
-            (["C001", "C002", "C004", "C005"], ["C001", "C002", "C004", "", "C003"],
-             ["C001", "C002", "C004", "C005", ""]),
-        ]:
-            with self.subTest(after_ids=after_ids):
-                before = CsvTable(["id"], [{"id": key} for key in ["C001", "C002", "C003", "C004"]])
-                after = CsvTable(["id"], [{"id": key} for key in after_ids])
+    def test_partial_first_column_key_matches_do_not_create_extra_pairs(self) -> None:
+        before = CsvTable(["seq"], [{"seq": value} for value in ["1", "2", "3", "4"]])
+        after = CsvTable(["seq"], [{"seq": value} for value in ["1", "2", "30", "40"]])
 
-                comparison = build_sheet_comparison("customers", before, after)
+        comparison = build_sheet_comparison("customers", before, after)
 
-                self.assertEqual([cell_value(pair.before, "id") for pair in comparison.pairs], expected_before)
-                self.assertEqual([cell_value(pair.after, "id") for pair in comparison.pairs], expected_after)
+        self.assertEqual(len(comparison.pairs), 4)
+        self.assertEqual([cell_value(pair.before, "seq") for pair in comparison.pairs], ["1", "2", "3", "4"])
+        self.assertEqual([cell_value(pair.after, "seq") for pair in comparison.pairs], ["1", "2", "30", "40"])
 
     def test_update_maps_same_first_column_key(self) -> None:
         before = CsvTable(["id", "name"], [{"id": "5", "name": "old"}])
@@ -37,7 +29,7 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(cell_value(comparison.pairs[0].before, "name"), "old")
         self.assertEqual(cell_value(comparison.pairs[0].after, "name"), "new")
 
-    def test_insert_keeps_matching_key_aligned(self) -> None:
+    def test_extra_after_records_are_paired_by_position(self) -> None:
         before = CsvTable(["id", "name"], [{"id": "5", "name": "exists"}])
         after = CsvTable(
             ["id", "name"],
@@ -51,9 +43,9 @@ class CompareTests(unittest.TestCase):
         comparison = build_sheet_comparison("sample.csv", before, after)
 
         self.assertEqual([cell_value(pair.after, "id") for pair in comparison.pairs], ["2", "5", "7"])
-        self.assertEqual([cell_value(pair.before, "id") for pair in comparison.pairs], ["", "5", ""])
+        self.assertEqual([cell_value(pair.before, "id") for pair in comparison.pairs], ["5", "", ""])
 
-    def test_delete_appends_before_only_rows(self) -> None:
+    def test_extra_before_records_are_paired_by_position(self) -> None:
         before = CsvTable(
             ["id", "name"],
             [
@@ -67,9 +59,9 @@ class CompareTests(unittest.TestCase):
         comparison = build_sheet_comparison("sample.csv", before, after)
 
         self.assertEqual([cell_value(pair.after, "id") for pair in comparison.pairs], ["5", "", ""])
-        self.assertEqual([cell_value(pair.before, "id") for pair in comparison.pairs], ["5", "2", "7"])
+        self.assertEqual([cell_value(pair.before, "id") for pair in comparison.pairs], ["2", "5", "7"])
 
-    def test_duplicate_keys_use_occurrence_order(self) -> None:
+    def test_duplicate_first_column_values_stay_in_file_order(self) -> None:
         before = CsvTable(
             ["id", "value"],
             [{"id": "5", "value": "before-1"}, {"id": "5", "value": "before-2"}],
