@@ -2443,6 +2443,7 @@ function renderCompareSheet() {
   }
   $("#compare-preview-status").classList.add("hidden");
   table.classList.remove("hidden");
+  setCompareGridWidth(table);
   $("#compare-navigation-tools")?.classList.remove("hidden");
   if (needsDomSwap) {
     bindCompareCellCopyControls(table);
@@ -2457,6 +2458,15 @@ function renderCompareSheet() {
     delete state.compareView.scrollPageToBottomAfterRender;
     scrollComparePageToBottom();
   }
+}
+
+function setCompareGridWidth(table) {
+  const style = getComputedStyle(table);
+  const rowNumberWidth = parseFloat(style.getPropertyValue("--compare-row-number-width"));
+  const valueWidth = parseFloat(style.getPropertyValue("--compare-cell-width"));
+  const checkWidth = parseFloat(style.getPropertyValue("--compare-check-width"));
+  const valueColumns = table.querySelectorAll("col.compare-value-col").length;
+  table.style.setProperty("--compare-grid-width", `${rowNumberWidth + valueColumns * valueWidth + checkWidth}px`);
 }
 
 function buildCompareSheetHtml(sheet) {
@@ -2524,10 +2534,11 @@ function compareCellHtml(cell, row, columnIndex = -1) {
   const classes = ["compare-cell", compareColumnStickyClass(columnIndex), ...compareCellColorClasses(cell, row)].filter(Boolean);
   if (Number(cell?.row || row?.number || 0) === 2) classes.push("compare-header-cell");
   if (compareCellBelongsToDiffPair(cell, row)) classes.push("compare-diff-cell");
-  if (cell.style?.wrap) classes.push("wrap");
   if (fixmeIndices.length) classes.push("compare-fixme-cell");
-  const address = `${compareColumnLetter(Number(cell?.column || columnIndex + 1))}${Number(cell?.row || row?.number || 0)}`;
-  return `<td class="${classes.join(" ")}" data-compare-address="${escapeHtml(address)}">${compareCellContent(cell, fixmeIndices)}</td>`;
+  const rowNumber = Number(cell?.row || row?.number || 0);
+  const columnNumber = Number(cell?.column || columnIndex + 1);
+  const address = `${compareColumnLetter(columnNumber)}${rowNumber}`;
+  return `<td class="${classes.join(" ")}" data-compare-address="${escapeHtml(address)}" data-compare-row="${rowNumber}" data-compare-column="${columnNumber}"><div class="compare-cell-clip">${compareCellContent(cell, fixmeIndices)}</div></td>`;
 }
 
 function compareColumnLetter(column) {
@@ -2698,7 +2709,7 @@ function compareCellContent(cell, fixmeIndices) {
       ? `<div class="compare-existing-note">Đã lưu trong Excel:\n${escapeHtml(workbookValue)}</div>`
       : "";
     const summary = selectedNotes.length > 1 ? `Đã gán:\n${selectedNotes.join("\n")}` : "";
-    return `<input class="compare-fixme-note-input" data-compare-fixme-indices="${escapeHtml(allFixmeIndices.join(","))}" data-compare-fixme-value="${escapeHtml(workbookValue)}" list="fixme-note-values" value="${escapeHtml(compareFixmeInputValue(allFixmeIndices, workbookValue))}" placeholder="${summary ? "Chọn note để thay tất cả" : "Nhập hoặc chọn note"}"><div class="compare-note-summary${summary ? "" : " hidden"}" title="Các note đã gán cho những record khác nhau">${escapeHtml(summary)}</div>${existingNote}`;
+    return `<input class="compare-fixme-note-input" data-compare-fixme-indices="${escapeHtml(allFixmeIndices.join(","))}" data-compare-fixme-value="${escapeHtml(workbookValue)}" list="fixme-note-values" value="${escapeHtml(compareFixmeInputValue(allFixmeIndices, workbookValue))}" placeholder="${summary ? "Chọn note để thay tất cả" : "Nhập hoặc chọn note"}" title="${escapeHtml(summary || workbookValue)}"><div class="compare-note-summary${summary ? "" : " hidden"}" title="Các note đã gán cho những record khác nhau">${escapeHtml(summary)}</div>${existingNote}`;
   }
   return `<div class="compare-cell-value" tabindex="0" title="Click để chọn/copy value">${escapeHtml(cell.value)}</div>`;
 }
@@ -2707,6 +2718,15 @@ function bindCompareCellCopyControls(root) {
   $$(".compare-cell-value", root).forEach((cell) => {
     cell.addEventListener("focus", () => selectCompareCellText(cell));
     cell.addEventListener("click", () => selectCompareCellText(cell));
+    cell.addEventListener("copy", (event) => {
+      const location = cell.closest("[data-compare-row][data-compare-column]");
+      const row = Number(location?.dataset.compareRow);
+      const column = Number(location?.dataset.compareColumn);
+      const value = state.compareView.sheet?.rows?.[row - 1]?.cells?.[column - 1]?.value;
+      if (!event.clipboardData || value == null) return;
+      event.clipboardData.setData("text/plain", String(value));
+      event.preventDefault();
+    });
   });
 }
 

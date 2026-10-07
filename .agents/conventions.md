@@ -33,6 +33,7 @@
 - Preserve DBeaver-style NULL versus empty string in compare inputs: unquoted blank data cell is `NULL`, quoted empty string is `""`.
 - Compare workbooks display `NULL` values as literal `NULL`; empty strings remain visually blank.
 - Preserve every LF and CRLF character inside quoted CSV values through comparison, workbook generation, and later note application. Compare value cells never enable Excel wrap text. Reject values over Excel's 32,767-character cell limit instead of silently truncating them.
+- The browser workbook preview uses fixed 180px value columns and 27px rows regardless of cell content or workbook wrap metadata. Clip only the visible text; focus and copy must return the entire original cell value, including CRLF.
 - Workbook preview exposes a separate record-count filter only when a record pair is present on one CSV side but missing on the other. That filter hides the unmatched before/after column pairs plus rows whose only FIXME entries belong to those pairs, and bulk note controls must target only the remaining visible differences.
 - Compare CSV records strictly by their positions from top to bottom. The pair count is the greater of the two CSV record counts, even when first-column or configured key values differ.
 - Compare must never automatically filter/delete records, CSV files or before folders, including equal-table cleanup. Keep equal sheets. After HTC/HTM row counts must never change.
