@@ -1113,6 +1113,17 @@ function bindForms() {
     saveUiCacheDebounced();
     showToast(`Đã chọn tất cả ${state.selectedImportCsvTables.length} table CSV.`, "success");
   });
+  const importTablePicker = $("#db-import-tables");
+  const importSelectedButton = $("#db-import-selected");
+  const clearImportSelectionOutsidePicker = (target) => {
+    if (!state.selectedImportCsvTables.length) return;
+    if (importTablePicker.contains(target) || importSelectedButton.contains(target)) return;
+    state.selectedImportCsvTables = [];
+    renderImportCsvTables();
+    saveUiCacheDebounced();
+  };
+  document.addEventListener("pointerdown", (event) => clearImportSelectionOutsidePicker(event.target));
+  document.addEventListener("focusin", (event) => clearImportSelectionOutsidePicker(event.target));
   $("#db-csv-path").addEventListener("input", () => {
     state.importCsvTables = [];
     state.selectedImportCsvTables = [];
@@ -1208,6 +1219,14 @@ function bindForms() {
   $("#apply-fixmes").addEventListener("click", applySelectedFixmeNotes);
   $("#apply-fixmes-preview").addEventListener("click", applySelectedFixmeNotes);
   $("#refresh-compare-preview").addEventListener("click", refreshComparePreview);
+  $("#load-compare-workbooks").addEventListener("click", () => {
+    const target = $("#compare-load-root");
+    if (!target.value) target.value = valueOf("compare-root") || state.bootstrap.cwd;
+    openPathPicker({ dataset: { browseTarget: "compare-load-root", browseKind: "directory" } });
+  });
+  $("#compare-load-root").addEventListener("change", () => {
+    startAction("load_compare_workbooks", { root: valueOf("compare-load-root") });
+  });
   $("#check-fixmes")?.addEventListener("click", checkRemainingFixmes);
   $("#toggle-fixme-expand")?.addEventListener("click", toggleFixmeExpand);
   $("#compare-bulk-note")?.addEventListener("change", updateCompareBulkToolbarState);
@@ -2079,6 +2098,7 @@ function updateFixmeToolbarState(filteredEntries = filteredFixmes()) {
     button.title = applyTitle;
   }
   $("#refresh-compare-preview").disabled = busy || !state.compareView.cases?.length;
+  $("#load-compare-workbooks").disabled = busy;
   $("#check-fixmes").disabled = busy || !state.compareView.cases?.length;
 }
 
@@ -2140,9 +2160,11 @@ function renderComparePreview() {
   const card = $("#compare-preview-card");
   if (!card) return;
   const cases = state.compareView.cases || [];
-  card.classList.toggle("hidden", cases.length === 0);
   if (!cases.length) {
     state.compareView.sheet = null;
+    for (const id of ["compare-case-tabs", "compare-workbook-tabs", "compare-sheet-tabs"]) $(`#${id}`).replaceChildren();
+    $("#compare-navigation-tools").classList.add("hidden");
+    showComparePreviewStatus("Chọn ‘Load file Compare’ để mở lại workbook trong folder UT* / Output / Compare.", { done: true });
     updateFixmeToolbarState();
     return;
   }
@@ -4431,6 +4453,7 @@ function summaryMessage(job) {
   const result = job.result || {};
   if (job.action === "compare") return `Đã xử lý ${result.processed_count || 0} case, tạo ${result.workbook_count || 0} workbook và tìm thấy ${result.fixme_count || 0} FIXME.`;
   if (job.action === "folder_compare") return `Đã tạo ${result.workbook_count || 1} workbook / ${result.sheet_count || 0} sheet, tìm thấy ${result.fixme_count || 0} FIXME.`;
+  if (job.action === "load_compare_workbooks") return `Đã nạp ${result.workbook_count || 0} workbook Compare từ ${result.case_count || 0} case UT; ${result.fixme_count || 0} sai khác có thể gán note.`;
   if (job.action === "excel_compare") return `Đã compare ${result.sheet_pair_count || 0} sheet và tìm thấy ${result.difference_count || 0} ô sai khác.`;
   if (job.action === "pdf_compare") return result.identical
     ? `Hai file PDF giống nhau theo text, form/annotation và ảnh render của ${result.compared_page_count || 0} trang.`

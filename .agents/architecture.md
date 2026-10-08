@@ -455,6 +455,8 @@ SQL text + selected dialect
 
 ## Extension Points
 
+- Compare Workbook view can reload earlier UT results: the web job scans each discovered `UT*` case's configured `Output/Compare` directory, accepts generated Compare `.xlsx` workbooks, and reconstructs FIXME positions from paired cells. Loading only reads Excel files; applying notes still uses the existing workbook writer.
+
 - Add CLI subcommands for compare/copy/normalize once GUI behavior stabilizes.
 - Add more database adapters by extending `database_io.py`.
 - Move copy workflow into `autocompare_tool` after adding focused tests.

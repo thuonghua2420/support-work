@@ -65,6 +65,8 @@
 - Import scans only CSV files directly inside the selected folder; nested folders are ignored.
 - The web CSV import page can scan direct CSV files and pass selected table names to `import_csv_folder`; import-all must keep the same behavior as an empty selection.
 - After at least one scanned CSV table is selected, Ctrl+A in the table picker selects every scanned table; the copy-all action writes all scanned table names to the clipboard one per line.
+- Clicking or moving focus outside the scanned CSV table picker clears its selected tables; focusing Import Single keeps the selection so that action can use it.
+- In the browser CSV table picker, selected chips need a clearly distinct high-contrast state and a separate visible keyboard focus ring.
 - Map table name from CSV file stem.
 - Skip missing tables; do not mark them as errors.
 - CSV headers must map to DB columns; unknown CSV columns are errors.

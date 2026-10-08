@@ -22,6 +22,7 @@ from .compare_workbook_view import (
     read_compare_sheet,
     scan_compare_workbook_fixmes,
 )
+from .compare_workbook_loader import load_ut_compare_workbooks
 from .database_io import (
     DatabaseConnectionSettings,
     OperationCancelledError,
@@ -212,6 +213,7 @@ class JobManager:
 
 class AutoCompareWebApplication:
     ACTION_LABELS = {
+        "load_compare_workbooks": "Đang nạp workbook Compare từ folder UT...",
         "compare_keys_extract": "Đang trích xuất primary key...",
         "compare_keys_remove": "Đang xóa key compare đã lưu...",
         "compare": "Đang chạy so sánh UT...",
@@ -634,6 +636,7 @@ class AutoCompareWebApplication:
                 )
             )
         operations: dict[str, Callable[[Logger], dict[str, Any]]] = {
+            "load_compare_workbooks": lambda log: self._load_compare_workbooks(payload, log),
             "compare": lambda log: self._compare(payload, log),
             "folder_compare": lambda log: self._folder_compare(payload, log),
             "format_excel_workbooks": lambda log: self._file_summary(
@@ -822,6 +825,17 @@ class AutoCompareWebApplication:
             "error_count": len(summary.errors),
             "errors": summary.errors,
             "fixme_count": len(summary.fixme_entries),
+            "fixmes": self.fixme_snapshot(),
+            "compare_view": self.compare_view_index(),
+        }
+
+    def _load_compare_workbooks(self, payload: dict[str, Any], log: Logger) -> dict[str, Any]:
+        workbooks, fixme_entries = load_ut_compare_workbooks(_text(payload, "root"), self.config, log)
+        self._set_compare_result(fixme_entries, workbooks)
+        return {
+            "case_count": len({workbook.case_folder_name for workbook in workbooks}),
+            "workbook_count": len(workbooks),
+            "fixme_count": len(fixme_entries),
             "fixmes": self.fixme_snapshot(),
             "compare_view": self.compare_view_index(),
         }

@@ -205,7 +205,10 @@ body.workspace-theme { color: var(--ink); background: var(--canvas); font-size: 
 .workspace-theme #page-database .import-mode-grid { gap: 8px; margin-top: 7px; }
 .workspace-theme :is(.import-table-grid, .csv-export-panel #db-export-tables, .table-source-picker select, .selected-tables select) { border-color: var(--line); border-radius: 10px; }
 .workspace-theme .import-table-chip { border-radius: 6px; padding: 5px 9px; background: #f6f7f8; }
-.workspace-theme .import-table-chip.selected { background: #f1f4f7; border-color: #ccd6e1; color: #4b5c73; box-shadow: none; }
+.workspace-theme .import-table-chip.selected { background: #3b506b; border-color: #30445f; color: #fff; box-shadow: 0 2px 6px #23354f24; }
+.workspace-theme .import-table-chip.selected small { color: #e0e9f4; }
+.workspace-theme .import-table-chip.selected:hover { background: #304660; border-color: #263a54; }
+.workspace-theme .import-table-chip:focus-visible { outline: 3px solid #7998c1; outline-offset: 2px; }
 .workspace-theme .tool-card h3 { font-size: 16px; margin-top: 0; }
 .workspace-theme .tool-card p { color: var(--muted); }
 .workspace-theme .tool-heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 22px; }
