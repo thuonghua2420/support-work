@@ -16,7 +16,11 @@ vm.runInContext(String.raw`
   updateFixmeToolbarState = () => {};
   updateCompareBulkToolbarState = () => {};
   showToast = () => {};
-  state.fixmes = [{ record_number: 1 }, { record_number: 2 }, { record_number: 2 }];
+  state.fixmes = [
+    { index: 0, record_number: 1, workbook_path: 'UT01/compare.xlsx', sheet_name: 'customers', fixme_cell: 'F6' },
+    { index: 1, record_number: 2, workbook_path: 'UT01/compare.xlsx', sheet_name: 'customers', fixme_cell: 'F6' },
+    { index: 2, record_number: 2, workbook_path: 'UT01/compare.xlsx', sheet_name: 'customers', fixme_cell: 'F7' },
+  ];
   state.compareView.sheet = {
     record_count_mismatch_pair_starts: [5],
     rows: [

@@ -259,6 +259,8 @@ body.workspace-theme { color: var(--ink); background: var(--canvas); font-size: 
 .workspace-theme :is(.compare-tab.active, .sheet-tabs .compare-tab.active) { border-color: #ccd5e0; background: #f2f4f7; color: #4a5e77; }
 .workspace-theme .compare-page-toolbar > .compare-bulk-toolbar select { min-height: 34px; padding-block: 7px; font-size: 12px; }
 .workspace-theme .compare-page-toolbar > .card-heading { margin-bottom: 0; }
+.workspace-theme .compare-navigation-tools .compare-count-trigger { height: 20px; min-height: 20px; padding: 0 6px; border-color: #cbd5df; color: #405267; background: #f8fafb; font-size: 9px; }
+.workspace-theme .compare-count-trigger:hover:not(:disabled) { border-color: #a9bbcd; color: #243f5b; background: #eef3f7; }
 .workspace-theme .compare-grid .compare-fixme-note-input { min-height: 0; height: 100%; border: 0; border-radius: 0; background: transparent; padding: 3px 6px; color: inherit; font: inherit; box-shadow: none; }
 .workspace-theme .compare-grid input[type="checkbox"] { width: 14px; height: 14px; min-height: 14px; flex-basis: 14px; border-radius: 3px; }
 .workspace-theme .panel-expanded { width: auto; padding: 10px 12px; }

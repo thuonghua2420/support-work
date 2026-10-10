@@ -13,6 +13,7 @@ from openpyxl.utils import get_column_letter
 
 from .app_config import ExcelCompareStyleConfig, ExcelHeaderConfig, load_app_config
 from .compare import SheetComparison, build_sheet_comparison, cell_value, cell_values_equal
+from .compare_record_counts import store_record_counts
 from .csv_table import CsvTable, read_csv_table
 
 INVALID_SHEET_CHARS = re.compile(r"[\[\]:*?/\\]")
@@ -118,6 +119,7 @@ def write_compare_workbook_for_pairs(
     used_sheet_names: set[str] = set()
     fixme_entries: list[WorkbookFixmeEntry] = []
     equal_before_files: list[Path] = []
+    record_counts: dict[str, tuple[int, int]] = {}
 
     for before_csv, after_csv, csv_display_name in csv_pairs:
         before_table = read_csv_table(before_csv) if before_csv.exists() else CsvTable([], [])
@@ -141,6 +143,7 @@ def write_compare_workbook_for_pairs(
             equal_before_files.append(before_csv)
             continue
         fixme_entries.extend(sheet_entries)
+        record_counts[sheet_name] = (len(before_table.rows), len(after_table.rows))
         sheet_count += 1
 
     if sheet_count == 0:
@@ -149,6 +152,9 @@ def write_compare_workbook_for_pairs(
         worksheet["A1"] = headers.no_csv_message
         worksheet["A1"].font = styles.base_font
         worksheet.column_dimensions["A"].width = 40
+        record_counts["Summary"] = (0, 0)
+
+    store_record_counts(workbook, record_counts)
 
     with NamedTemporaryFile(dir=output_path.parent, suffix=".xlsx", delete=False) as temporary:
         temporary_path = Path(temporary.name)

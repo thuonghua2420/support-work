@@ -11,6 +11,15 @@ whole sheet expands vertically with the page. Maximize uses the full browser vie
 and keeps the workbook selectors visible while the grid scrolls. Applying notes sends
 every assigned note from all cases, workbooks and sheets in the current compare run;
 the active sheet only controls what is visible.
+Checkboxes selected in Workbook remain selected when changing sheets. The bulk
+note action applies to every checked row across sheets and clears those ticks;
+the current sheet's filter only controls which rows can be ticked there.
+
+Trong tab Workbook, nút **Count record** mở bảng số record trái/phải cho mọi sheet
+của file Compare đang chọn. Dòng lệch count được tô màu; có thể tìm sheet, lọc
+chỉ dòng lệch và nhấp tên sheet để mở. Workbook mới lưu count gốc trong metadata
+Excel mà không thêm sheet hoặc sửa dữ liệu ô. Với workbook cũ chưa có metadata,
+bảng ghi nhãn **Ước tính** cho count suy ra từ các cặp record hiển thị.
 
 ## Giao diện Workspace
 

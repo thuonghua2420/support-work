@@ -17,6 +17,8 @@ const state = {
   compareExcludeRecordCountDifferences: false,
   pendingCompareCell: "",
   compareView: { cases: [], activeCaseId: "", activeWorkbookId: "", activeSheetName: "", sheet: null, loadingKey: "", sheetCache: {}, sheetHtmlCache: {}, sheetPending: {}, preloadStarted: false, viewToken: "initial" },
+  compareCountSummary: null,
+  compareCountRequestId: 0,
   job: null,
   jobCursor: 0,
   handledJobs: new Set(),
@@ -1219,6 +1221,13 @@ function bindForms() {
   $("#apply-fixmes").addEventListener("click", applySelectedFixmeNotes);
   $("#apply-fixmes-preview").addEventListener("click", applySelectedFixmeNotes);
   $("#refresh-compare-preview").addEventListener("click", refreshComparePreview);
+  $("#compare-record-counts").addEventListener("click", openCompareRecordCounts);
+  $("#close-compare-count").addEventListener("click", () => $("#compare-count-dialog").close());
+  $("#compare-count-search").addEventListener("input", renderCompareRecordCountRows);
+  $("#compare-count-only-different").addEventListener("change", renderCompareRecordCountRows);
+  $("#compare-count-dialog").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) event.currentTarget.close();
+  });
   $("#load-compare-workbooks").addEventListener("click", () => {
     const target = $("#compare-load-root");
     if (!target.value) target.value = valueOf("compare-root") || state.bootstrap.cwd;
@@ -2098,6 +2107,7 @@ function updateFixmeToolbarState(filteredEntries = filteredFixmes()) {
     button.title = applyTitle;
   }
   $("#refresh-compare-preview").disabled = busy || !state.compareView.cases?.length;
+  $("#compare-record-counts").disabled = busy || !state.compareView.cases?.length;
   $("#load-compare-workbooks").disabled = busy;
   $("#check-fixmes").disabled = busy || !state.compareView.cases?.length;
 }
@@ -2174,6 +2184,7 @@ function renderComparePreview() {
   renderCompareWorkbookTabs(active.caseItem, active.workbook);
   renderCompareSheetTabs(active.workbook, active.sheet);
   updateFixmeToolbarState();
+  $("#compare-record-counts").disabled = document.body.classList.contains("is-busy") || Boolean(active.workbook?.error) || !active.workbook;
 
   if (!active.workbook) {
     showComparePreviewStatus("Case đang chọn chưa có file compare.", { done: true });
@@ -2233,6 +2244,73 @@ function renderCompareWorkbookTabs(caseItem, activeWorkbook) {
     renderComparePreview();
   }));
   bindCompareTabCopyControls(container);
+}
+
+async function openCompareRecordCounts() {
+  const { caseItem, workbook } = ensureActiveCompareSelection();
+  if (!workbook || workbook.error) return;
+  const requestId = ++state.compareCountRequestId;
+  const dialog = $("#compare-count-dialog");
+  state.compareCountSummary = null;
+  $("#compare-count-search").value = "";
+  $("#compare-count-only-different").checked = false;
+  $("#compare-count-title").textContent = "So sánh số record";
+  $("#compare-count-subtitle").textContent = `${caseItem.name}  /  ${workbook.name}`;
+  $("#compare-count-left-heading").textContent = "Count bên trái";
+  $("#compare-count-right-heading").textContent = "Count bên phải";
+  $("#compare-count-overview").innerHTML = '<span class="compare-count-loading">Đang đọc count của các sheet...</span>';
+  $("#compare-count-body").replaceChildren();
+  $("#compare-count-empty").classList.add("hidden");
+  $("#compare-count-footnote").textContent = "";
+  dialog.showModal();
+  $("#compare-count-search").focus();
+  try {
+    const params = new URLSearchParams({ workbook_id: workbook.id });
+    const result = await api(`/api/compare-view/record-counts?${params}`);
+    if (!dialog.open || requestId !== state.compareCountRequestId) return;
+    state.compareCountSummary = result;
+    $("#compare-count-left-heading").textContent = `Count ${result.left_label}`;
+    $("#compare-count-right-heading").textContent = `Count ${result.right_label}`;
+    const matching = result.sheet_count - result.mismatch_count;
+    $("#compare-count-overview").innerHTML = `
+      <div class="compare-count-metric"><span>Tổng sheet</span><strong>${Number(result.sheet_count).toLocaleString("vi-VN")}</strong></div>
+      <div class="compare-count-metric"><span>Count bằng nhau</span><strong>${Number(matching).toLocaleString("vi-VN")}</strong></div>
+      <div class="compare-count-metric ${result.mismatch_count ? "has-difference" : ""}"><span>Count lệch</span><strong>${Number(result.mismatch_count).toLocaleString("vi-VN")}</strong></div>`;
+    $("#compare-count-footnote").textContent = result.approximate_count
+      ? `${result.approximate_count} sheet trong workbook cũ chưa lưu count gốc; số có nhãn “Ước tính” được suy ra từ các cặp record hiển thị.`
+      : "Count được lưu từ dữ liệu CSV tại thời điểm tạo workbook. Nhấp tên sheet để mở trực tiếp.";
+    renderCompareRecordCountRows();
+  } catch (error) {
+    if (!dialog.open || requestId !== state.compareCountRequestId) return;
+    $("#compare-count-overview").replaceChildren();
+    $("#compare-count-empty").textContent = `Không đọc được count: ${error.message}`;
+    $("#compare-count-empty").classList.remove("hidden");
+  }
+}
+
+function renderCompareRecordCountRows() {
+  const summary = state.compareCountSummary;
+  if (!summary) return;
+  const query = valueOf("compare-count-search").toLocaleLowerCase("vi");
+  const onlyDifferent = checked("compare-count-only-different");
+  const sheets = (summary.sheets || []).filter((sheet) =>
+    sheet.sheet_name.toLocaleLowerCase("vi").includes(query) && (!onlyDifferent || !sheet.matches));
+  const body = $("#compare-count-body");
+  body.innerHTML = sheets.map((sheet) => `
+    <tr class="${sheet.matches ? "" : "compare-count-different"}">
+      <td><button class="compare-count-sheet-link" type="button" data-count-sheet="${escapeHtml(sheet.sheet_name)}" title="Mở sheet ${escapeHtml(sheet.sheet_name)}">${escapeHtml(sheet.sheet_name)}</button>${sheet.approximate ? '<small class="compare-count-estimate">Ước tính</small>' : ""}</td>
+      <td class="compare-count-number">${Number(sheet.left_count).toLocaleString("vi-VN")}</td>
+      <td class="compare-count-number">${Number(sheet.right_count).toLocaleString("vi-VN")}</td>
+      <td class="compare-count-delta">${sheet.matches ? "—" : `${sheet.difference > 0 ? "+" : ""}${Number(sheet.difference).toLocaleString("vi-VN")}`}</td>
+    </tr>`).join("");
+  $("#compare-count-empty").textContent = "Không có sheet phù hợp.";
+  $("#compare-count-empty").classList.toggle("hidden", sheets.length > 0);
+  $$("[data-count-sheet]", body).forEach((button) => button.addEventListener("click", () => {
+    state.compareView.activeSheetName = button.dataset.countSheet;
+    state.compareView.sheet = null;
+    $("#compare-count-dialog").close();
+    renderComparePreview();
+  }));
 }
 
 function renderCompareSheetTabs(workbook, activeSheet) {
@@ -2827,43 +2905,46 @@ function toggleVisibleCompareFixmeRows(event) {
 
 function assignCompareBulkNote() {
   const note = valueOf("compare-bulk-note");
-  const checkedVisible = checkedVisibleCompareFixmeIndices();
+  const checkedIndices = checkedCompareFixmeIndices();
   if (!note) {
     showToast("Vui lòng chọn note cần gán.", "error");
     $("#compare-bulk-note")?.focus();
     return;
   }
-  if (!checkedVisible.length) {
+  if (!checkedIndices.length) {
     showToast("Vui lòng tick ít nhất một dòng sai khác trong preview.", "error");
     return;
   }
-  const targets = compareAllFixmeIndicesForVisibleSelection(checkedVisible);
+  const targets = compareAllFixmeIndicesForCheckedSelection(checkedIndices);
   targets.forEach((index) => {
     state.fixmeSelections[index] = note;
-    state.fixmeCheckedRows.delete(index);
   });
+  state.fixmeCheckedRows.clear();
   invalidateCompareSheetHtmlCache();
   renderFixmes();
   syncFixmeRowChecks();
   syncComparePreviewNoteControls();
+  updateFixmeToolbarState();
   updateCompareBulkToolbarState();
-  showToast(`Đã gán note cho ${checkedVisible.length} dòng đã tick.`, "success");
+  showToast(`Đã gán note cho ${checkedIndices.length} dòng đã tick.`, "success");
 }
 
-function compareAllFixmeIndicesForVisibleSelection(checkedVisible) {
-  const checked = new Set(checkedVisible.map(String));
-  const targets = [];
-  (state.compareView.sheet?.rows || []).forEach((row) => {
-    (row.cells || []).forEach((cell) => {
-      const indices = Array.isArray(cell.fixme_indices) ? cell.fixme_indices.map(String) : [];
-      if (indices.some((index) => checked.has(index))) targets.push(...indices);
-    });
-  });
-  return uniqueStrings(targets);
+function compareAllFixmeIndicesForCheckedSelection(checkedIndices) {
+  const checked = new Set(checkedIndices.map(String));
+  const cellKey = (entry) => entry?.workbook_path && entry?.sheet_name && entry?.fixme_cell
+    ? `${entry.workbook_path}\u001f${entry.sheet_name}\u001f${entry.fixme_cell}`
+    : "";
+  const selectedCells = new Set(state.fixmes
+    .filter((entry) => checked.has(String(entry.index)))
+    .map(cellKey)
+    .filter(Boolean));
+  return state.fixmes
+    .filter((entry) => checked.has(String(entry.index)) || selectedCells.has(cellKey(entry)))
+    .map((entry) => String(entry.index));
 }
 
 function clearCompareRowSelection() {
-  visibleCompareFixmeIndices().forEach((index) => state.fixmeCheckedRows.delete(index));
+  state.fixmeCheckedRows.clear();
   invalidateCompareSheetHtmlCache();
   syncFixmeRowChecks();
   syncComparePreviewNoteControls();
@@ -2871,8 +2952,9 @@ function clearCompareRowSelection() {
   updateCompareBulkToolbarState();
 }
 
-function checkedVisibleCompareFixmeIndices() {
-  return visibleCompareFixmeIndices().filter((index) => state.fixmeCheckedRows.has(index));
+function checkedCompareFixmeIndices() {
+  const valid = new Set(state.fixmes.map((entry) => String(entry.index)));
+  return [...state.fixmeCheckedRows].map(String).filter((index) => valid.has(index));
 }
 
 function updateCompareBulkToolbarState() {
@@ -2880,7 +2962,7 @@ function updateCompareBulkToolbarState() {
   if (!toolbar) return;
   const visible = visibleCompareFixmeIndices();
   const checkedCount = visible.filter((index) => state.fixmeCheckedRows.has(index)).length;
-  const totalCheckedCount = checkedCount;
+  const totalCheckedCount = checkedCompareFixmeIndices().length;
   toolbar.classList.remove("hidden");
   $("#compare-checked-count").textContent = `${totalCheckedCount} dòng đã tick`;
   const checkAll = $("#compare-check-visible");

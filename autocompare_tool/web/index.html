@@ -193,6 +193,7 @@
                   <div class="compare-file-row">
                     <div class="compare-tabs" id="compare-workbook-tabs"></div>
                     <div class="compare-navigation-tools hidden" id="compare-navigation-tools">
+                      <button class="secondary-button small compare-count-trigger" id="compare-record-counts" type="button" aria-haspopup="dialog" title="Xem số record của mọi sheet trong file Compare đang chọn"><span aria-hidden="true">≠</span> Count record</button>
                       <label class="compare-diff-filter-control" title="Chỉ hiển thị các dòng có value sai khác">
                         <input id="compare-filter-differences" type="checkbox">
                         <span>Filter sai khác</span>
@@ -641,6 +642,19 @@
       <label class="field hidden" id="save-name-field"><span>Tên file</span><input id="save-file-name"></label>
       <footer><span class="hint" id="path-selection-hint">Chọn một folder</span><div><button class="ghost-button" value="cancel">Hủy</button><button class="primary-button small" id="path-confirm" value="default">Chọn đường dẫn</button></div></footer>
     </form>
+  </dialog>
+
+  <dialog id="compare-count-dialog" class="modal compare-count-modal" aria-labelledby="compare-count-title">
+    <div class="modal-shell">
+      <header class="compare-count-header"><div><span class="section-kicker">WORKBOOK / RECORD COUNT</span><h3 id="compare-count-title">So sánh số record</h3><p id="compare-count-subtitle"></p></div><button class="icon-button" id="close-compare-count" type="button" aria-label="Đóng">×</button></header>
+      <div class="compare-count-content">
+        <div class="compare-count-overview" id="compare-count-overview"></div>
+        <div class="compare-count-controls"><label class="compare-count-search"><span>Tìm sheet</span><input id="compare-count-search" type="search" placeholder="Nhập tên sheet..." autocomplete="off"></label><label class="compare-count-filter"><input id="compare-count-only-different" type="checkbox"> Chỉ hiện lệch count</label></div>
+        <div class="compare-count-table-wrap"><table class="compare-count-table"><thead><tr><th scope="col">Sheet</th><th scope="col" id="compare-count-left-heading">Bên trái</th><th scope="col" id="compare-count-right-heading">Bên phải</th><th scope="col" title="Count bên phải trừ count bên trái">Chênh lệch</th></tr></thead><tbody id="compare-count-body"></tbody></table></div>
+        <p class="compare-count-empty hidden" id="compare-count-empty">Không có sheet phù hợp.</p>
+        <p class="compare-count-footnote" id="compare-count-footnote"></p>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="notes-dialog" class="modal notes-modal">

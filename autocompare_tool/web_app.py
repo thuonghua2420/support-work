@@ -14,7 +14,10 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
-from .app_config import AppConfig, load_app_config
+from .app_config import (
+    AppConfig, WORKFLOW_AFTER_HTC_VS_HTM, WORKFLOW_HTC_BEFORE_AFTER,
+    WORKFLOW_HTM_BEFORE_AFTER, load_app_config,
+)
 from .compare_keys import extract_all_compare_keys, remove_compare_keys
 from .compare_workbook_view import (
     CompareWorkbookReference,
@@ -23,6 +26,7 @@ from .compare_workbook_view import (
     scan_compare_workbook_fixmes,
 )
 from .compare_workbook_loader import load_ut_compare_workbooks
+from .compare_record_counts import read_record_counts
 from .database_io import (
     DatabaseConnectionSettings,
     OperationCancelledError,
@@ -329,6 +333,38 @@ class AutoCompareWebApplication:
         if index < 0 or index >= len(workbooks):
             raise ValueError("Workbook compare không tồn tại trong lần so sánh hiện tại.")
         return read_compare_sheet(workbooks[index], sheet_name, fixme_entries)
+
+    def compare_record_counts_snapshot(self, workbook_id: str) -> dict[str, Any]:
+        try:
+            index = int(workbook_id)
+        except ValueError as exc:
+            raise ValueError("Workbook compare không hợp lệ.") from exc
+        with self._state_lock:
+            workbooks = list(self._compare_workbooks)
+        if index < 0 or index >= len(workbooks):
+            raise ValueError("Workbook compare không tồn tại trong view hiện tại.")
+        reference = workbooks[index]
+        labels_by_workflow = {
+            WORKFLOW_HTM_BEFORE_AFTER: ("HTM trước", "HTM sau"),
+            WORKFLOW_HTC_BEFORE_AFTER: ("HTC trước", "HTC sau"),
+            WORKFLOW_AFTER_HTC_VS_HTM: ("HTC sau", "HTM sau"),
+        }
+        labels = ("Bên trái", "Bên phải")
+        for workflow in self.config.compare_workflows:
+            if reference.workbook_name.casefold() == workflow.output_file_name.casefold():
+                labels = labels_by_workflow.get(workflow.key, labels)
+                break
+        sheets = read_record_counts(reference.workbook_path)
+        return {
+            "case_name": reference.case_folder_name,
+            "workbook_name": reference.workbook_name,
+            "left_label": labels[0],
+            "right_label": labels[1],
+            "sheets": sheets,
+            "sheet_count": len(sheets),
+            "mismatch_count": sum(not sheet["matches"] for sheet in sheets),
+            "approximate_count": sum(sheet["approximate"] for sheet in sheets),
+        }
 
     def _public_database_connection_cache(self) -> dict[str, dict[str, Any]]:
         with self._state_lock:
@@ -1119,6 +1155,10 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
                         query.get("sheet", [""])[0],
                     )
                 )
+                return
+            if parsed.path == "/api/compare-view/record-counts":
+                query = parse_qs(parsed.query)
+                self._send_json(self.app.compare_record_counts_snapshot(query.get("workbook_id", [""])[0]))
                 return
             if parsed.path == "/api/fs":
                 query = parse_qs(parsed.query)

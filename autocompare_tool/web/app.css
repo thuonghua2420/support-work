@@ -261,7 +261,11 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .compare-tabs { display: flex; gap: 6px; min-width: 0; overflow-x: auto; padding: 3px; }
 .compare-file-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .compare-file-row .compare-tabs { flex: 1 1 auto; min-width: 0; }
-.compare-navigation-tools { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; }
+.compare-count-trigger { flex: 0 0 auto; display: inline-flex; align-self: flex-end; align-items: center; gap: 5px; height: 20px; min-height: 20px; margin: 0; padding: 0 6px; border-color: #a9c2da; border-radius: 5px; color: #274967; background: #f4f8fc; font-size: 9px; line-height: 1; white-space: nowrap; }
+.compare-count-trigger span { display: grid; place-items: center; width: 14px; height: 14px; border-radius: 4px; color: #fff; background: #315b80; font-size: 11px; line-height: 1; }
+.compare-count-trigger:hover { border-color: #6d9cc7; background: #eaf3fb; }
+.compare-count-trigger:disabled { opacity: .55; cursor: not-allowed; }
+.compare-navigation-tools { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; margin-left: auto; }
 .compare-tab { flex: 0 0 auto; max-width: 280px; min-height: 31px; padding: 7px 11px; border: 1px solid #cad7e5; border-radius: 8px; color: #405773; background: white; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .compare-copyable-tab { user-select: text; }
 .compare-tab:hover { border-color: #8db8e8; color: var(--blue); background: var(--blue-soft); }
@@ -688,6 +692,42 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .path-entry small { color: #8b98a8; }
 #save-name-field { padding: 0 20px 15px; }
 .notes-modal { width: min(820px, calc(100vw - 28px)); }
+.compare-count-modal { width: min(840px, calc(100vw - 28px)); max-height: calc(100vh - 32px); }
+.compare-count-modal .modal-shell { max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
+.compare-count-header { flex: 0 0 auto; background: #f8fafc; }
+.compare-count-header > div { min-width: 0; }
+.compare-count-header h3 { color: #19324b; }
+.compare-count-header p { margin: 5px 0 0; color: #677a8f; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compare-count-content { display: flex; flex-direction: column; min-height: 0; padding: 20px; }
+.compare-count-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; min-height: 76px; }
+.compare-count-metric { display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 12px 14px; border: 1px solid #dce5ee; border-radius: 10px; background: #f8fafc; }
+.compare-count-metric span { color: #6a7d90; font-size: 10px; font-weight: 700; }
+.compare-count-metric strong { color: #1f3952; font-size: 20px; line-height: 1; font-variant-numeric: tabular-nums; }
+.compare-count-metric.has-difference { border-color: #f1c5bc; background: #fff5f2; }
+.compare-count-metric.has-difference strong { color: #af4534; }
+.compare-count-loading { display: grid; place-items: center; grid-column: 1 / -1; color: #63778b; font-size: 12px; }
+.compare-count-controls { display: flex; align-items: end; justify-content: space-between; gap: 14px; margin: 17px 0 12px; }
+.compare-count-search { display: grid; gap: 5px; width: min(330px, 60%); color: #51667a; font-size: 10px; font-weight: 700; }
+.compare-count-search input { width: 100%; min-height: 34px; padding: 6px 10px; border: 1px solid #cbd8e5; border-radius: 8px; background: #fff; color: #243b53; font-size: 11px; }
+.compare-count-search input:focus { outline: 2px solid #9bc2e7; outline-offset: 1px; }
+.compare-count-filter { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; color: #465e74; font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.compare-count-filter input { width: 15px; height: 15px; min-height: 15px; margin: 0; accent-color: #315b80; }
+.compare-count-table-wrap { min-height: 0; max-height: min(52vh, 440px); overflow: auto; border: 1px solid #d9e3ed; border-radius: 10px; }
+.compare-count-table { width: 100%; min-width: 500px; table-layout: fixed; }
+.compare-count-table th { position: sticky; top: 0; z-index: 1; padding: 11px 14px; color: #587087; background: #f1f5f9; font-size: 10px; letter-spacing: .04em; }
+.compare-count-table th:first-child { width: 46%; }
+.compare-count-table th:not(:first-child) { text-align: right; }
+.compare-count-table td { max-width: none; padding: 10px 14px; border-top: 1px solid #e6edf3; color: #334b61; font-size: 11px; vertical-align: middle; }
+.compare-count-table tr.compare-count-different { background: #fff5f2; }
+.compare-count-table tr.compare-count-different:hover { background: #ffeae4; }
+.compare-count-sheet-link { display: inline-block; max-width: 100%; padding: 0; border: 0; background: transparent; color: #25567c; font: inherit; font-weight: 700; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.compare-count-sheet-link:hover, .compare-count-sheet-link:focus-visible { color: #0f6bbb; text-decoration: underline; }
+.compare-count-estimate { display: block; margin-top: 2px; color: #926b46; font-size: 9px; }
+.compare-count-number, .compare-count-delta { text-align: right; font-variant-numeric: tabular-nums; }
+.compare-count-table tr.compare-count-different .compare-count-delta { color: #a84734; font-weight: 800; }
+.compare-count-empty { margin: 0; padding: 26px; color: #65798c; font-size: 12px; text-align: center; }
+.compare-count-footnote { margin: 11px 1px 0; color: #78889a; font-size: 10px; line-height: 1.5; }
+@media (max-width: 640px) { .compare-count-content { padding: 14px; } .compare-count-controls { align-items: stretch; flex-direction: column; gap: 4px; } .compare-count-search { width: 100%; } .compare-count-metric { padding: 10px; } .compare-count-metric strong { font-size: 17px; } }
 .notes-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 380px; }
 .note-list { padding: 12px; border-right: 1px solid var(--line-soft); background: #f7f9fc; }
 .note-item { width: 100%; padding: 10px; border: 0; border-radius: 9px; text-align: left; background: transparent; cursor: pointer; }
