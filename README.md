@@ -52,6 +52,22 @@ hộp kết nối hai CSDL không có hướng dẫn riêng. File / Folder dùng
 đồng bộ và hàng nút thao tác tách biệt khỏi vùng nhập liệu.
 Không tải các script quảng cáo/analytics từ bản mẫu offline.
 
+### Search & Replace — tìm và thay trong folder
+
+Mở **Search & Replace**, nhập/chọn folder và **Load**. Sidebar có Search/Replace, cây kết quả theo file; vùng bên phải xem nội dung có số dòng, tô match và cú pháp. Kéo đường phân cách để đổi độ rộng; nội dung vừa viewport, từng vùng cuộn riêng.
+
+- Tìm khi ngừng gõ 450 ms hoặc nhấn Enter; Shift+Enter nhập nhiều dòng. **Aa** Match Case, **ab** Whole Word, **.*** Regex; **AB** Preserve Case khi replace. Ctrl+Shift+F/H mở Search/Replace; Alt+C/W/R/P đổi tùy chọn, F4/Shift+F4 đi giữa matches. Có tìm lại, dừng, thu gọn và bỏ từng match/file khỏi kết quả.
+- Include/exclude hỗ trợ `*`, `**`, `?`, `[a-z]`, `{sql,cs}`, nhiều mẫu cách bằng dấu phẩy; `./` neo tại folder gốc. Exclude ưu tiên và cắt cây con; mặc định bỏ `.git`, `node_modules`, `__pycache__`, `.venv`. **Không tự đọc `.gitignore` hoặc cấu hình VS Code**; nhập mẫu vào exclude nếu cần. Glob không phân biệt hoa/thường trên Windows.
+- Regex chạy bằng **Python `re`**, không phải toàn bộ engine của VS Code. Hỗ trợ thêm named capture `(?<name>...)`, `\k<name>`; replacement có `$1`…`$99`, `$0`/`$&`, `$<name>`, `$$`, `\n`, `\r`, `\t`, `\u`, `\l`, `\U`, `\L`, `\E`. Ngoài chế độ regex, replacement là văn bản nguyên dạng. Search đối chiếu đúng LF/CRLF gốc, không tự chuẩn hóa; dùng `\r?\n` khi regex cần khớp cả hai.
+- Replace một match, một file hoặc all đều tạo preview và cần xác nhận trước khi ghi. Bỏ kết quả bằng × sẽ loại nó khỏi Replace All. Thay đổi nội dung search hoặc replacement hủy preview cũ. Preview chỉ xem, không sửa trực tiếp source.
+- Auto nhận BOM trước, rồi UTF-8 strict, sau đó CP932 (Windows Shift JIS). Có lựa chọn ép UTF-8/CP932/Shift JIS strict cho file không BOM. Nhận diện tự động có thể mơ hồ; chọn rõ encoding khi biết source. UTF-8/16/32 BOM giữ đúng byte/endian. Mọi byte **ngoài vùng replace** được giữ nguyên, kể cả LF/CRLF hỗn hợp và các mapping trùng của CP932. Chặn ký tự không encode/decode nguyên vẹn bằng encoding gốc; không dùng `errors=replace`.
+- Trước ghi, kiểm tra toàn bộ file còn đúng snapshot; mỗi file được ghi qua file tạm cùng thư mục và atomic rename. Nếu lỗi I/O xảy ra giữa batch, báo số file đã ghi. **Undo replace** khôi phục nguyên byte của lần ghi gần nhất trong phiên server, kể cả batch ghi dở; chặn Undo nếu file đã đổi bên ngoài. Undo nằm trong RAM, không tồn tại sau khi restart. Đây không phải transaction đa file; tránh sửa source bằng chương trình khác trong lúc ghi.
+- Search chạy trong tiến trình riêng, đọc đón tối đa 8 file song song, gửi kết quả dần và chỉ tạo số dòng khi có match. Có Dừng kể cả regex gây kẹt; giới hạn 120 giây/lượt, 100.000 file, 20.000 matches, 8 MiB/file. File nhị phân, lỗi encoding/quyền và symlink/junction được bỏ qua và báo trong giao diện. Kết quả bị giới hạn không được Replace All; thu hẹp include. Mỗi đợt replace giữ tối đa 128 MiB byte trước/sau. Search/replace text không lưu vào localStorage.
+
+Triển khai riêng trong `search_replace.py`, `web/search-replace.js`, `web/search-replace.css`; dùng lại CodeMirror offline hiện có, không thêm dependency. Các tuỳ chọn tham chiếu [VS Code Search](https://code.visualstudio.com/docs/editing/codebasics#_search-across-files) và [glob reference](https://code.visualstudio.com/docs/editor/glob-patterns). Không khẳng định nhanh hơn VS Code trên mọi source.
+
+Test backend: `.runtime-venv\Scripts\python.exe -B -m unittest discover -s tests -p test_search_replace.py`. Test browser: `node tests/web_search_replace_smoke.cjs` với Playwright (`NODE_PATH=.tmp/ui-check/node_modules`), Chrome và server cổng 8799 hoặc `AUTOCOMPARE_URL`. Chỉ ghi fixture trong `.tmp`/temp; bao phủ mixed encoding, BOM/EOL, CP932 aliases, regex, scope, giới hạn, conflict, lỗi ghi giữa batch, cancellation và Undo.
+
 ### File Compare — văn bản và cây thư mục
 
 Mục **File Compare** trong menu có hai tab, độc lập với Compare CSV theo folder:

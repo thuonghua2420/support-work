@@ -8,6 +8,7 @@ function prepareAdminatorLayout() {
     "pdf-compare": ["files", "Compare PDF"],
     "image-compare": ["images", "Compare Image"],
     "text-compare": ["columns-3", "File Compare"],
+    "search-replace": ["search-code", "Search & Replace"],
     "file-tools": ["folder-cog", "File / Folder"],
     "excel-format": ["file-spreadsheet", "Format Excel"],
     database: ["database", "Database"],

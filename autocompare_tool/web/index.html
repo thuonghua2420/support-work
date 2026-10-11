@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/vendor/codemirror/codemirror.css">
   <link rel="stylesheet" href="/vendor/codemirror/merge.css">
   <link rel="stylesheet" href="/text-compare.css">
+  <link rel="stylesheet" href="/search-replace.css">
 </head>
 <body class="workspace-theme">
   <div class="app-shell">
@@ -40,6 +41,9 @@
         </button>
         <button class="nav-item" data-page="text-compare" type="button">
           <span class="nav-icon"><i data-lucide="columns-3"></i></span><span><strong>File Compare</strong><small>Văn bản &amp; cây thư mục</small></span>
+        </button>
+        <button class="nav-item" data-page="search-replace" type="button">
+          <span class="nav-icon"><i data-lucide="search-code"></i></span><span><strong>Search &amp; Replace</strong><small>Giữ nguyên encoding gốc</small></span>
         </button>
         <button class="nav-item" data-page="file-tools" type="button">
           <span class="nav-icon">◇</span><span><strong>File/Folder</strong><small>Đổi tên, xóa, di chuyển</small></span>
@@ -77,6 +81,50 @@
       </header>
 
       <main class="content">
+        <section class="page" id="page-search-replace" data-title="Search &amp; Replace" data-eyebrow="WORKSPACE / SEARCH">
+          <div class="sr-pathbar">
+            <span class="sr-folder-label">Folder</span>
+            <input id="sr-root" aria-label="Folder tìm kiếm" placeholder="Nhập đường dẫn folder source…">
+            <button class="browse-button" type="button" data-browse-target="sr-root" data-browse-kind="directory">Chọn folder</button>
+            <button class="secondary-button small" id="sr-load" type="button">Load</button>
+            <button class="ghost-button small" id="sr-undo" type="button" disabled title="Hoàn tác lần replace gần nhất trong phiên này">Undo replace</button>
+          </div>
+          <div class="sr-workbench">
+            <aside class="sr-sidebar" aria-label="Tìm kiếm trong folder">
+              <header class="sr-sidebar-title"><strong>SEARCH</strong><div>
+                <button id="sr-refresh" type="button" title="Tìm lại" aria-label="Tìm lại">↻</button>
+                <button id="sr-collapse" type="button" title="Thu gọn / mở rộng kết quả" aria-label="Thu gọn kết quả">⊟</button>
+                <button id="sr-clear" type="button" title="Xóa kết quả" aria-label="Xóa kết quả">×</button>
+              </div></header>
+              <div class="sr-controls">
+                <div class="sr-query-row"><button id="sr-toggle-replace" type="button" aria-expanded="false" aria-label="Mở Replace" title="Mở Replace (Ctrl+Shift+H)">›</button>
+                  <div class="sr-input-box"><textarea id="sr-query" rows="1" aria-label="Search" placeholder="Search · Enter để tìm" spellcheck="false"></textarea>
+                    <div class="sr-flags"><button id="sr-case" type="button" aria-pressed="false" title="Match Case (Alt+C)">Aa</button><button id="sr-word" type="button" aria-pressed="false" title="Match Whole Word (Alt+W)"><u>ab</u></button><button id="sr-regex" type="button" aria-pressed="false" title="Use Regular Expression (Alt+R)">.*</button></div>
+                  </div>
+                </div>
+                <div class="sr-replace-row hidden" id="sr-replace-row"><div class="sr-input-box"><textarea id="sr-replacement" rows="1" aria-label="Replace" placeholder="Replace (để trống để xóa)" spellcheck="false"></textarea><div class="sr-flags"><button id="sr-preserve" type="button" aria-pressed="false" title="Preserve Case (Alt+P)">AB</button></div></div><button id="sr-replace-all" type="button" title="Xem trước Replace All" disabled>⇄</button></div>
+                <details class="sr-details" open><summary>files to include / exclude</summary>
+                  <label>files to include<input id="sr-include" placeholder="Ví dụ: **/*.{sql,cs,csv}" spellcheck="false"></label>
+                  <label>files to exclude<input id="sr-exclude" value="**/.git/**, **/node_modules/**, **/__pycache__/**, **/.venv/**" spellcheck="false"></label>
+                  <label class="sr-encoding-label">Encoding <select id="sr-encoding"><option value="auto">Auto · UTF-8 / CP932</option><option value="utf-8">UTF-8</option><option value="cp932">Shift JIS · Windows (CP932)</option><option value="shift_jis">Shift JIS strict</option></select></label>
+                </details>
+                <div class="sr-search-actions"><button id="sr-search" class="secondary-button small" type="button">Search</button><button id="sr-cancel" class="ghost-button small" type="button" disabled>Dừng</button><small>Shift+Enter: xuống dòng</small></div>
+              </div>
+              <div id="sr-summary" class="sr-summary" role="status" aria-live="polite">Load folder để bắt đầu.</div>
+              <div id="sr-results" class="sr-results" aria-label="Kết quả tìm kiếm"></div>
+              <details id="sr-warnings" class="sr-warnings hidden"><summary>File bỏ qua / lỗi</summary><pre id="sr-warning-text"></pre></details>
+              <details class="sr-help"><summary>Hướng dẫn nhanh</summary><p>Enter để tìm; Shift+Enter cho nhiều dòng. Glob: *, **, ?, [a-z], {sql,cs}; phân cách bằng dấu phẩy. ./ neo tại folder gốc.</p><p>Regex: $1, $2, $&amp;, $&lt;name&gt;; \n, \r, \t; \u / \l / \U / \L để đổi hoa thường. Regex dùng Python re, có hỗ trợ nhóm đặt tên kiểu JavaScript.</p><p>Auto ưu tiên BOM, UTF-8 hợp lệ, sau đó CP932. Nếu biết encoding của source, chọn rõ để tránh nhận diện nhầm. BOM có ưu tiên cao nhất. Giữ nguyên byte ngoài vùng replace.</p><p>Tối đa 8 MiB/file, 20.000 match, 100.000 file/lượt. Nếu kết quả bị giới hạn, thu hẹp include trước khi replace. Không tự đọc .gitignore; dùng exclude ở trên.</p></details>
+            </aside>
+            <div class="sr-divider" role="separator" aria-label="Độ rộng vùng tìm kiếm" aria-orientation="vertical" tabindex="0"></div>
+            <section class="sr-viewer" aria-label="Nội dung file">
+              <header class="sr-viewer-header"><span id="sr-filename">Chưa chọn file</span><div><button id="sr-prev" type="button" title="Kết quả trước (F4 + Shift)">↑</button><button id="sr-next" type="button" title="Kết quả tiếp (F4)">↓</button><label><input id="sr-wrap" type="checkbox"> Wrap</label></div></header>
+              <div id="sr-review-bar" class="sr-review-bar hidden"><span id="sr-review-label"></span><button id="sr-apply-plan" class="primary-button small" type="button">Xác nhận replace</button><button id="sr-discard-plan" class="ghost-button small" type="button">Hủy preview</button></div>
+              <div id="sr-editor-labels" class="sr-editor-labels hidden"><span>Trước replace</span><span>Sau replace · chưa ghi</span></div>
+              <div id="sr-editor" class="sr-editor"><div class="sr-empty"><strong>Tìm nhanh trong source của bạn</strong><span>Chọn folder, nhập nội dung tìm kiếm, rồi mở một kết quả ở bên trái.</span></div></div>
+              <footer class="sr-status"><span id="sr-file-meta">UTF-8 · Shift JIS · Giữ nguyên BOM &amp; EOL</span><span id="sr-view-status" role="status"></span></footer>
+            </section>
+          </div>
+        </section>
         <section class="page" id="page-text-compare" data-title="File Compare" data-eyebrow="WORKSPACE / FILE COMPARE">
           <div class="tabs"><button class="tab active" type="button" data-tc-tab="text">So sánh văn bản</button><button class="tab" type="button" data-tc-tab="folder">So sánh thư mục</button></div>
           <div id="tc-text-panel">
@@ -691,5 +739,6 @@
   <script src="/vendor/codemirror/shell.js" defer></script>
   <script src="/vendor/codemirror/yaml.js" defer></script>
   <script src="/text-compare.js" defer></script>
+  <script src="/search-replace.js" defer></script>
 </body>
 </html>

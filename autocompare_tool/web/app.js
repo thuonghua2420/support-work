@@ -564,6 +564,7 @@ function shouldCacheControl(control) {
   const id = control.id.toLowerCase();
   if (id.includes("password")) return false;
   if (control.closest("#page-text-compare")) return false;
+  if (control.closest("#page-search-replace")) return false;
   if (control.matches("[data-db-history-select]")) return false;
   if (id === "activity-log" || id === "path-current" || id === "path-root-select" || id === "save-file-name") return false;
   if (id.startsWith("note-") || id.startsWith("confirm-")) return false;

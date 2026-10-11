@@ -48,6 +48,7 @@ from .database_io import (
 from .excel_image_formatter import format_excel_workbooks
 from .database_sync_worker import run_sync_isolated
 from .text_compare import TextCompareFiles, run_folder_compare, DEFAULT_EXCLUDE
+from .search_replace import SearchReplace
 from .excel_compare import compare_excel_workbooks
 from .pdf_compare import compare_pdf_files
 from .image_compare import compare_images
@@ -264,6 +265,7 @@ class AutoCompareWebApplication:
         self.sql_workspace = SqlDatabaseWorkspaceManager(self.config.database_workspace)
         self.jobs = JobManager()
         self.text_compare_files = TextCompareFiles()
+        self.search_replace = SearchReplace()
         self._state_lock = threading.Lock()
         self._fixme_entries: list[WorkbookFixmeEntry] = []
         self._compare_workbooks: list[CompareWorkbookReference] = []
@@ -1186,6 +1188,16 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             payload = self._read_json_body()
+            if parsed.path.startswith("/api/search-replace/"):
+                operation = parsed.path.rsplit("/", 1)[-1]
+                if operation not in {"load", "start", "poll", "cancel", "preview", "prepare", "apply", "undo", "dismiss"}:
+                    raise FileNotFoundError("Search API không tồn tại.")
+                if operation in {"apply", "undo"}:
+                    current_job = self.app.jobs.snapshot()
+                    if current_job and current_job["state"] in {"queued", "running"}:
+                        raise RuntimeError("Đợi tác vụ hiện tại kết thúc trước khi ghi file.")
+                self._send_json(getattr(self.app.search_replace, operation)(payload))
+                return
             if parsed.path == "/api/text-compare/open":
                 self._send_json(self.app.text_compare_files.open(_text(payload, "path")))
                 return
