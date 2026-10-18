@@ -88,7 +88,7 @@ def extract_compare_keys(
     if not root.is_dir():
         raise ValueError(f"Compare folder does not exist: {root}")
     tables: dict[str, list[Path]] = {}
-    for case in discover_test_cases(root):
+    for case in discover_test_cases(root, config.folders.case_pattern, output_dir=config.folders.output_dir):
         output = case / config.folders.output_dir
         for folder in (config.folders.after_htm_dir, config.folders.after_htc_dir):
             for csv in sorted((output / folder).glob("*.csv")):
@@ -97,7 +97,7 @@ def extract_compare_keys(
                 if source.is_file() and source not in tables[csv.stem.casefold()]:
                     tables[csv.stem.casefold()].append(source)
     if not tables:
-        raise ValueError("No after CSV tables found in the selected UT folder.")
+        raise ValueError(f"No after CSV tables found for case pattern {config.folders.case_pattern!r} in the selected folder.")
     settings = validate_connection_settings(settings)
     adapter = get_adapter(settings.normalized_type)
     cancel()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from fnmatch import fnmatchcase
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -11,6 +12,7 @@ from .app_config import (
     default_selected_workflow_keys,
     excel_headers_for_workflow,
     load_app_config,
+    validate_case_pattern,
     WORKFLOW_HTM_BEFORE_AFTER,
     WORKFLOW_HTC_BEFORE_AFTER,
 )
@@ -96,9 +98,9 @@ def process_root(
         raise ValueError("Luồng so sánh không hợp lệ: " + ", ".join(sorted(unknown_keys)))
 
     summary = ProcessSummary(root_path=root)
-    test_cases = discover_test_cases(root)
+    test_cases = discover_test_cases(root, app_config.folders.case_pattern, output_dir=app_config.folders.output_dir)
     if not test_cases:
-        message = f"Không tìm thấy folder case test UT* bên dưới: {root}"
+        message = f"Không tìm thấy folder case test khớp mẫu {app_config.folders.case_pattern!r} trong: {root}"
         summary.errors.append(message)
         logger(message)
         return summary
@@ -113,18 +115,23 @@ def process_root(
     return summary
 
 
-def discover_test_cases(root: Path) -> list[Path]:
-    if _is_test_case_dir(root):
+def discover_test_cases(root: Path, case_pattern: str = "UT*", *, output_dir: str | None = None) -> list[Path]:
+    pattern = validate_case_pattern(case_pattern)
+    root_matches = _is_test_case_dir(root, pattern)
+    if root_matches and (output_dir is None or (root / output_dir).is_dir()):
         return [root]
 
-    return sorted(
-        [child for child in root.iterdir() if _is_test_case_dir(child)],
+    children = sorted(
+        [child for child in root.iterdir() if _is_test_case_dir(child, pattern)],
         key=lambda path: path.name.lower(),
     )
+    return children or ([root] if root_matches else [])
 
 
-def _is_test_case_dir(path: Path) -> bool:
-    return path.is_dir() and path.name.upper().startswith("UT")
+def _is_test_case_dir(path: Path, case_pattern: str) -> bool:
+    # Only * and ? are wildcards; square brackets are valid literal folder names.
+    pattern = case_pattern.casefold().replace("[", "[[]")
+    return path.is_dir() and fnmatchcase(path.name.casefold(), pattern)
 
 
 def _process_test_case(

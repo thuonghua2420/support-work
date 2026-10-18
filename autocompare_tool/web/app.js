@@ -1455,6 +1455,8 @@ function updateCompareStructureHint(structure) {
   if (!structure?.folders) return;
   state.bootstrap.compare_structure = structure;
   const folders = structure.folders;
+  $$('[data-compare-case-pattern]').forEach(element => { element.textContent = folders.case_pattern || "UT*"; });
+  $("#load-compare-workbooks").title = `Chọn một case hoặc folder cha chứa các case ${folders.case_pattern || "UT*"} để nạp workbook trong ${folders.output_dir}/${folders.compare_dir}`;
   $("#compare-output-hint").innerHTML = `Lưu kết quả tại <code>${escapeHtml(folders.output_dir)}\\${escapeHtml(folders.compare_dir)}</code> của từng case.`;
 }
 
@@ -2184,7 +2186,8 @@ function renderComparePreview() {
     state.compareView.sheet = null;
     for (const id of ["compare-case-tabs", "compare-workbook-tabs", "compare-sheet-tabs"]) $(`#${id}`).replaceChildren();
     $("#compare-navigation-tools").classList.add("hidden");
-    showComparePreviewStatus("Chọn ‘Load file Compare’ để mở lại workbook trong folder UT* / Output / Compare.", { done: true });
+    const folders = state.bootstrap?.compare_structure?.folders;
+    showComparePreviewStatus(`Chọn ‘Load file Compare’ để mở lại workbook trong ${folders?.case_pattern || "UT*"} / ${folders?.output_dir || "Output"} / ${folders?.compare_dir || "Compare"}.`, { done: true });
     updateFixmeToolbarState();
     return;
   }

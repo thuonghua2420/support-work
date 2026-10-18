@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import configparser
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,6 +21,7 @@ class FolderConfig:
     after_htm_dir: str
     before_htc_dir: str
     after_htc_dir: str
+    case_pattern: str = "UT*"
 
 
 @dataclass(frozen=True)
@@ -131,6 +133,7 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
     parser = _read_config(path)
 
     folders = FolderConfig(
+        case_pattern=validate_case_pattern(_get(parser, "folders", "case_pattern", "UT*")),
         input_dir=_get(parser, "folders", "input_dir", "入力データ"),
         output_dir=_get(parser, "folders", "output_dir", "出力（登録・更新）データ"),
         compare_dir=_get(parser, "folders", "compare_dir", "Compare"),
@@ -308,6 +311,15 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
         copy_input_default=_get_bool(parser, "compare_workflows", "copy_input_enabled", False),
         sort_by_key_default=_get_bool(parser, "compare_workflows", "sort_by_key_enabled", False),
     )
+
+
+def validate_case_pattern(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("Mẫu tên case không được để trống.")
+    pattern = value.strip()
+    if len(pattern) > 255 or pattern in {".", ".."} or pattern.endswith(".") or re.search(r'[<>:"/\\|\x00-\x1f\x7f]', pattern):
+        raise ValueError("Mẫu tên case phải là tên thư mục hoặc mẫu tên, không chứa đường dẫn. Có thể dùng * và ?.")
+    return pattern
 
 
 def _read_update_compare_keys(parser: configparser.ConfigParser) -> dict[str, tuple[str, ...]]:

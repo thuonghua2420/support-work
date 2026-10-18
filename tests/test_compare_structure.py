@@ -9,7 +9,8 @@ from openpyxl import load_workbook
 from autocompare_tool.app_config import load_app_config
 from autocompare_tool.compare_structure import read_compare_structure, save_compare_structure
 from autocompare_tool.dbeaver_csv import write_dbeaver_csv
-from autocompare_tool.processor import process_root
+from autocompare_tool.processor import discover_test_cases, process_root
+from autocompare_tool.compare_workbook_loader import load_ut_compare_workbooks
 
 
 class CompareStructureTests(unittest.TestCase):
@@ -19,7 +20,7 @@ class CompareStructureTests(unittest.TestCase):
         self.root = Path(directory.name).resolve()
         self.path = self.root / "config.ini"
         self.original = (
-            "# User comment\r\n[folders]\r\ninput_dir = 入力データ\r\n"
+            "# User comment\r\n[folders]\r\ncase_pattern = UT*\r\ninput_dir = 入力データ\r\n"
             "output_dir = Output\r\ncompare_dir = Compare\r\n"
             "before_htm_dir = before_htm\r\nafter_htm_dir = after_htm\r\n"
             "before_htc_dir = before_htc\r\nafter_htc_dir = after_htc\r\n"
@@ -57,6 +58,7 @@ class CompareStructureTests(unittest.TestCase):
         cases.extend([("folders", "compare_dir", "BEFORE_HTM"),
                       ("workbooks", "htm_before_after_file", "HTC.xlsx"),
                       ("workbooks", "htm_before_after_file", "report.csv")])
+        cases.extend(("folders", "case_pattern", value) for value in ("", "../Case*", "..", r"C:\Cases", "Case/??", "bad\npattern"))
         for section, key, value in cases:
             with self.subTest(section=section, key=key, value=value):
                 draft = read_compare_structure(self.path)
@@ -91,6 +93,62 @@ class CompareStructureTests(unittest.TestCase):
                 saved = save_compare_structure(draft, self.path)
                 self.assertEqual(saved["folders"], draft["folders"])
                 self.assertEqual(self.path.read_bytes().startswith(b"\xef\xbb\xbf"), bool(raw))
+
+    def test_old_config_defaults_to_ut_pattern_and_saves_new_option(self):
+        self.path.write_bytes(self.original.replace(b"case_pattern = UT*\r\n", b""))
+        self.assertEqual(load_app_config(self.path).folders.case_pattern, "UT*")
+        draft = read_compare_structure(self.path)
+        draft["folders"]["case_pattern"] = "Case*"
+        save_compare_structure(draft, self.path)
+        self.assertEqual(load_app_config(self.path).folders.case_pattern, "Case*")
+        self.assertIn(b"case_pattern = Case*\r\n", self.path.read_bytes())
+
+    def test_custom_pattern_is_shared_by_compare_and_loading_from_parent_or_case(self):
+        draft = read_compare_structure(self.path)
+        draft["folders"]["case_pattern"] = "Case*"
+        save_compare_structure(draft, self.path)
+        config = load_app_config(self.path)
+        for case in ("Case01", "case02", "UT01"):
+            for folder, value in (("before_htm", "old"), ("after_htm", "new")):
+                write_dbeaver_csv(self.root / case / "Output" / folder / "orders.csv", ["id", "name"], [["1", value]])
+        result = process_root(self.root, config=config, selected_workflow_keys={"htm_before_after"})
+        self.assertFalse(result.errors)
+        self.assertEqual([case.case_path.name for case in result.test_cases], ["Case01", "case02"])
+        self.assertFalse((self.root / "UT01" / "Output" / "Compare").exists())
+        references, _ = load_ut_compare_workbooks(self.root, config)
+        self.assertEqual([ref.case_folder_name for ref in references], ["Case01", "case02"])
+        case_root = self.root / "Case01"
+        single = process_root(case_root, config=config, selected_workflow_keys={"htm_before_after"})
+        self.assertFalse(single.errors)
+        references, _ = load_ut_compare_workbooks(case_root, config)
+        self.assertEqual([ref.case_folder_name for ref in references], ["Case01"])
+
+    def test_discovery_supports_exact_unicode_names_and_question_mark(self):
+        for name in ("確認 01", "Scenario [01]", "Scenario_01", "scenario_02", "Scenario_001", "UT03"):
+            (self.root / name).mkdir()
+        (self.root / "Scenario_03").write_text("not a folder", encoding="utf-8")
+        self.assertEqual([path.name for path in discover_test_cases(self.root, "確認 01")], ["確認 01"])
+        self.assertEqual([path.name for path in discover_test_cases(self.root, "Scenario [01]")], ["Scenario [01]"])
+        self.assertEqual([path.name for path in discover_test_cases(self.root, "Scenario_??")], ["Scenario_01", "scenario_02"])
+        self.assertEqual([path.name for path in discover_test_cases(self.root)], ["UT03"])
+
+    def test_match_all_pattern_discovers_children_and_recognizes_a_case_root(self):
+        for name in ("Example One", "Example Two"):
+            (self.root / name / "Output").mkdir(parents=True)
+        self.assertEqual([path.name for path in discover_test_cases(self.root, "*", output_dir="Output")], ["Example One", "Example Two"])
+        case = self.root / "Example One"
+        self.assertEqual(discover_test_cases(case, "*", output_dir="Output"), [case])
+
+    def test_missing_case_error_uses_saved_pattern(self):
+        draft = read_compare_structure(self.path)
+        draft["folders"]["case_pattern"] = "Scenario_??"
+        save_compare_structure(draft, self.path)
+        config = load_app_config(self.path)
+        result = process_root(self.root, config=config)
+        self.assertEqual(result.processed_count, 0)
+        self.assertIn("Scenario_??", result.errors[0])
+        with self.assertRaisesRegex(ValueError, "Scenario_\\?\\?"):
+            load_ut_compare_workbooks(self.root, config)
 
     def test_replace_failure_leaves_config_intact_and_cleans_temp_file(self):
         draft = read_compare_structure(self.path)
@@ -134,12 +192,14 @@ class CompareStructureTests(unittest.TestCase):
             self.addCleanup(app.sql_workspace.close)
             draft = read_compare_structure(self.path)
             draft["folders"]["compare_dir"] = "New Results"
+            draft["folders"]["case_pattern"] = "Scenario*"
             with patch.object(app.jobs, "snapshot", return_value={"state": "running"}):
                 with self.assertRaises(RuntimeError):
                     app.save_compare_structure(draft)
             self.assertEqual(self.path.read_bytes(), self.original)
             app.save_compare_structure(draft)
             self.assertEqual(app.config.folders.compare_dir, "New Results")
+            self.assertEqual(app.config.folders.case_pattern, "Scenario*")
             self.assertEqual(app.config.compare_workflows[0].left_dir_name, draft["folders"]["before_htm_dir"])
 
 

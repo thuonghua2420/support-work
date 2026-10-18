@@ -10,10 +10,11 @@ from dataclasses import asdict
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from .app_config import default_config_path, load_app_config
+from .app_config import default_config_path, load_app_config, validate_case_pattern
 
 WORKBOOK_KEYS = ("htm_before_after_file", "htc_before_after_file", "after_htc_vs_htm_file")
 _LABELS = {
+    "case_pattern": "Mẫu tên case",
     "input_dir": "CSV nguồn", "output_dir": "Output", "compare_dir": "Compare",
     "before_htm_dir": "HTM / Before", "after_htm_dir": "HTM / After",
     "before_htc_dir": "HTC / Before", "after_htc_dir": "HTC / After",
@@ -107,11 +108,11 @@ def save_compare_structure(payload: dict, config_path: Path | None = None) -> di
             supplied = payload.get(section)
             if not isinstance(supplied, dict) or set(supplied) != set(current[section]):
                 raise ValueError(f"Cấu hình {section} không đầy đủ hoặc chứa thuộc tính không hợp lệ.")
-            values[section] = {key: _validate_name(value, _LABELS[key], workbook=section == "workbooks")
+            values[section] = {key: validate_case_pattern(value) if key == "case_pattern" else _validate_name(value, _LABELS[key], workbook=section == "workbooks")
                                for key, value in supplied.items()}
         folders = values["folders"]
         _unique([folders["input_dir"], folders["output_dir"]], "Folder trong case")
-        _unique([value for key, value in folders.items() if key not in {"input_dir", "output_dir"}], "Folder trong Output")
+        _unique([value for key, value in folders.items() if key not in {"case_pattern", "input_dir", "output_dir"}], "Folder trong Output")
         _unique(list(values["workbooks"].values()), "File compare")
         raw = path.read_bytes() if path.exists() else b""
         if hashlib.sha256(raw).hexdigest() != payload["revision"]:

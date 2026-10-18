@@ -101,6 +101,8 @@ Zoom sheet mặc định của file Excel xuất từ Compare CSV và compare th
 
 Trong **Compare CSV > Cấu hình**, nhấn **Cấu trúc thư mục** để chỉnh tên các folder nguồn, Output, before/after HTM–HTC, folder Compare và ba file Excel ngay trên cây thư mục của case UT. **Lưu cấu hình** cập nhật `autocompare_config.ini` và áp dụng ngay cho các lần compare/load workbook tiếp theo, không cần khởi động lại. Thao tác này chỉ thay đổi cấu hình, không đổi tên hay di chuyển dữ liệu hiện có. Các tên cùng cấp phải khác nhau, tên file phải có đuôi `.xlsx`. **Tải lại** lấy bản cấu hình mới nhất từ file; hệ thống sẽ báo xung đột nếu file đã thay đổi ở nơi khác trước khi lưu, đồng thời giữ nguyên phần config và comment không liên quan.
 
+Ô **Mẫu tên case** ở gốc cây được lưu thành `[folders] case_pattern`, mặc định `UT*` nếu config cũ chưa có mục này. Có thể nhập tên chính xác (`Scenario A`) hoặc mẫu tên (`Case*`, `Test_??`); `*` khớp nhiều ký tự, `?` khớp một ký tự, không phân biệt hoa/thường. Compare CSV, Load file Compare và trích xuất key theo thư mục dùng chung mẫu này. Chọn một case trực tiếp hoặc folder cha chứa các case; mẫu `*` cho phép quét mọi tên folder con. Compare theo folder không phụ thuộc mẫu tên case.
+
 ## Update Compare Keys
 
 In Database > Trích xuất key, select a connected Database 1 or Database 2 and use

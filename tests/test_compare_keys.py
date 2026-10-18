@@ -82,6 +82,14 @@ class CompareKeyTests(unittest.TestCase):
         self.assertEqual(result.saved_count, 0)
         self.assertEqual(self.path.read_bytes(), original)
 
+    def test_folder_key_extraction_uses_custom_case_pattern(self):
+        self.path.write_bytes(self.path.read_bytes().replace(b"[folders]\r\n", b"[folders]\r\ncase_pattern = Scenario*\r\n"))
+        self.case = self.root / "Scenario01"
+        self.csv("orders", ["Id"])
+        self.table("orders", ["ID"])
+        result = extract_compare_keys(self.root, self.settings, lambda _: None, config_path=self.path)
+        self.assertEqual(result.update_compare_keys["orders"], ("Id",))
+
     def test_error_or_cancel_does_not_save_partial_keys_and_closes_connection(self):
         self.csv("a", ["id"])
         self.csv("b", ["id"])

@@ -20,13 +20,13 @@ def load_ut_compare_workbooks(
     log: Callable[[str], None] = lambda _message: None,
 ) -> tuple[list[CompareWorkbookReference], list[WorkbookFixmeEntry]]:
     if not str(root).strip():
-        raise ValueError("Vui lòng chọn folder gốc chứa các case UT*.")
+        raise ValueError("Vui lòng chọn một case hoặc folder cha chứa các case.")
     root_path = Path(root).expanduser().resolve()
     if not root_path.is_dir():
         raise ValueError(f"Thư mục gốc không tồn tại: {root_path}")
-    case_paths = discover_test_cases(root_path)
+    case_paths = discover_test_cases(root_path, config.folders.case_pattern, output_dir=config.folders.output_dir)
     if not case_paths:
-        raise ValueError(f"Không tìm thấy folder case UT* trong: {root_path}")
+        raise ValueError(f"Không tìm thấy folder case khớp mẫu {config.folders.case_pattern!r} trong: {root_path}")
 
     references: list[CompareWorkbookReference] = []
     entries: list[WorkbookFixmeEntry] = []
@@ -48,7 +48,7 @@ def load_ut_compare_workbooks(
             log(f"[{case_path.name}] Đã nạp {workbook_path.name} ({len(workbook_entries)} sai khác).")
 
     if not references:
-        raise ValueError(f"Không tìm thấy workbook Compare hợp lệ trong Output/Compare của các case UT*: {root_path}")
+        raise ValueError(f"Không tìm thấy workbook Compare hợp lệ trong {config.folders.output_dir}/{config.folders.compare_dir} của các case {config.folders.case_pattern!r}: {root_path}")
     return references, entries
 
 

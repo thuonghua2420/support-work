@@ -157,13 +157,13 @@
         </section>
         <section class="page active" id="page-compare" data-title="Compare CSV" data-eyebrow="WORKSPACE / SO SÁNH">
           <div class="page-intro">
-            <div><span class="section-kicker">Quy trình chính</span><h2>Compare CSV HTC/HTM</h2><p>Chọn thư mục chứa các case <code>UT*</code>, bật những luồng cần chạy rồi theo dõi kết quả ở bảng FIXME.</p></div>
+            <div><span class="section-kicker">Quy trình chính</span><h2>Compare CSV HTC/HTM</h2><p>Chọn thư mục chứa các case <code data-compare-case-pattern>UT*</code>, bật những luồng cần chạy rồi theo dõi kết quả ở bảng FIXME.</p></div>
             <div class="metric-card"><span>Luồng mặc định</span><strong id="workflow-count">—</strong><small>Cấu hình trong autocompare_config.ini</small></div>
           </div>
 
           <form class="card form-card" id="compare-form">
             <div class="card-heading"><div><span class="step-number">01</span><h3>Nguồn dữ liệu</h3></div><button class="secondary-button small" id="open-compare-structure" type="button"><i data-lucide="folder-tree" aria-hidden="true"></i>Cấu trúc thư mục</button></div>
-            <label class="field field-wide"><span>Thư mục gốc</span><span class="path-control"><input id="compare-root" name="root" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="compare-root" data-browse-kind="directory">Chọn folder</button></span><small>Folder hiện tại hoặc folder cha chứa các thư mục UT01, UT02...</small></label>
+            <label class="field field-wide"><span>Thư mục gốc</span><span class="path-control"><input id="compare-root" name="root" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="compare-root" data-browse-kind="directory">Chọn folder</button></span><small>Một case hoặc folder cha chứa các case khớp mẫu <code data-compare-case-pattern>UT*</code>.</small></label>
             <div class="divider"></div>
             <div class="card-heading compact"><div><span class="step-number">02</span><h3>Luồng so sánh</h3></div><button class="text-button" id="toggle-workflows" type="button">Chọn / bỏ tất cả</button></div>
             <div class="choice-grid" id="compare-workflows"></div>
@@ -700,7 +700,7 @@
         <div class="cs-tree-toolbar"><span class="cs-edit-state" id="cs-edit-state" role="status">Đang tải cấu hình...</span><button class="ghost-button small" id="reload-compare-structure" type="button"><i data-lucide="rotate-ccw" aria-hidden="true"></i>Tải lại</button></div>
         <p class="cs-error hidden" id="cs-error" role="alert"></p>
         <div id="compare-structure-tree" class="cs-tree"></div>
-        <div class="cs-path"><span>Đường dẫn trong case</span><output id="cs-path-preview">UT* /</output></div>
+        <div class="cs-path"><span>Đường dẫn trong case</span><output id="cs-path-preview"></output></div>
       </div>
       <footer><span class="cs-save-hint">Áp dụng cho lần compare tiếp theo.<br>Không đổi tên hoặc di chuyển dữ liệu hiện có.</span><div><button class="ghost-button" id="cancel-compare-structure" type="button">Hủy</button><button class="primary-button" id="save-compare-structure" type="submit" disabled><i data-lucide="save" aria-hidden="true"></i>Lưu cấu hình</button></div></footer>
     </form>

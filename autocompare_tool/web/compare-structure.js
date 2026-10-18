@@ -7,6 +7,7 @@
   let request = 0;
   let activePath = ["output_dir"];
   const fields = [
+    ["case_pattern", "Mẫu tên case", "case"],
     ["input_dir", "CSV nguồn", "input"], ["output_dir", "Output", "output"],
     ["before_htm_dir", "HTM / Before", "htm"], ["after_htm_dir", "HTM / After", "htm"],
     ["before_htc_dir", "HTC / Before", "htc"], ["after_htc_dir", "HTC / After", "htc"],
@@ -35,14 +36,14 @@
     const section = kind === "file" ? "workbooks" : "folders";
     return `<li class="cs-node cs-${kind}"><div class="cs-node-row">
       ${children ? `<button type="button" class="cs-collapse" aria-expanded="true" aria-label="Thu gọn ${label}"><i data-lucide="chevron-down" aria-hidden="true"></i></button>` : '<span class="cs-collapse-spacer"></span>'}
-      <label class="cs-field"><span class="cs-node-label"><i data-lucide="${kind === "file" ? "file-spreadsheet" : "folder"}" aria-hidden="true"></i><span>${label}</span></span><input autocomplete="off" spellcheck="false" required maxlength="255" data-cs-key="${key}" data-cs-section="${section}" value="${escapeHtml(saved[section][key])}" aria-describedby="cs-error"></label>
+      <label class="cs-field"><span class="cs-node-label"><i data-lucide="${kind === "file" ? "file-spreadsheet" : kind === "case" ? "folder-open" : "folder"}" aria-hidden="true"></i><span>${label}</span></span><input autocomplete="off" spellcheck="false" required maxlength="255" data-cs-key="${key}" data-cs-section="${section}" value="${escapeHtml(saved[section][key])}" aria-describedby="cs-error"${kind === "case" ? ' placeholder="Case*" title="Tên chính xác hoặc mẫu: * khớp nhiều ký tự; ? khớp một ký tự."' : ""}></label>
       </div>${children ? `<ul class="cs-children">${children}</ul>` : ""}</li>`;
   }
 
   function render() {
     const files = fields.filter(([, , kind]) => kind === "file").map(([key]) => row(key)).join("");
     const outputs = ["before_htm_dir", "after_htm_dir", "before_htc_dir", "after_htc_dir"].map(key => row(key)).join("") + row("compare_dir", files);
-    $("#compare-structure-tree").innerHTML = `<div class="cs-root"><i data-lucide="folder-open" aria-hidden="true"></i><strong>UT*</strong><span>Case</span></div><ul class="cs-children cs-root-children">${row("input_dir")}${row("output_dir", outputs)}</ul>`;
+    $("#compare-structure-tree").innerHTML = `<ul class="cs-roots">${row("case_pattern", row("input_dir") + row("output_dir", outputs))}</ul>`;
     icons();
     update();
   }
@@ -55,7 +56,7 @@
     $("#reload-compare-structure").disabled = busy;
     controls().forEach(input => { input.disabled = busy; });
     const values = draft();
-    $("#cs-path-preview").textContent = ["UT*", ...activePath.map(key => values.folders[key] ?? values.workbooks[key] ?? "")].join(" / ");
+    $("#cs-path-preview").textContent = [values.folders.case_pattern || "…", ...activePath.map(key => values.folders[key] ?? values.workbooks[key] ?? "")].join(" / ");
   }
 
   function error(message = "") {
@@ -111,8 +112,8 @@
     $("#compare-structure-tree").addEventListener("focusin", event => {
       const key = event.target.dataset.csKey;
       if (!key) return;
-      activePath = [key];
-      if (!["input_dir", "output_dir"].includes(key)) activePath.unshift("output_dir");
+      activePath = key === "case_pattern" ? [] : [key];
+      if (!["case_pattern", "input_dir", "output_dir"].includes(key)) activePath.unshift("output_dir");
       if (event.target.dataset.csSection === "workbooks") activePath.splice(1, 0, "compare_dir");
       update();
     });
