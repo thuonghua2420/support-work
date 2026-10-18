@@ -75,7 +75,7 @@ class WebApplicationTests(unittest.TestCase):
                 app._compare({"root": str(Path.cwd()), "workflows": ["htm_before_after"], **options}, lambda _: None)
                 self.assertEqual(process.call_args.kwargs["copy_input"], options.get("copy_input") is True)
                 self.assertEqual(process.call_args.kwargs["sort_by_key"], options.get("sort_by_key") is True)
-                self.assertEqual(process.call_args.kwargs["sheet_zoom"], options.get("sheet_zoom", 100))
+                self.assertEqual(process.call_args.kwargs["sheet_zoom"], options.get("sheet_zoom", 85))
 
     def test_excel_format_preset_can_be_saved_and_deleted(self) -> None:
         app = AutoCompareWebApplication()

@@ -27,14 +27,14 @@ const path = require('node:path');
     const zoom = page.locator('#compare-sheet-zoom');
     assert.equal(await copy.isChecked(), false);
     assert.equal(await sort.isChecked(), false);
-    assert.equal(await zoom.inputValue(), '100');
+    assert.equal(await zoom.inputValue(), '85');
     await Promise.all([
       page.waitForResponse(response => response.url().endsWith('/api/actions')),
       page.locator('#compare-form button[type="submit"]').click(),
     ]);
     assert.equal(actions[0].copy_input, false);
     assert.equal(actions[0].sort_by_key, false);
-    assert.equal(actions[0].sheet_zoom, 100);
+    assert.equal(actions[0].sheet_zoom, 85);
     await copy.check();
     await sort.check();
     await zoom.fill('75');

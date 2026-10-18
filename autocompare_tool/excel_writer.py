@@ -79,7 +79,7 @@ def write_compare_workbook_with_fixmes(
     include_right_only_files: bool = True,
     recursive: bool = False,
     omit_equal_sheets: bool = False,
-    sheet_zoom: int = 100,
+    sheet_zoom: int = 85,
 ) -> CompareWorkbookWriteResult:
     pairs = _iter_compare_csv_files(
         before_dir,
@@ -106,7 +106,7 @@ def write_compare_workbook_for_pairs(
     excel_style: ExcelCompareStyleConfig | None = None,
     case_folder_name: str = "",
     omit_equal_sheets: bool = False,
-    sheet_zoom: int = 100,
+    sheet_zoom: int = 85,
 ) -> CompareWorkbookWriteResult:
     app_config = None if excel_headers is not None and excel_style is not None else load_app_config()
     headers = excel_headers or app_config.excel_headers

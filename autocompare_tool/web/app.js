@@ -565,6 +565,7 @@ function shouldCacheControl(control) {
   if (id.includes("password")) return false;
   if (control.closest("#page-text-compare")) return false;
   if (control.closest("#page-search-replace")) return false;
+  if (control.closest("#compare-structure-dialog")) return false;
   if (control.matches("[data-db-history-select]")) return false;
   if (id === "activity-log" || id === "path-current" || id === "path-root-select" || id === "save-file-name") return false;
   if (id.startsWith("note-") || id.startsWith("confirm-")) return false;
@@ -1437,6 +1438,7 @@ function bindDialogs() {
 
 function hydrateDefaults() {
   const cwd = state.bootstrap.cwd;
+  updateCompareStructureHint(state.bootstrap.compare_structure);
   //$("#server-address").textContent = `127.0.0.1:${state.bootstrap.port}`;
   $("#compare-root").value = cwd;
   $("#utility-root").value = cwd;
@@ -1447,6 +1449,13 @@ function hydrateDefaults() {
   $("#excel-compare-output").value = joinPath(cwd, "Compare_Excel.xlsx");
   $("#pdf-compare-output").value = joinPath(cwd, "Compare_PDF.pdf");
   $("#workflow-count").textContent = String(state.bootstrap.compare_workflows.filter((item) => item.default_enabled).length);
+}
+
+function updateCompareStructureHint(structure) {
+  if (!structure?.folders) return;
+  state.bootstrap.compare_structure = structure;
+  const folders = structure.folders;
+  $("#compare-output-hint").innerHTML = `Lưu kết quả tại <code>${escapeHtml(folders.output_dir)}\\${escapeHtml(folders.compare_dir)}</code> của từng case.`;
 }
 
 function renderWorkflows() {

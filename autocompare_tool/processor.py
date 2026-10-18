@@ -65,7 +65,7 @@ def process_root(
     *,
     copy_input: bool | None = None,
     sort_by_key: bool | None = None,
-    sheet_zoom: int = 100,
+    sheet_zoom: int = 85,
 ) -> ProcessSummary:
     root = Path(root_path).expanduser().resolve()
     logger = log or (lambda message: None)

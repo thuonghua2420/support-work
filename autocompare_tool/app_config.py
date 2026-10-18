@@ -358,7 +358,7 @@ def _read_excel_headers(
 
 def _read_config(path: Path) -> configparser.ConfigParser:
     parser = configparser.ConfigParser(interpolation=None)
-    parser.read(path, encoding="utf-8")
+    parser.read(path, encoding="utf-8-sig")
     return parser
 
 

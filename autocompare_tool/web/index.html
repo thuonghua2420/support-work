@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/adminator.css">
   <link rel="stylesheet" href="/image-compare.css">
   <link rel="stylesheet" href="/workspace-theme.css">
+  <link rel="stylesheet" href="/compare-structure.css">
   <link rel="stylesheet" href="/vendor/codemirror/codemirror.css">
   <link rel="stylesheet" href="/vendor/codemirror/merge.css">
   <link rel="stylesheet" href="/text-compare.css">
@@ -161,7 +162,7 @@
           </div>
 
           <form class="card form-card" id="compare-form">
-            <div class="card-heading"><div><span class="step-number">01</span><h3>Nguồn dữ liệu</h3></div><span class="soft-badge">UT root</span></div>
+            <div class="card-heading"><div><span class="step-number">01</span><h3>Nguồn dữ liệu</h3></div><button class="secondary-button small" id="open-compare-structure" type="button"><i data-lucide="folder-tree" aria-hidden="true"></i>Cấu trúc thư mục</button></div>
             <label class="field field-wide"><span>Thư mục gốc</span><span class="path-control"><input id="compare-root" name="root" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="compare-root" data-browse-kind="directory">Chọn folder</button></span><small>Folder hiện tại hoặc folder cha chứa các thư mục UT01, UT02...</small></label>
             <div class="divider"></div>
             <div class="card-heading compact"><div><span class="step-number">02</span><h3>Luồng so sánh</h3></div><button class="text-button" id="toggle-workflows" type="button">Chọn / bỏ tất cả</button></div>
@@ -169,9 +170,9 @@
             <div class="inline-actions compare-file-options">
               <label class="checkbox-line"><input type="checkbox" id="compare-copy-input"><span>Copy các file từ folder input qua before</span></label>
               <label class="checkbox-line"><input type="checkbox" id="compare-sort-by-key"><span>Sắp xếp record theo key và lưu vào CSV</span></label>
-              <label class="field compare-zoom-field"><span>Zoom sheet (%)</span><input id="compare-sheet-zoom" type="number" min="10" max="400" step="1" value="100" required></label>
+              <label class="field compare-zoom-field"><span>Zoom sheet (%)</span><input id="compare-sheet-zoom" type="number" min="10" max="400" step="1" value="85" required></label>
             </div>
-            <div class="form-actions"><span class="hint">Lưu kết quả tại <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>Tạo file so sánh</span><b>→</b></button></div>
+            <div class="form-actions"><span class="hint" id="compare-output-hint">Lưu kết quả tại <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>Tạo file so sánh</span><b>→</b></button></div>
           </form>
 
           <section class="card fixme-card collapsed" id="fixme-expand-card">
@@ -692,6 +693,19 @@
     </form>
   </dialog>
 
+  <dialog id="compare-structure-dialog" class="modal compare-structure-modal" aria-labelledby="compare-structure-title">
+    <form id="compare-structure-form" class="modal-shell">
+      <header><div class="cs-title"><span class="cs-title-icon"><i data-lucide="folder-tree" aria-hidden="true"></i></span><div><h3 id="compare-structure-title">Cấu trúc thư mục</h3><span class="cs-config-file">autocompare_config.ini</span></div></div><button class="icon-button" type="button" id="close-compare-structure" aria-label="Đóng"><i data-lucide="x" aria-hidden="true"></i></button></header>
+      <div class="cs-body">
+        <div class="cs-tree-toolbar"><span class="cs-edit-state" id="cs-edit-state" role="status">Đang tải cấu hình...</span><button class="ghost-button small" id="reload-compare-structure" type="button"><i data-lucide="rotate-ccw" aria-hidden="true"></i>Tải lại</button></div>
+        <p class="cs-error hidden" id="cs-error" role="alert"></p>
+        <div id="compare-structure-tree" class="cs-tree"></div>
+        <div class="cs-path"><span>Đường dẫn trong case</span><output id="cs-path-preview">UT* /</output></div>
+      </div>
+      <footer><span class="cs-save-hint">Áp dụng cho lần compare tiếp theo.<br>Không đổi tên hoặc di chuyển dữ liệu hiện có.</span><div><button class="ghost-button" id="cancel-compare-structure" type="button">Hủy</button><button class="primary-button" id="save-compare-structure" type="submit" disabled><i data-lucide="save" aria-hidden="true"></i>Lưu cấu hình</button></div></footer>
+    </form>
+  </dialog>
+
   <dialog id="compare-count-dialog" class="modal compare-count-modal" aria-labelledby="compare-count-title">
     <div class="modal-shell">
       <header class="compare-count-header"><div><span class="section-kicker">WORKBOOK / RECORD COUNT</span><h3 id="compare-count-title">So sánh số record</h3><p id="compare-count-subtitle"></p></div><button class="icon-button" id="close-compare-count" type="button" aria-label="Đóng">×</button></header>
@@ -723,6 +737,7 @@
   <script src="/adminator.js" defer></script>
   <script src="/workspace-guides.js" defer></script>
   <script src="/app.js" defer></script>
+  <script src="/compare-structure.js" defer></script>
   <script src="/image-compare.js" defer></script>
   <script src="/vendor/codemirror/codemirror.js" defer></script>
   <script src="/vendor/codemirror/diff-match-patch.js" defer></script>

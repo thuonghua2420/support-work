@@ -42,6 +42,12 @@ class CompareFileSafetyTests(unittest.TestCase):
         self.assertEqual(result.test_cases[0].copied_files, 0)
         self.assertEqual(self.snapshot(), original)
         self.assertFalse((self.case / self.folders.input_dir).exists())
+        for generated in result.test_cases[0].workbooks:
+            workbook = load_workbook(generated.output_path)
+            try:
+                self.assertTrue(all(sheet.sheet_view.zoomScale == 85 for sheet in workbook.worksheets))
+            finally:
+                workbook.close()
 
     def test_sheet_zoom_applies_to_every_generated_sheet(self):
         result = process_root(self.case, config=self.config, sheet_zoom=75)

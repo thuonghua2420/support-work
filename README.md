@@ -97,6 +97,10 @@ Test dùng Chrome đã cài, kiểm tra tám trang ở năm chiều rộng (390�
 tab/dialog, căn chữ SQL, menu, LOG và workbook toàn màn hình. Ảnh kiểm tra theme
 được lưu trong `.tmp/theme-screenshots`.
 
+Zoom sheet mặc định của file Excel xuất từ Compare CSV và compare theo folder là 85%, áp dụng cho mọi sheet khi xuất gộp hoặc xuất riêng từng file. Ô Zoom sheet trong cấu hình Compare CSV cho phép thay đổi mức zoom; trình duyệt vẫn ghi nhớ giá trị người dùng đã chọn.
+
+Trong **Compare CSV > Cấu hình**, nhấn **Cấu trúc thư mục** để chỉnh tên các folder nguồn, Output, before/after HTM–HTC, folder Compare và ba file Excel ngay trên cây thư mục của case UT. **Lưu cấu hình** cập nhật `autocompare_config.ini` và áp dụng ngay cho các lần compare/load workbook tiếp theo, không cần khởi động lại. Thao tác này chỉ thay đổi cấu hình, không đổi tên hay di chuyển dữ liệu hiện có. Các tên cùng cấp phải khác nhau, tên file phải có đuôi `.xlsx`. **Tải lại** lấy bản cấu hình mới nhất từ file; hệ thống sẽ báo xung đột nếu file đã thay đổi ở nơi khác trước khi lưu, đồng thời giữ nguyên phần config và comment không liên quan.
+
 ## Update Compare Keys
 
 In Database > Trích xuất key, select a connected Database 1 or Database 2 and use

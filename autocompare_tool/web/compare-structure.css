@@ -1,0 +1,58 @@
+.workspace-theme .compare-structure-modal { width: min(1000px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); border-radius: 8px; }
+.compare-structure-modal .modal-shell { display: flex; flex-direction: column; max-height: calc(100dvh - 32px); border-radius: 8px; }
+.workspace-theme .compare-structure-modal header { padding: 16px 22px; flex: 0 0 auto; }
+.compare-structure-modal .cs-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.compare-structure-modal .cs-title h3 { margin: 0 0 2px; font-size: 17px; }
+.cs-title-icon { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #d9e5e0; border-radius: 6px; background: #f0f7f3; color: #27815a; }
+.cs-title-icon svg { width: 20px; height: 20px; }
+.cs-config-file { color: var(--muted); font: 11px/1.5 Consolas, monospace; }
+.cs-body { padding: 0 22px 18px; overflow: auto; min-height: 120px; }
+.cs-tree-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; gap: 12px; }
+.cs-edit-state { font-size: 12px; color: var(--green); }
+.cs-edit-state::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 8px; vertical-align: middle; }
+.cs-edit-state.is-dirty { color: #9b702b; }
+.cs-root { display: flex; gap: 9px; align-items: center; min-height: 36px; color: var(--ink); }
+.cs-root > svg { width: 20px; height: 20px; color: #758093; }
+.cs-root > span { font-size: 11px; color: var(--muted); }
+.cs-children { list-style: none; margin: 0 0 0 11px; padding: 0 0 0 25px; }
+.cs-node { position: relative; padding: 6px 0 0; }
+.cs-node::before { content: ""; position: absolute; left: -25px; top: 27px; width: 24px; border-top: 1px solid var(--line); }
+.cs-node::after { content: ""; position: absolute; left: -25px; top: 0; bottom: 0; border-left: 1px solid var(--line); }
+.cs-node:last-child::after { bottom: auto; height: 28px; }
+.cs-node-row { display: flex; align-items: center; gap: 3px; min-height: 42px; }
+.cs-collapse, .cs-collapse-spacer { width: 20px; height: 24px; flex: 0 0 20px; }
+.cs-collapse { padding: 0; display: grid; place-items: center; border: 0; border-radius: 3px; color: var(--muted); background: transparent; cursor: pointer; }
+.cs-collapse:hover { background: #eceef0; }
+.cs-collapse svg { width: 14px; height: 14px; transition: transform .12s; }
+.cs-collapse[aria-expanded="false"] svg { transform: rotate(-90deg); }
+.cs-field { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; flex: 1; min-width: 0; gap: 10px; }
+.cs-node-label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #59606b; }
+.cs-node-label svg { width: 16px; height: 16px; flex: 0 0 16px; color: #88919c; }
+.cs-htm > .cs-node-row .cs-node-label svg { color: #418198; }
+.cs-htc > .cs-node-row .cs-node-label svg { color: #ad853d; }
+.cs-input .cs-node-label svg { color: #27815a; }
+.cs-file .cs-node-label svg { color: #27815a; }
+.workspace-theme .cs-field input { width: 100%; min-width: 0; min-height: 36px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; font-size: 12px; background: #fff; }
+.workspace-theme .cs-field input:focus { border-color: #8b9cae; box-shadow: 0 0 0 2px #46556a12; }
+.workspace-theme .cs-field input:disabled { background: #f7f8f9; }
+.cs-path { border-top: 1px solid var(--line-soft); margin-top: 18px; padding-top: 12px; display: grid; gap: 3px; font-size: 11px; color: var(--muted); }
+.cs-path output { color: #59606b; overflow-wrap: anywhere; font: 12px/1.6 Consolas, monospace; }
+.cs-error { margin: 0 0 10px; border: 1px solid #e7c4c4; border-radius: 4px; background: #fff5f5; padding: 9px 12px; color: #ad3842; font-size: 12px; overflow-wrap: anywhere; }
+.workspace-theme .compare-structure-modal footer { flex: 0 0 auto; padding: 14px 22px; }
+.cs-save-hint { color: var(--muted); font-size: 11px; line-height: 1.6; }
+@media (max-width: 640px) {
+  .workspace-theme .compare-structure-modal { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  .compare-structure-modal .modal-shell { max-height: calc(100dvh - 16px); }
+  .workspace-theme .compare-structure-modal header, .workspace-theme .compare-structure-modal footer { padding: 12px 14px; }
+  .cs-body { padding: 0 12px 12px; }
+  .cs-field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .cs-node { padding-top: 10px; }
+  .cs-node-row { align-items: flex-start; }
+  .cs-collapse, .cs-collapse-spacer { flex-basis: 16px; width: 16px; height: 20px; }
+  .cs-node::before { top: 20px; left: -12px; width: 12px; }
+  .cs-node::after { left: -12px; }
+  .cs-node:last-child::after { height: 21px; }
+  .cs-children { padding-left: 12px; margin-left: 7px; }
+  .compare-structure-modal footer { align-items: stretch; }
+  .compare-structure-modal footer > div { justify-content: flex-end; }
+}

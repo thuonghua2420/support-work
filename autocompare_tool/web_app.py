@@ -19,6 +19,7 @@ from .app_config import (
     WORKFLOW_HTM_BEFORE_AFTER, load_app_config,
 )
 from .compare_keys import extract_all_compare_keys, remove_compare_keys
+from .compare_structure import read_compare_structure, save_compare_structure
 from .compare_workbook_view import (
     CompareWorkbookReference,
     build_compare_view_index,
@@ -290,6 +291,7 @@ class AutoCompareWebApplication:
                 for workflow in self.config.compare_workflows
             ],
             "folder_compare_file": self.config.workbooks.folder_compare_file,
+            "compare_structure": read_compare_structure(),
             "compare_options": {
                 "copy_input": self.config.copy_input_default,
                 "sort_by_key": self.config.sort_by_key_default,
@@ -318,6 +320,15 @@ class AutoCompareWebApplication:
     def fixme_snapshot(self) -> list[dict[str, Any]]:
         with self._state_lock:
             return [_fixme_to_dict(entry, index) for index, entry in enumerate(self._fixme_entries)]
+
+    def save_compare_structure(self, payload: dict[str, Any]) -> dict[str, Any]:
+        with self._state_lock:
+            job = self.jobs.snapshot()
+            if job and job["state"] in {"queued", "running"}:
+                raise RuntimeError("Đợi tác vụ hiện tại kết thúc trước khi lưu cấu hình.")
+            result = save_compare_structure(payload)
+            self.config = load_app_config()
+            return result
 
     def compare_view_index(self) -> dict[str, Any]:
         with self._state_lock:
@@ -520,7 +531,8 @@ class AutoCompareWebApplication:
         if action in confirmed_actions and payload.get("confirmed") is not True:
             raise PermissionError("Tác vụ này cần được xác nhận rõ ràng trước khi chạy.")
         operation = self._operation(action, payload)
-        return self.jobs.start(action, action_labels[action], operation)
+        with self._state_lock:
+            return self.jobs.start(action, action_labels[action], operation)
 
     def list_files(self, path_value: str, kind: str, extensions: list[str]) -> dict[str, Any]:
         requested = Path(path_value).expanduser() if path_value else Path.cwd()
@@ -844,7 +856,7 @@ class AutoCompareWebApplication:
             _text(payload, "root"), log=log, selected_workflow_keys=set(map(str, selected)),
             copy_input=payload.get("copy_input") is True,
             sort_by_key=payload.get("sort_by_key") is True,
-            sheet_zoom=payload.get("sheet_zoom", 100),
+            sheet_zoom=payload.get("sheet_zoom", 85),
         )
         workbooks = [
             CompareWorkbookReference(
@@ -1139,6 +1151,9 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/bootstrap":
                 self._send_json(self.app.bootstrap(self.app_port))
                 return
+            if parsed.path == "/api/compare-structure":
+                self._send_json(read_compare_structure())
+                return
             if parsed.path == "/api/jobs/current":
                 cursor = _query_int(parse_qs(parsed.query), "cursor")
                 self._send_json({"job": self.app.jobs.snapshot(cursor)})
@@ -1214,6 +1229,9 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
                 action = _text(payload, "action")
                 job = self.app.start_action(action, payload)
                 self._send_json({"job": job.snapshot()}, HTTPStatus.ACCEPTED)
+                return
+            if parsed.path == "/api/compare-structure/save":
+                self._send_json(self.app.save_compare_structure(payload))
                 return
             if parsed.path == "/api/jobs/cancel":
                 self._send_json(self.app.jobs.cancel_current(str(payload.get("job_id", ""))))
