@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 try:
     from openpyxl import Workbook, load_workbook
@@ -63,8 +64,9 @@ class ExcelCompareTests(unittest.TestCase):
                 bold_parts = [part.text for part in rich_value if isinstance(part, TextBlock) and part.font.b]
                 self.assertEqual(["Old:", "New:"], bold_parts)
                 line_break_difference = str(workbook["Users_compare"]["C2"].value)
-                self.assertIn("Old:LF\nvalue", line_break_difference)
-                self.assertIn("New:LF\n\nvalue", line_break_difference)
+                # Whitespace-only differences are quoted so they stay visible.
+                self.assertIn('Old:"LF\nvalue"', line_break_difference)
+                self.assertIn('New:"LF\n\nvalue"', line_break_difference)
             finally:
                 workbook.close()
 
@@ -131,6 +133,102 @@ class ExcelCompareTests(unittest.TestCase):
                 self.assertTrue(all(len(name) <= 31 for name in workbook.sheetnames))
             finally:
                 workbook.close()
+
+    def test_hints_expose_type_and_whitespace_differences_that_look_identical(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            old = Workbook()
+            old.active.title = "S"
+            old.active["A1"] = "5"
+            old.active["A2"] = "trail "
+            old.active["A3"] = "a  b"
+            old.save(root / "old.xlsx")
+            new = Workbook()
+            new.active.title = "S"
+            new.active["A1"] = 5
+            new.active["A2"] = "trail"
+            new.active["A3"] = "a b"
+            new.save(root / "new.xlsx")
+
+            result = compare_excel_workbooks(root / "old.xlsx", root / "new.xlsx", root / "out.xlsx")
+
+            samples = {item["cell"]: (item["old"], item["new"]) for item in result.sheets[0].samples}
+            self.assertEqual(("5 (văn bản)", "5 (số)"), samples["A1"])
+            self.assertEqual(('"trail "', '"trail"'), samples["A2"])
+            self.assertEqual(('"a  b"', '"a b"'), samples["A3"])
+
+    def test_formula_cached_results_are_compared_when_both_files_store_them(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for name, cached in (("old.xlsx", 20), ("new.xlsx", 30), ("none.xlsx", None)):
+                workbook = Workbook()
+                workbook.active.title = "S"
+                workbook.active["A1"] = 10
+                workbook.active["B1"] = "=A1*2"
+                workbook.save(root / name)
+                if cached is not None:
+                    _store_cached_value(root / name, "B1", cached)
+
+            same_formula = compare_excel_workbooks(root / "old.xlsx", root / "new.xlsx", root / "a.xlsx")
+            self.assertEqual(1, same_formula.difference_count)
+            self.assertEqual("=A1*2 → 20", same_formula.sheets[0].samples[0]["old"])
+            self.assertEqual("=A1*2 → 30", same_formula.sheets[0].samples[0]["new"])
+
+            no_cache = compare_excel_workbooks(root / "old.xlsx", root / "none.xlsx", root / "b.xlsx")
+            self.assertEqual(0, no_cache.difference_count)
+            self.assertTrue(no_cache.identical)
+
+    def test_pairing_by_position_can_be_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            old = Workbook()
+            old.active.title = "Before"
+            old.active["A1"] = "x"
+            old.save(root / "old.xlsx")
+            new = Workbook()
+            new.active.title = "After"
+            new.active["A1"] = "x"
+            new.save(root / "new.xlsx")
+
+            paired = compare_excel_workbooks(root / "old.xlsx", root / "new.xlsx", root / "a.xlsx")
+            self.assertEqual(["position"], [item.pairing for item in paired.sheets])
+            self.assertEqual(0, paired.difference_count)
+
+            separate = compare_excel_workbooks(
+                root / "old.xlsx", root / "new.xlsx", root / "b.xlsx", pair_by_position=False
+            )
+            self.assertEqual(["old_only", "new_only"], [item.pairing for item in separate.sheets])
+            self.assertFalse(separate.identical)
+            self.assertEqual(1, separate.missing_new_sheet_count)
+            self.assertEqual(1, separate.missing_old_sheet_count)
+
+    def test_locked_output_reports_actionable_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for name in ("old.xlsx", "new.xlsx"):
+                Workbook().save(root / name)
+            with patch.object(Workbook, "save", side_effect=PermissionError("locked")):
+                with self.assertRaisesRegex(PermissionError, "đóng file"):
+                    compare_excel_workbooks(root / "old.xlsx", root / "new.xlsx", root / "out.xlsx")
+
+
+def _store_cached_value(path: Path, coordinate: str, value: object) -> None:
+    """Emulate Excel saving a formula result, which openpyxl itself never writes."""
+    import re
+    import shutil
+    import zipfile
+
+    temporary = path.with_suffix(".tmp")
+    with zipfile.ZipFile(path) as source, zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as target:
+        for item in source.infolist():
+            data = source.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                text = data.decode("utf-8")
+                pattern = rf'(<c r="{coordinate}"[^>]*><f>[^<]*</f>)<v\s*/>|(<c r="{coordinate}"[^>]*><f>[^<]*</f>)'
+                text = re.sub(pattern, lambda match: f"{match.group(1) or match.group(2)}<v>{value}</v>", text, count=1)
+                data = text.encode("utf-8")
+            target.writestr(item, data)
+    shutil.move(str(temporary), path)
 
 
 if __name__ == "__main__":

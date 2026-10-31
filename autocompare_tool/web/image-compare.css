@@ -39,3 +39,5 @@
 #ic-evidence { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 .ic-downloads { border-top: 1px solid #dce5ee; padding: 12px 18px; }
 @media (max-width: 700px) { .ic-inputs { grid-template-columns: 1fr; } .ic-drop { height: 170px; } .ic-input .ic-bar { gap: 8px; } .ic-toolbar { align-items: flex-start; } .ic-tabs { width: 100%; } .ic-tabs .tab { padding: 12px 8px; } }
+#ic-verdict.ic-warn { background: #fcf5e8; border-color: #ecd9b1; }
+#ic-verdict.ic-warn strong { color: #8a5d12; }

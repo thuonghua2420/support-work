@@ -24,7 +24,7 @@
   function invalidate() {
     result = null; el("results").classList.add("hidden");
     for (const id of ["view-a", "view-b", "view-c"]) el(id).removeAttribute("src");
-    message("Ảnh đã thay đổi. Nhấn Compare Image để xem kết quả mới.");
+    message(sources.old || sources.new ? "Cần đủ hai ảnh để so sánh." : "Chưa có ảnh nào. Nhấn Ctrl+V để dán ảnh cũ (Old).");
   }
   function preview(side) {
     const source = sources[side], drop = el(`drop-${side}`), image = drop.querySelector("img");
@@ -37,6 +37,7 @@
   async function load(side, file) {
     if (busy || !file) return;
     const revision = ++revisions[side]; pendingLoads++; controls();
+    let ready = false;
     try {
       if (file.size > 12 * 1024 * 1024) throw new Error("Tối đa 12 MB mỗi ảnh.");
       if (!file.size) throw new Error("Ảnh trống, vui lòng chọn lại.");
@@ -49,9 +50,14 @@
       const dataUrl = data.startsWith("data:image/") ? data : data.replace(/^data:[^;,]*;base64,/, "data:image/png;base64,");
       if (revision !== revisions[side]) return;
       sources[side] = { name: file.name || `Clipboard-${side}.png`, data_url: dataUrl, bytes: file.size };
-      invalidate(); preview(side); select(side);
+      invalidate(); preview(side);
+      const other = side === "old" ? "new" : "old";
+      select(sources[other] ? side : other);
+      ready = Boolean(sources.old && sources.new);
+      if (!ready) message(`Đã nhận ảnh ${side === "old" ? "cũ (Old)" : "mới (New)"}. Hãy thêm ảnh ${other === "old" ? "cũ (Old)" : "mới (New)"} để so sánh.`);
     } catch (error) { message(error.message, true); }
     finally { pendingLoads--; controls(); }
+    if (ready) runCompare();
   }
   async function paste(side) {
     if (busy) return;
@@ -92,8 +98,9 @@
     revisions.old++; revisions.new++; [sources.old, sources.new] = [sources.new, sources.old];
     invalidate(); preview("old"); preview("new");
   });
-  el("compare").addEventListener("click", async () => {
-    if (busy || pendingLoads || !sources.old || !sources.new) return;
+  el("compare").addEventListener("click", () => runCompare());
+  async function runCompare() {
+    if (busy || !sources.old || !sources.new) return;
     busy = true; controls(); el("results").classList.add("hidden");
     message("Đang kiểm tra kích thước, màu và từng pixel của hai ảnh…");
     try {
@@ -104,7 +111,7 @@
       el("results").scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) { result = null; message(error.message, true); }
     finally { busy = false; controls(); }
-  });
+  }
   function summaryText(r) {
     const percent = r.changed_pixels ? Math.max(r.difference_percent, 0.000001).toFixed(6) : "0";
     return `${r.changed_pixels.toLocaleString("vi-VN")} / ${r.total_pixels.toLocaleString("vi-VN")} pixel khác (${percent}%) · ${r.regions.length} vùng. Old: ${r.old.width} × ${r.old.height} px · New: ${r.new.width} × ${r.new.height} px.`;
@@ -112,8 +119,10 @@
   function manifest() { const { previews, ...rest } = result; return rest; }
   function renderSummary() {
     const evidence = result.binary_identical ? "File giống hoàn toàn từng byte (SHA-256 trùng khớp)." : result.identical ? "Pixel và thông tin màu trùng khớp. Hai file có cách lưu hoặc metadata khác nhau." : "So sánh chính xác: chỉ một pixel hoặc kích thước khác cũng được báo khác.";
+    const colorOnly = !result.identical && result.pixels_identical;
     el("verdict").classList.toggle("ic-match", result.identical);
-    el("verdict").innerHTML = `<strong>${result.identical ? "Hai ảnh giống nhau" : "Hai ảnh khác nhau"}</strong><p>${escape(summaryText(result))}</p><p>${escape(evidence)}</p>${!result.color_metadata_identical ? "<p>Thông tin màu ICC/gamma khác nhau. Màu hiển thị có thể khác dù giá trị pixel bằng nhau; ảnh Diff chỉ đánh dấu khác biệt pixel.</p>" : ""}`;
+    el("verdict").classList.toggle("ic-warn", colorOnly);
+    el("verdict").innerHTML = `<strong>${result.identical ? "Hai ảnh giống nhau" : colorOnly ? "Pixel giống nhau nhưng thông tin màu khác" : "Hai ảnh khác nhau"}</strong><p>${escape(summaryText(result))}</p><p>${escape(evidence)}</p>${!result.color_metadata_identical ? "<p>Thông tin màu ICC/gamma khác nhau. Màu hiển thị có thể khác dù giá trị pixel bằng nhau; ảnh Diff chỉ đánh dấu khác biệt pixel.</p>" : ""}`;
     el("evidence").textContent = JSON.stringify(manifest(), null, 2);
   }
   function setView(mode) {

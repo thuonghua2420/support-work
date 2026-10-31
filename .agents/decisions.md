@@ -2,6 +2,41 @@
 
 Use this file for lightweight architecture decisions. Add newest entries at the top.
 
+## 2026-10-31 - Merge Compare CSV And Compare By Folder
+
+Decision:
+
+- Fold the separate "Compare theo folder" page into Compare CSV as a second mode, with the workbook preview as a third `Kết quả` tab.
+- Make mode 1 self-explanatory: a read-only case scan and a folder-structure tree (with an edit button) replace the old full-width form and metric card.
+- Keep all element ids used by scripts and smoke tests (`compare-form`, `folder-compare-form`, `compare-root`, `folder-*`) so behaviour and API payloads are unchanged.
+
+Reason:
+
+- Users could not tell the two features apart or what folder layout mode 1 required, and the old layout needed scrolling for a few inputs.
+
+Consequence:
+
+- `data-page="folder-compare"` no longer exists; the URL hash is aliased. Smoke tests that iterated that page now select `#tab-folder-compare-form`.
+
+## 2026-10-31 - Compare Excel / PDF / Image Usability And Accuracy Pass
+
+Decision:
+
+- Excel compare also compares cached formula results when both files store them, labels type/whitespace-only differences, and can disable positional pairing of differently named sheets.
+- Image compare ignores the hidden RGB of fully transparent pixels.
+- Excel and PDF pages show their verdict and per-sheet / per-page detail inline instead of only printing an output path; the output path is auto-suggested and moved under advanced options.
+- Image compare runs automatically when both images are present; paste goes to the first empty side.
+- A small allowlisted `open-result` endpoint lets the page open produced files and reveal them in Explorer.
+
+Reason:
+
+- Users could not tell what a result meant without opening files, and several differences were invisible (`"5"` vs `5`, trailing spaces) or false (transparent pixels, formulas with equal text but different results).
+
+Consequence:
+
+- Whitespace-only differences in compare cells are now quoted (`Old:"a  b" # New:"a b"`).
+- Positional sheet pairing stays the default for backward compatibility, but the result flags every positionally paired sheet.
+
 ## 2026-08-29 - Conditional Database Sync Backup
 
 Decision:

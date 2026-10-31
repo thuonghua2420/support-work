@@ -28,10 +28,10 @@ class ImageCompareTests(unittest.TestCase):
 
     def test_single_channel_single_pixel_changes_are_detected(self):
         for channel in range(4):
-            old = Image.new("RGBA", (65, 65), (0, 0, 0, 0))
+            old = Image.new("RGBA", (65, 65), (10, 10, 10, 10))
             new = old.copy()
-            value = [0, 0, 0, 0]
-            value[channel] = 1
+            value = [10, 10, 10, 10]
+            value[channel] = 11
             new.putpixel((64, 64), tuple(value))
             result = compare_images(payload(old), payload(new))
             self.assertEqual(result["changed_pixels"], 1)
@@ -43,6 +43,16 @@ class ImageCompareTests(unittest.TestCase):
         self.assertEqual(result["total_pixels"], 36)
         self.assertEqual(result["changed_pixels"], 32)
         self.assertFalse(result["dimensions_identical"])
+
+    def test_hidden_color_of_fully_transparent_pixels_is_not_a_difference(self):
+        old = Image.new("RGBA", (20, 20), (255, 0, 0, 0))
+        new = Image.new("RGBA", (20, 20), (0, 0, 255, 0))
+        result = compare_images(payload(old), payload(new))
+        self.assertEqual(result["changed_pixels"], 0)
+        self.assertTrue(result["identical"])
+        # A faintly visible pixel still counts.
+        new.putpixel((3, 3), (0, 0, 255, 1))
+        self.assertEqual(compare_images(payload(old), payload(new))["changed_pixels"], 1)
 
     def test_color_metadata_change_does_not_claim_identical(self):
         image = Image.new("RGB", (5, 5), "white")

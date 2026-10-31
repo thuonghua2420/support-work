@@ -56,12 +56,20 @@ def _load(value: Any, label: str) -> tuple[Image.Image, dict[str, Any]]:
                 "png_srgb": source.info.get("srgb"),
                 "png_chromaticity": source.info.get("chromaticity"),
             }
-            image = ImageOps.exif_transpose(source).convert("RGBA")
+            image = _clear_hidden_color(ImageOps.exif_transpose(source).convert("RGBA"))
             metadata.update(width=image.width, height=image.height,
                             pixel_sha256=hashlib.sha256(image.tobytes()).hexdigest())
             return image, metadata
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise ValueError(f"{label}: file ảnh hỏng hoặc không đọc được.") from exc
+
+
+def _clear_hidden_color(image: Image.Image) -> Image.Image:
+    """Fully transparent pixels show nothing, so their stored RGB must not count as a difference."""
+    alpha = image.getchannel("A")
+    if alpha.getextrema()[0] != 0:
+        return image
+    return Image.composite(image, Image.new("RGBA", image.size, (0, 0, 0, 0)), alpha.point(lambda p: 255 if p else 0))
 
 
 def _png(image: Image.Image) -> str:
@@ -146,6 +154,6 @@ def compare_images(old: Any, new: Any) -> dict[str, Any]:
         "changed_pixels": changed, "total_pixels": total,
         "difference_percent": changed / total * 100,
         "regions": regions,
-        "method": "Exact RGBA 8-bit after EXIF orientation; includes transparent pixels and missing area; no resize, tolerance, or alignment. Color metadata checked separately. Coordinates: zero-based, [x0,y0,x1,y1), 32px tile-connected regions.",
+        "method": "Exact RGBA 8-bit after EXIF orientation; semi-transparent pixels and missing area count, the hidden RGB of fully transparent pixels does not; no resize, tolerance, or alignment. Color metadata checked separately. Coordinates: zero-based, [x0,y0,x1,y1), 32px tile-connected regions.",
         "previews": {"old": _png(canvases[0]), "new": _png(canvases[1]), "diff": _png(highlight)},
     }

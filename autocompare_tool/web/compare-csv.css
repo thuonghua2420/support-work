@@ -1,0 +1,123 @@
+/* Compare CSV: two clearly separated modes (by folder structure / two folders) plus the results tab. */
+
+/* Mode tabs share one row with the workbook toolbar that appears on the results tab. */
+#page-compare > .page-intro { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px 16px; min-height: 0; margin: 0 0 12px; }
+#page-compare > .page-intro > .compare-page-toolbar { position: static; flex: 1 1 520px; width: auto; max-width: 900px; margin-left: auto; }
+.workspace-theme .cc-modes { flex: 0 0 auto; width: fit-content; max-width: 100%; margin: 0; padding: 4px; gap: 4px; }
+.workspace-theme .cc-modes .workbench-tab { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 7px 16px 7px 12px; text-align: left; }
+.cc-modes .workbench-tab > svg { flex: 0 0 18px; width: 18px; height: 18px; color: #7c8794; }
+.cc-modes .workbench-tab.active > svg { color: var(--blue); }
+.cc-tab-text { display: grid; gap: 1px; min-width: 0; }
+.cc-tab-text strong { font-size: 13px; font-weight: 600; line-height: 1.3; }
+.cc-tab-text small { font-size: 11px; font-weight: 400; line-height: 1.3; color: var(--muted); white-space: nowrap; }
+.cc-tab-count { min-width: 20px; padding: 0 6px; border-radius: 99px; color: #fff; background: var(--blue); font-size: 11px; font-weight: 600; line-height: 20px; text-align: center; }
+
+.cc-card { max-width: 1280px; min-width: 0; padding: 18px 20px; }
+.cc-lead { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.cc-lead b { color: var(--ink); font-weight: 600; }
+.cc-card .field > span:first-child { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; color: var(--ink); }
+.cc-card code { overflow-wrap: anywhere; }
+
+/* Mode 1: form on the left, folder structure on the right. */
+.cc-split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); gap: 22px; align-items: start; }
+.cc-main { display: grid; gap: 12px; min-width: 0; }
+.cc-flows { display: grid; gap: 6px; }
+.cc-flows-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; font-weight: 600; }
+.cc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cc-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 99px; background: #fff; color: #5b6470; font-size: 12px; cursor: pointer; transition: background .15s, border-color .15s; }
+.cc-chip:hover { background: #f5f6f7; }
+.cc-chip:has(input:checked) { border-color: #b4bfce; background: var(--blue-soft); color: #364254; font-weight: 600; }
+.cc-chip:has(input:focus-visible) { outline: 2px solid var(--blue); outline-offset: 2px; }
+.cc-options { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; font-size: 12px; }
+.cc-check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.cc-zoom { display: inline-flex; align-items: center; gap: 8px; margin: 0; }
+.cc-zoom input { width: 66px; min-height: 32px; padding: 4px 8px; }
+
+/* Case list and pair list share the same compact, scrollable table. */
+.cc-cases { min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.cc-cases > header { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line-soft); font-size: 12px; }
+.cc-cases > header > strong { flex: 0 0 auto; font-weight: 600; }
+.cc-cases > header > span { flex: 1 1 auto; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-cases > header > span.ok { color: var(--green); }
+.cc-cases > header > span.warn { color: var(--amber); }
+.cc-scroll { max-height: clamp(110px, 22vh, 210px); overflow: auto; }
+.cc-table { width: 100%; min-width: 0; border-collapse: collapse; font-size: 12px; }
+.cc-table th, .cc-table td { position: static; max-width: none; padding: 6px 12px; border-top: 0; border-bottom: 1px solid var(--line-soft); background: transparent; color: var(--ink); text-align: left; text-transform: none; letter-spacing: 0; line-height: 1.45; font-size: 12px; font-weight: 400; white-space: nowrap; }
+.cc-table thead th { position: sticky; top: 0; z-index: 1; background: #f6f7f8; color: var(--muted); font-weight: 600; font-size: 11px; }
+.cc-table tbody th { font-weight: 600; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.cc-table tbody tr:last-child > * { border-bottom: 0; }
+.cc-table .is-unused { opacity: .4; }
+.cc-ok { color: var(--green); font-weight: 700; }
+.cc-bad { color: var(--red); font-weight: 700; }
+.cc-pairs { table-layout: fixed; }
+.cc-pairs th, .cc-pairs td { width: 33.333%; overflow: hidden; text-overflow: ellipsis; }
+.cc-pairs td[data-pair-side] { cursor: grab; }
+.cc-pairs td[data-pair-side]:hover { background: #f6f7f8; }
+.cc-pairs td[data-pair-side].dragging { opacity: .5; background: var(--blue-soft); }
+.cc-pairs input { min-height: 28px; height: 28px; padding: 0 8px; font-size: 12px; }
+
+.cc-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.cc-hint { min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.cc-actions .primary-button { flex: 0 0 auto; min-width: 150px; }
+
+/* Folder structure view. */
+.cc-structure { min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fafafa; }
+.cc-structure > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.cc-structure > header > div { display: grid; gap: 1px; }
+.cc-structure > header strong { font-size: 13px; font-weight: 600; }
+.cc-structure > header span { color: var(--muted); font-size: 12px; }
+.cc-tree ul { margin: 0; padding: 0 0 0 14px; list-style: none; }
+.cc-tree ul ul { margin-left: 7px; border-left: 1px solid var(--line); }
+.cc-tree .cc-tree-root { padding: 0; }
+.cc-node-row { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 0; font-size: 12px; }
+.cc-node-row > svg { flex: 0 0 14px; width: 14px; height: 14px; color: #8a94a1; }
+.cc-node-row > b { flex: 0 0 auto; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.cc-node-row > em { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-style: normal; }
+.cc-node-row > .cc-tag { margin-left: auto; }
+.cc-node.is-unused > .cc-node-row { opacity: .38; }
+.cc-tag { flex: 0 0 auto; padding: 1px 8px; border-radius: 99px; font-size: 10px; font-weight: 600; line-height: 1.6; white-space: nowrap; }
+.cc-tag.req { color: #3b4d66; background: #e6ecf5; }
+.cc-tag.auto { color: #1d5941; background: #e3f4ea; }
+.cc-tag.opt { color: #6b7078; background: #eceef0; }
+.cc-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 11px; }
+
+/* Mode 2: two folders, an export style and one output path. */
+#folder-compare-form { display: grid; gap: 14px; }
+.cc-sources { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 12px; }
+.cc-sources .dc-swap { margin-bottom: 1px; }
+.cc-export { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: end; gap: 16px; }
+.cc-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
+.cc-seg label { display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px; border-right: 1px solid var(--line-soft); cursor: pointer; }
+.cc-seg label:last-child { border-right: 0; }
+.cc-seg label:hover { background: #f8f9fa; }
+.cc-seg label:has(input:checked) { background: var(--blue-soft); }
+.cc-seg label:has(input:focus-visible) { outline: 2px solid var(--blue); outline-offset: -2px; }
+/* Checkboxes and radios keep the shared theme skin; only their alignment is set here. */
+.cc-seg input { margin-top: 2px; }
+.cc-seg span { display: grid; gap: 1px; min-width: 0; }
+.cc-seg b { font-size: 12px; font-weight: 600; }
+.cc-seg small { color: var(--muted); font-size: 11px; line-height: 1.4; }
+
+.compare-diagnostics { margin-bottom: 12px; }
+
+@media (max-width: 1100px) {
+  .cc-split { grid-template-columns: minmax(0, 1fr); }
+  .cc-export { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .cc-card { padding: 14px; }
+  .workspace-theme .cc-modes { width: 100%; }
+  .workspace-theme .cc-modes .workbench-tab { flex: 1 1 0; justify-content: center; padding: 8px 10px; }
+  .cc-modes .workbench-tab > svg, .cc-tab-text small { display: none; }
+  .cc-tab-text strong { font-size: 12px; white-space: nowrap; }
+  .cc-sources { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .cc-sources .dc-swap { justify-self: center; margin: 0; transform: rotate(90deg); }
+  .cc-seg { grid-template-columns: minmax(0, 1fr); }
+  .cc-seg label { border-right: 0; border-bottom: 1px solid var(--line-soft); }
+  .cc-seg label:last-child { border-bottom: 0; }
+  .cc-actions { flex-direction: column; align-items: stretch; }
+  .cc-pairs { table-layout: auto; min-width: 560px; }
+  .cc-cases > header { flex-wrap: wrap; }
+  .cc-cases > header > span { flex-basis: 100%; order: 3; white-space: normal; }
+}

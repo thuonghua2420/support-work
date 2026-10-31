@@ -24,7 +24,7 @@ const path = require('node:path');
     assert.equal(await page.locator('.nav-item svg').count(), 8);
     for (const width of [1440, 1024, 768, 390]) {
       await page.setViewportSize({ width, height: 1000 });
-      for (const key of ['compare', 'folder-compare', 'excel-compare', 'pdf-compare', 'image-compare', 'file-tools', 'excel-format', 'database']) {
+      for (const key of ['compare', 'excel-compare', 'pdf-compare', 'image-compare', 'file-tools', 'excel-format', 'database']) {
         if (width <= 900) await page.locator('#menu-toggle').click();
         await page.locator(`.nav-item[data-page="${key}"]`).click();
         if (key === 'excel-format') {
@@ -150,6 +150,8 @@ const path = require('node:path');
     assert.equal(await page.locator('#compare-root').inputValue(), 'D:\\test-root');
     await page.locator('#tab-compare-form').focus();
     await page.keyboard.press('ArrowRight');
+    assert.equal(await page.locator('#tab-folder-compare-form').getAttribute('aria-selected'), 'true');
+    await page.keyboard.press('ArrowRight');
     assert.equal(await page.locator('#tab-compare-preview-card').getAttribute('aria-selected'), 'true');
     assert.equal(await page.locator('#tab-fixme-expand-card').count(), 0);
     await page.locator('#menu-toggle').click();
@@ -161,7 +163,7 @@ const path = require('node:path');
     const fixtureRows = Array.from({ length: 30 }, (_, index) => `${index + 1},Order ${index + 1}`);
     await fs.writeFile(path.join(fixtureRoot, 'before', 'orders.csv'), `id,name,status\n${fixtureRows.map(row => `${row},old`).join('\n')}\n`);
     await fs.writeFile(path.join(fixtureRoot, 'after', 'orders.csv'), `id,name,status\n${fixtureRows.map(row => `${row},new`).join('\n')}\n`);
-    await page.locator('.nav-item[data-page="folder-compare"]').click();
+    await page.locator('#tab-folder-compare-form').click();
     await page.locator('#folder-left').fill(path.join(fixtureRoot, 'before'));
     await page.locator('#folder-right').fill(path.join(fixtureRoot, 'after'));
     await page.locator('#folder-output').fill(path.join(fixtureRoot, 'compare.xlsx'));

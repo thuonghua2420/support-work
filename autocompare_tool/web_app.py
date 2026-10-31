@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import os
+import subprocess
 import threading
 import uuid
 import webbrowser
@@ -72,7 +74,7 @@ from .folder_compare import (
     compare_csv_folders,
     preview_folder_compare_pairs,
 )
-from .processor import process_root
+from .processor import describe_test_cases, process_root
 from .sql_excel_loader import format_excel_sql_entries, load_sql_entries_from_excel, render_raw_sql_entries
 from .sql_tools import analyze_sql, format_sql
 from .sql_database_workspace import SqlDatabaseWorkspaceManager
@@ -268,6 +270,7 @@ class AutoCompareWebApplication:
         self.text_compare_files = TextCompareFiles()
         self.search_replace = SearchReplace()
         self._state_lock = threading.Lock()
+        self._openable_results: set[str] = set()
         self._fixme_entries: list[WorkbookFixmeEntry] = []
         self._compare_workbooks: list[CompareWorkbookReference] = []
         self._db_connection_cache: dict[str, DatabaseConnectionSettings] = {}
@@ -329,6 +332,9 @@ class AutoCompareWebApplication:
             result = save_compare_structure(payload)
             self.config = load_app_config()
             return result
+
+    def scan_compare_cases(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return describe_test_cases(_text(payload, "root"), self.config)
 
     def compare_view_index(self) -> dict[str, Any]:
         with self._state_lock:
@@ -667,22 +673,30 @@ class AutoCompareWebApplication:
             )
         if action == "excel_compare":
             return lambda log, cancel: self._file_summary(
-                compare_excel_workbooks(
-                    _text(payload, "old_path"),
-                    _text(payload, "new_path"),
-                    _text(payload, "output_path"),
-                    log=log,
-                    cancel=cancel.throw_if_cancelled,
+                self._remember_results(
+                    compare_excel_workbooks(
+                        _text(payload, "old_path"),
+                        _text(payload, "new_path"),
+                        _text(payload, "output_path"),
+                        pair_by_position=_bool(payload, "pair_by_position", True),
+                        log=log,
+                        cancel=cancel.throw_if_cancelled,
+                    ),
+                    "output_path",
                 )
             )
         if action == "pdf_compare":
             return lambda log, cancel: self._file_summary(
-                compare_pdf_files(
-                    _text(payload, "old_path"),
-                    _text(payload, "new_path"),
-                    _text(payload, "output_path"),
-                    log=log,
-                    cancel=cancel.throw_if_cancelled,
+                self._remember_results(
+                    compare_pdf_files(
+                        _text(payload, "old_path"),
+                        _text(payload, "new_path"),
+                        _text(payload, "output_path"),
+                        log=log,
+                        cancel=cancel.throw_if_cancelled,
+                    ),
+                    "output_path",
+                    "manifest_path",
                 )
             )
         operations: dict[str, Callable[[Logger], dict[str, Any]]] = {
@@ -874,6 +888,7 @@ class AutoCompareWebApplication:
             "workbook_count": workbook_count,
             "error_count": len(summary.errors),
             "errors": summary.errors,
+            "warnings": summary.warnings,
             "fixme_count": len(summary.fixme_entries),
             "fixmes": self.fixme_snapshot(),
             "compare_view": self.compare_view_index(),
@@ -916,6 +931,7 @@ class AutoCompareWebApplication:
                 "output_path": str(summary.output_path),
                 "sheet_count": summary.sheet_count,
                 "workbook_count": summary.workbook_count,
+                "warnings": summary.warnings,
                 "fixme_count": len(summary.fixme_entries),
                 "fixmes": self.fixme_snapshot(),
                 "compare_view": self.compare_view_index(),
@@ -940,6 +956,7 @@ class AutoCompareWebApplication:
             "output_path": str(summary.output_path),
             "sheet_count": summary.sheet_count,
             "workbook_count": summary.workbook_count,
+            "warnings": summary.warnings,
             "fixme_count": len(summary.fixme_entries),
             "fixmes": self.fixme_snapshot(),
             "compare_view": self.compare_view_index(),
@@ -1099,6 +1116,29 @@ class AutoCompareWebApplication:
             self._fixme_entries = list(fixme_entries)
             self._compare_workbooks = list(workbooks)
 
+    def _remember_results(self, summary: Any, *attributes: str) -> Any:
+        """Allow the UI to open only files this server just produced."""
+        with self._state_lock:
+            for attribute in attributes:
+                self._openable_results.add(str(Path(getattr(summary, attribute)).resolve()).casefold())
+        return summary
+
+    def open_result_path(self, payload: dict[str, Any]) -> dict[str, Any]:
+        path = Path(_text(payload, "path")).expanduser().resolve()
+        with self._state_lock:
+            allowed = str(path).casefold() in self._openable_results
+        if not allowed:
+            raise PermissionError("Chỉ mở được file kết quả do AutoCompare vừa tạo trong phiên này.")
+        if not path.is_file():
+            raise FileNotFoundError(f"File kết quả không còn tồn tại: {path}")
+        if os.name != "nt":
+            raise RuntimeError("Mở file từ giao diện chỉ hỗ trợ Windows.")
+        if payload.get("reveal") is True:
+            subprocess.Popen(["explorer", f"/select,{path}"])
+        else:
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        return {"path": str(path)}
+
     @staticmethod
     def _file_summary(summary: Any) -> dict[str, Any]:
         return _jsonable(summary)
@@ -1184,6 +1224,9 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
                 extensions = query.get("ext", [])
                 self._send_json(self.app.list_files(path_value, kind, extensions))
                 return
+            if parsed.path == "/api/compare-cases":
+                self._send_json(self.app.scan_compare_cases({"root": parse_qs(parsed.query).get("root", [""])[0]}))
+                return
             if parsed.path == "/api/sql-workspace/page":
                 query = parse_qs(parsed.query)
                 self._send_json(
@@ -1221,6 +1264,9 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
                 if current_job and current_job["state"] in {"queued", "running"}:
                     raise RuntimeError("Đợi tác vụ hiện tại kết thúc trước khi ghi file.")
                 self._send_json(self.app.text_compare_files.save(payload))
+                return
+            if parsed.path == "/api/open-result":
+                self._send_json(self.app.open_result_path(payload))
                 return
             if parsed.path == "/api/image-compare":
                 self._send_json(compare_images(payload.get("old"), payload.get("new")))

@@ -38,7 +38,6 @@ body.workspace-theme { color: var(--ink); background: var(--canvas); font-size: 
 .workspace-theme .nav-item.active .nav-icon { color: var(--nav-icon-color, #46556a); }
 /* Colour belongs only to the icon; labels and selection surfaces stay neutral. */
 .workspace-theme .nav-item[data-page="compare"] { --nav-icon-color: #168277; }
-.workspace-theme .nav-item[data-page="folder-compare"] { --nav-icon-color: #b47a25; }
 .workspace-theme .nav-item[data-page="excel-compare"] { --nav-icon-color: #308653; }
 .workspace-theme .nav-item[data-page="pdf-compare"] { --nav-icon-color: #c55c63; }
 .workspace-theme .nav-item[data-page="image-compare"] { --nav-icon-color: #8b68b3; }
@@ -80,18 +79,7 @@ body.workspace-theme { color: var(--ink); background: var(--canvas); font-size: 
 .workspace-theme .form-actions { margin-top: 24px; padding-top: 20px; gap: 16px; align-items: center; border-color: var(--line-soft); }
 .workspace-theme .form-actions .hint { max-width: 700px; }
 .workspace-theme .divider { margin: 20px 0; background: var(--line-soft); }
-.workflow-heading { display: flex; align-items: center; gap: 13px; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line-soft); }
-.workflow-heading h3 { margin: 0 0 3px; font-size: 17px; font-weight: 600; }
-.workflow-heading p { margin: 0; color: var(--muted); font-size: 12px; }
 .workflow-icon { display: grid; place-items: center; flex: 0 0 42px; height: 42px; border-radius: 12px; color: #607086; background: #f0f2f5; }
-.workflow-heading + .card-heading { display: none; }
-.workspace-theme :is(#folder-compare-form, #excel-compare-form, #pdf-compare-form) { max-width: 1320px; }
-.workspace-theme .comparison-source { padding: 18px; border: 1px solid #e4e6e9; border-radius: 12px; background: #fafafa; }
-.workspace-theme .comparison-source.source-new { background: #fafbfb; border-color: #dce4e2; }
-.workspace-theme .comparison-source > span:first-child { display: flex; align-items: center; gap: 9px; }
-.source-badge { color: #8c7955; background: #f0ece2; border-radius: 5px; padding: 3px 6px; font-size: 9px; font-weight: 700; }
-.source-new .source-badge { color: #398366; background: #e3f0e5; }
-.workspace-theme .comparison-source small { font-size: 11px; }
 
 /* Controls preserve native semantics, with visible keyboard and selected states. */
 .workspace-theme :is(input, select, textarea):not(:where([type="checkbox"], [type="radio"], [type="range"])) {
@@ -141,26 +129,6 @@ body.workspace-theme { color: var(--ink); background: var(--canvas); font-size: 
 .workspace-theme .sql-workspace-tabs .tab.active { background: #eef0f3; box-shadow: none; }
 
 /* CSV setup: readable choices, an obvious next action, no unused headline area. */
-.workspace-theme #compare-form { padding: 26px; }
-.workspace-theme #compare-form > .card-heading:first-child { display: flex; margin-bottom: 17px; }
-.workspace-theme #compare-form > .card-heading:first-child h3 { font-size: 17px; }
-.workspace-theme #compare-form > .field > small { display: block; }
-.workspace-theme #compare-form > .card-heading.compact { margin: 24px 0 11px; justify-content: space-between; }
-.workspace-theme #compare-form > .card-heading.compact h3 { font-size: 13px; }
-.workspace-theme #compare-workflows { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.workspace-theme #compare-workflows .choice-card { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-content: center; align-items: center; gap: 8px 10px; border: 1px solid var(--line); padding: 17px 15px; min-height: 78px; border-radius: 11px; background: #fafafa; }
-.workspace-theme #compare-workflows .choice-card:has(input:checked) { border-color: #cfd6df; background: #f7f8fa; }
-.workspace-theme #compare-workflows .choice-card b { font-size: 12px; font-weight: 600; line-height: 1.6; }
-.workspace-theme #compare-workflows .choice-card input { top: auto; right: auto; }
-.workspace-theme .compare-file-options { gap: 12px 24px; padding: 18px 0 3px; margin: 0; }
-.workspace-theme .compare-file-options .checkbox-line { font-size: 12px; align-items: center; gap: 8px; }
-.workspace-theme #compare-form .form-actions { margin-top: 20px; padding-top: 18px; }
-.workspace-theme #compare-form .form-actions > .hint { display: inline; font-size: 11px; }
-.workspace-theme #folder-compare-form .folder-export-fieldset { margin: 24px 0; }
-.workspace-theme #folder-compare-form .folder-export-fieldset legend { font-weight: 600; margin-bottom: 10px; }
-.workspace-theme #folder-compare-form .folder-export-options { gap: 7px; display: flex; flex-wrap: wrap; }
-.workspace-theme #folder-compare-form .folder-export-options label { min-height: 40px; padding: 9px 13px; border: 1px solid var(--line); border-radius: 8px; font-weight: 500; color: #69717c; background: #fafafa; }
-.workspace-theme #folder-compare-form .folder-export-options label:has(input:checked) { color: #46556a; background: #f5f6f8; border-color: #cdd4de; }
 
 /* Workbook formatting: source, selected operations, then save. */
 .workspace-theme #page-excel-format > .excel-format-card { max-width: 1180px; padding: 26px; }
@@ -250,8 +218,8 @@ body.workspace-theme { color: var(--ink); background: var(--canvas); font-size: 
 .workspace-theme :is(.sql-statement-table-group > header, .sql-table-summary-heading) { background: #f6f7f8; }
 .workspace-theme .sql-metric strong { color: #4b5d75; font-size: 24px; }
 .workspace-theme :is(.table-wrap, .sql-workspace-grid-wrap) { border-color: var(--line); border-radius: 9px; }
-.workspace-theme :is(.fixme-table, .sql-workspace-grid, .folder-pair-table, .compare-key-table) th { color: #626d78; background: #f3f4f6; font-size: 11px; }
-.workspace-theme :is(.fixme-table, .sql-workspace-grid, .folder-pair-table, .compare-key-table) tbody tr:hover { background: #f7f8f9; }
+.workspace-theme :is(.fixme-table, .sql-workspace-grid, .compare-key-table) th { color: #626d78; background: #f3f4f6; font-size: 11px; }
+.workspace-theme :is(.fixme-table, .sql-workspace-grid, .compare-key-table) tbody tr:hover { background: #f7f8f9; }
 .workspace-theme :is(.fixme-card, .compare-preview-card) { padding: 16px; }
 .workspace-theme .compare-preview-shell { border-color: var(--line); border-radius: 10px; overflow: hidden; }
 .workspace-theme .compare-preview-tabs { background: #f6f7f8; }
@@ -382,11 +350,8 @@ body.workspace-theme { color: var(--ink); background: var(--canvas); font-size: 
 @media (max-width: 1100px) {
   .workspace-theme .csv-operation-split { grid-template-columns: 1fr; }
   .workspace-theme .csv-export-panel { padding: 20px 0 0; border-left: 0; border-top: 1px solid var(--line); }
-  .workspace-theme #compare-workflows { grid-template-columns: 1fr; }
-  .workspace-theme #compare-workflows .choice-card { min-height: 54px; padding: 13px 15px; }
   .workspace-theme .excel-option-grid, .workspace-theme .excel-view-options { grid-template-columns: 1fr; }
   .workspace-theme .excel-compact-footer { align-items: flex-start; flex-wrap: wrap; }
-  .workspace-theme .comparison-source { padding: 14px; }
 }
 @media (max-width: 900px) {
   .workspace-theme .sidebar { width: 250px; }
@@ -400,14 +365,11 @@ body.workspace-theme { color: var(--ink); background: var(--canvas); font-size: 
   .workspace-theme .content { padding: 16px 12px 28px; }
   .workspace-theme .topbar { padding: 10px 12px; gap: 8px; }
   .workspace-theme .topbar h1 { font-size: 16px; }
-  .workspace-theme :is(.form-card, .tool-card, #compare-form, #db-csv-form, #db-sync-form, #page-excel-format > .excel-format-card) { padding: 18px 16px; }
+  .workspace-theme :is(.form-card, .tool-card, #db-csv-form, #db-sync-form, #page-excel-format > .excel-format-card) { padding: 18px 16px; }
   .workspace-theme .card-heading { flex-direction: row; align-items: center; }
   .workspace-theme :is(.tabs, .workbench-tabs) { width: 100%; gap: 0; }
   .workspace-theme :is(.tab, .workbench-tab) { flex: 0 0 auto; font-size: 11px; padding: 8px 11px; }
-  .workspace-theme .workflow-heading { align-items: flex-start; gap: 10px; margin-bottom: 18px; padding-bottom: 16px; }
-  .workspace-theme .workflow-heading h3 { font-size: 15px; }
   .workspace-theme .workflow-icon { flex-basis: 34px; height: 34px; border-radius: 9px; }
-  .workspace-theme .comparison-source { padding: 13px; }
   .workspace-theme .excel-compact-heading { align-items: flex-start; gap: 10px; }
   .workspace-theme .excel-compact-heading h3 { font-size: 16px; }
   .workspace-theme .excel-option { grid-template-columns: 1fr; padding: 13px; }

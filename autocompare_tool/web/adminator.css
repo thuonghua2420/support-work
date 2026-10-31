@@ -69,11 +69,6 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--blue);
 input, select, textarea { border-radius: 4px; border-color: #cdd5df; background: white; }
 input, select { min-height: 38px; padding: 8px 10px; }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
-.folder-export-options { border-radius: 0; }
-.folder-export-options label { position: relative; border-radius: 0; }
-.folder-export-options input { width: 14px; height: 14px; min-height: 14px; padding: 0; margin: 0; clip-path: none; }
-.folder-export-options label:has(input:focus-visible) { outline: 2px solid var(--blue); outline-offset: 3px; }
-.folder-export-options label:has(input:checked) { box-shadow: none; }
 .path-control { gap: 0; }
 .path-control input { border-radius: 4px 0 0 4px; }
 .browse-button { width: 40px; min-height: 38px; padding: 8px; border-radius: 0 4px 4px 0; margin-left: -1px; background: #f8fafc; display: grid; place-items: center; }
@@ -87,14 +82,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--blue); }
 .form-actions > button { margin-left: auto; }
 .inline-actions, .two-buttons, .excel-preset-actions { flex-wrap: wrap; }
 .divider { margin: 20px 0; }
-.choice-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border-block: 1px solid var(--line); }
-.choice-card { display: flex; align-items: center; gap: 10px; min-height: 64px; border: 0; border-right: 1px solid var(--line); border-radius: 0; padding: 16px; background: white; }
-.choice-card:last-child { border-right: 0; }
-.choice-card input { position: static; flex: 0 0 16px; width: 16px; height: 16px; min-height: 16px; margin: 0; }
-.choice-card b { max-width: none; font-size: 12px; font-weight: 500; }
-.choice-card small { display: none; }
-.choice-card:hover { transform: none; background: #f8fafc; }
-.choice-card:has(input:checked) { background: var(--blue-soft); box-shadow: none; }
 .tabs, .workbench-tabs { display: flex; gap: 4px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; padding: 0; margin: 0 0 20px; overflow-x: auto; }
 .tab, .workbench-tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 11px 16px; color: var(--muted); background: transparent; font-weight: 500; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .tab.active, .workbench-tab.active { border-bottom-color: var(--blue); background: transparent; color: var(--blue); box-shadow: none; }
@@ -198,9 +185,6 @@ body:has(.panel-expanded) .activity-panel { display: none; }
 }
 @media (max-width: 1200px) {
   .content { padding-inline: 20px; }
-  .choice-grid { grid-template-columns: 1fr; }
-  .choice-card { border-right: 0; border-bottom: 1px solid var(--line-soft); min-height: 48px; padding: 12px; }
-  .choice-card:last-child { border-bottom: 0; }
   .card-heading .inline-actions { width: auto; }
   .db-connection-hub { margin: 0; width: auto; }
 }
@@ -261,36 +245,12 @@ body:has(.panel-expanded) .activity-panel { display: none; }
 .compare-key-table th { background: #f4f7fa; }
 
 /* Dense controls for repeated compare and database work. */
-#page-compare .page-intro, #page-database > .page-intro { margin-bottom: 12px; }
-#page-compare .page-intro h2, #page-database > .page-intro h2 { font-size: 18px; }
-#page-compare .section-kicker, #page-database > .page-intro .section-kicker,
-#page-compare .metric-card { display: none; }
-#compare-form { padding: 18px 20px; }
-#compare-form > .card-heading:first-child, #compare-form .step-number,
-#compare-form > .field > small, #compare-form > .divider,
-#compare-form .form-actions > .hint { display: none; }
-#compare-form > .card-heading.compact { margin: 14px 0 4px; justify-content: flex-start; align-items: center; flex-direction: row; gap: 12px; }
-#compare-form > .card-heading h3 { font-size: 12px; }
-#compare-workflows { display: flex; flex-wrap: wrap; gap: 4px 18px; border: 0; }
-.compare-file-options { margin-top: 12px; gap: 8px 24px; }
-.compare-file-options .checkbox-line { display: inline-flex; align-items: flex-start; gap: 7px; min-width: 0; cursor: pointer; }
-.compare-file-options input[type="checkbox"] { flex: 0 0 16px; width: 16px; height: 16px; min-height: 16px; margin: 1px 0 0; accent-color: var(--blue); }
-.compare-file-options .compare-zoom-field { display: inline-flex; align-items: center; gap: 8px; margin: 0; }
-.compare-file-options .compare-zoom-field input { width: 76px; min-height: 34px; padding: 5px 8px; }
-#compare-workflows .choice-card { flex: 0 1 auto; min-height: 32px; padding: 4px 0; gap: 7px; border: 0; background: none; box-shadow: none; }
-#compare-workflows .choice-card:has(input:checked) { background: none; }
-#compare-workflows .choice-card:has(input:focus-visible) { outline: 2px solid var(--blue); outline-offset: 3px; }
-#compare-form .compare-key-section { margin-top: 12px; padding-top: 12px; }
-#compare-form .compare-key-toolbar { align-items: center; gap: 8px 12px; }
-#compare-form .compare-key-toolbar .field { display: flex; flex: 0 1 540px; align-items: center; gap: 10px; }
-#compare-form .compare-key-toolbar .field > span { flex-shrink: 0; }
-#compare-form .compare-key-toolbar select { flex: 1; }
-#compare-form .compare-key-toolbar button { min-height: 34px; padding: 6px 10px; }
-#compare-form .compare-key-section details { margin-top: 8px; }
-#compare-form .form-actions { margin-top: 12px; padding-top: 12px; }
+#page-database > .page-intro { margin-bottom: 12px; }
+#page-database > .page-intro h2 { font-size: 18px; }
+#page-database > .page-intro .section-kicker { display: none; }
 
-#page-database .import-mode-fieldset, #folder-compare-form .folder-export-fieldset { border: 0; padding: 0; margin: 12px 0; background: none; }
-#page-database .import-mode-fieldset legend, #folder-compare-form .folder-export-fieldset legend { float: none; margin: 0 0 4px; padding: 0; font-size: 12px; font-weight: 500; text-transform: none; }
+#page-database .import-mode-fieldset { border: 0; padding: 0; margin: 12px 0; background: none; }
+#page-database .import-mode-fieldset legend { float: none; margin: 0 0 4px; padding: 0; font-size: 12px; font-weight: 500; text-transform: none; }
 #page-database .import-mode-grid { display: flex; flex-wrap: wrap; gap: 2px 18px; }
 #page-database .import-mode-card { align-items: center; gap: 7px; min-height: 32px; padding: 4px 0; border: 0; background: none; box-shadow: none; }
 #page-database .import-mode-card:has(input:checked) { background: none; box-shadow: none; }
@@ -300,8 +260,6 @@ body:has(.panel-expanded) .activity-panel { display: none; }
 #page-database .import-mode-card.danger-mode b { color: #b42332; }
 #page-database .switch-row { justify-content: flex-start; gap: 12px; min-height: 32px; padding: 4px 0; margin: 8px 0; border: 0; background: none; }
 #page-database .switch-row .switch { margin-left: 0; flex-shrink: 0; }
-#folder-compare-form .folder-export-options { padding: 0; gap: 8px 18px; background: none; border: 0; width: fit-content; max-width: 100%; }
-#folder-compare-form .folder-export-options label { min-height: 30px; padding: 4px 0; }
 .csv-common-panel { display: grid; gap: 8px; }
 .csv-common-panel > .field { margin: 0; }
 .csv-common-panel .import-mode-fieldset { margin: 10px 0 0; }
@@ -378,9 +336,7 @@ body:has(.panel-expanded) .activity-panel { display: none; }
   #page-database .sql-page-toolbar { grid-column: 1 / -1; grid-row: 2; }
 }
 @media (max-width: 600px) {
-  #compare-form, #db-csv-form, #db-sync-form { padding: 14px 16px; }
-  #compare-form .compare-key-toolbar .field { flex-wrap: wrap; flex-basis: 100%; gap: 4px; }
-  #compare-form .compare-key-toolbar select { flex-basis: 100%; }
+  #db-csv-form, #db-sync-form { padding: 14px 16px; }
   #page-database .sql-toolbar-actions { gap: 6px; }
   #page-database .sql-toolbar-actions button { flex: 0 1 auto; }
   #page-database .db-connection-hub > #db-open-connections { width: 100%; }
@@ -419,7 +375,6 @@ body:has(.panel-expanded) .activity-panel { display: none; }
 }
 
 /* Page title is already shown in the application topbar; reclaim duplicate header space. */
-#page-folder-compare > .page-intro,
 #page-excel-compare > .page-intro,
 #page-pdf-compare > .page-intro,
 #page-file-tools > .page-intro,
@@ -438,6 +393,4 @@ body:has(.panel-expanded) .activity-panel { display: none; }
   .database-tabbar > .db-connection-hub { margin: 0 0 2px auto; }
 }
 
-#page-compare > .page-intro > :not(.compare-page-toolbar) { display: none; }
-#page-compare > .page-intro { min-height: 0; justify-content: flex-end; margin-bottom: 6px; }
-#page-compare > .page-intro > .compare-page-toolbar { position: static; width: min(900px, 100%); margin-left: auto; }
+

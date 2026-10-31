@@ -66,11 +66,11 @@ const path = require('node:path');
     }
     for (const width of [1440, 1920, 1024, 768, 390]) {
       await page.setViewportSize({ width, height: 960 });
-      for (const key of ['compare', 'folder-compare', 'excel-compare', 'pdf-compare', 'image-compare', 'file-tools', 'excel-format', 'database']) {
+      for (const key of ['compare', 'excel-compare', 'pdf-compare', 'image-compare', 'file-tools', 'excel-format', 'database']) {
         if (width <= 900) await page.locator('#menu-toggle').click();
         await page.locator(`.nav-item[data-page="${key}"]`).click();
         await capture(`${width}-${key}`);
-        if (['folder-compare', 'excel-compare', 'pdf-compare', 'excel-format'].includes(key) && [1920, 390].includes(width)) {
+        if (['excel-compare', 'pdf-compare', 'excel-format'].includes(key) && [1920, 390].includes(width)) {
           const guide = page.locator('.page.active form > .feature-guide');
           await guide.locator('summary').click();
           await capture(`${width}-${key}-guide`);

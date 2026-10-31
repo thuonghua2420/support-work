@@ -104,6 +104,7 @@ async function init() {
   prepareDatabaseWorkspaceLayout();
   prepareCompareReviewLayout();
   prepareAdminatorLayout();
+  prepareCompareDiagnostics();
   bindNavigation();
   bindMobileMenu();
   bindTabs();
@@ -133,6 +134,7 @@ async function init() {
     restoreDatabaseSessionConnections();
     renderCompareKeys();
     bindUiCache();
+    window.compareCsv?.ready();
     scheduleSqlEditorViewportFit();
     if (state.bootstrap.job) {
       state.job = state.bootstrap.job;
@@ -177,10 +179,16 @@ function prepareCompareReviewLayout() {
 
 function bindNavigation() {
   $$(".nav-item").forEach((button) => button.addEventListener("click", () => showPage(button.dataset.page, true)));
-  const initialPage = window.location.hash.slice(1);
-  if ($(`.nav-item[data-page="${initialPage}"]`)) showPage(initialPage, false);
+  // "#folder-compare" was a separate page before it became the second mode of Compare CSV.
+  const resolvePage = (hash) => {
+    if (hash !== "folder-compare") return hash;
+    window.selectCompareTab?.("folder-compare-form");
+    return "compare";
+  };
+  const initialPage = resolvePage(window.location.hash.slice(1));
+  if ($(`.nav-item[data-page="${initialPage}"]`)) showPage(initialPage, window.location.hash.slice(1) !== initialPage);
   window.addEventListener("hashchange", () => {
-    const pageKey = window.location.hash.slice(1);
+    const pageKey = resolvePage(window.location.hash.slice(1));
     if ($(`.nav-item[data-page="${pageKey}"]`)) showPage(pageKey, false);
   });
 }
@@ -911,26 +919,6 @@ function bindForms() {
       pairs: ["separate", "paired_single"].includes(exportMode) ? collectFolderComparePairs() : [],
     });
   });
-  $("#excel-compare-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    $("#excel-compare-result")?.classList.add("hidden");
-    startAction("excel_compare", {
-      old_path: valueOf("excel-compare-old"),
-      new_path: valueOf("excel-compare-new"),
-      output_path: valueOf("excel-compare-output"),
-    });
-  });
-  $("#pdf-compare-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const panel = $("#pdf-compare-result");
-    panel?.classList.add("hidden");
-    panel?.classList.remove("match", "different");
-    startAction("pdf_compare", {
-      old_path: valueOf("pdf-compare-old"),
-      new_path: valueOf("pdf-compare-new"),
-      output_path: valueOf("pdf-compare-output"),
-    });
-  });
   $$('input[name="folder-export-mode"]').forEach((control) => control.addEventListener("change", updateFolderCompareMode));
   $("#load-folder-pairs")?.addEventListener("click", loadFolderComparePairs);
   ["folder-left", "folder-right"].forEach((id) => $(`#${id}`)?.addEventListener("change", resetFolderComparePairs));
@@ -1289,11 +1277,11 @@ function updateFolderCompareMode() {
   const exportMode = $('input[name="folder-export-mode"]:checked')?.value || "single";
   $("#folder-pair-panel")?.classList.toggle("hidden", !["separate", "paired_single"].includes(exportMode));
   const combined = exportMode === "paired_single";
-  if ($("#folder-pair-output-heading")) $("#folder-pair-output-heading").textContent = combined ? "Tên sheet" : "Tên file export";
+  if ($("#folder-pair-output-heading")) $("#folder-pair-output-heading").textContent = combined ? "Tên sheet" : "Tên file xuất";
   if ($("#folder-pair-hint")) {
     $("#folder-pair-hint").textContent = combined
-      ? "Kéo thả để sắp lại pair. Tên sheet tự động lấy từ tên file CSV bên phải."
-      : "Kéo thả row để sắp lại pair trước khi export. Cột tên file xuất ra có thể sửa trực tiếp.";
+      ? "Kéo thả ô CSV để ghép lại cặp. Tên sheet lấy theo CSV bên phải."
+      : "Kéo thả ô CSV để ghép lại cặp. Tên file xuất có thể sửa trực tiếp.";
   }
   $$('[data-pair-output]').forEach((input) => { input.disabled = combined; });
 }
@@ -1303,7 +1291,7 @@ function resetFolderComparePairs() {
   renderFolderComparePairs();
 }
 
-async function loadFolderComparePairs() {
+async function loadFolderComparePairs({ silent = false } = {}) {
   try {
     const response = await api("/api/folder-compare/pairs", {
       method: "POST",
@@ -1311,9 +1299,10 @@ async function loadFolderComparePairs() {
     });
     state.folderComparePairs = Array.isArray(response.pairs) ? response.pairs : [];
     renderFolderComparePairs();
-    showToast(`Đã quét ${state.folderComparePairs.length} pair CSV.`, "success", 3500);
+    if (!silent) showToast(`Đã quét ${state.folderComparePairs.length} pair CSV.`, "success", 3500);
   } catch (error) {
-    showToast(error.message, "error");
+    if (silent) $("#folder-pair-body").innerHTML = `<tr><td colspan="3">${escapeHtml(error.message)}</td></tr>`;
+    else showToast(error.message, "error");
   }
 }
 
@@ -1329,7 +1318,7 @@ function renderFolderComparePairs() {
   const body = $("#folder-pair-body");
   if (!body) return;
   if (!state.folderComparePairs.length) {
-    body.innerHTML = `<tr><td colspan="3">Không tìm thấy file CSV trong hai folder.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="3">Không tìm thấy file CSV trong hai thư mục.</td></tr>`;
     return;
   }
   const combined = $('input[name="folder-export-mode"]:checked')?.value === "paired_single";
@@ -1446,9 +1435,6 @@ function hydrateDefaults() {
   $("#db-csv-path").value = cwd;
   $("#sql-export-folder").value = cwd;
   $("#folder-output").value = joinPath(cwd, state.bootstrap.folder_compare_file);
-  $("#excel-compare-output").value = joinPath(cwd, "Compare_Excel.xlsx");
-  $("#pdf-compare-output").value = joinPath(cwd, "Compare_PDF.pdf");
-  $("#workflow-count").textContent = String(state.bootstrap.compare_workflows.filter((item) => item.default_enabled).length);
 }
 
 function updateCompareStructureHint(structure) {
@@ -1457,7 +1443,8 @@ function updateCompareStructureHint(structure) {
   const folders = structure.folders;
   $$('[data-compare-case-pattern]').forEach(element => { element.textContent = folders.case_pattern || "UT*"; });
   $("#load-compare-workbooks").title = `Chọn một case hoặc folder cha chứa các case ${folders.case_pattern || "UT*"} để nạp workbook trong ${folders.output_dir}/${folders.compare_dir}`;
-  $("#compare-output-hint").innerHTML = `Lưu kết quả tại <code>${escapeHtml(folders.output_dir)}\\${escapeHtml(folders.compare_dir)}</code> của từng case.`;
+  $("#compare-output-hint").innerHTML = `Kết quả lưu tại <code>${escapeHtml(folders.output_dir)}\\${escapeHtml(folders.compare_dir)}</code> của từng case.`;
+  window.compareCsv?.structureChanged();
 }
 
 function renderWorkflows() {
@@ -1465,10 +1452,9 @@ function renderWorkflows() {
   $("#compare-sort-by-key").checked = state.bootstrap.compare_options?.sort_by_key === true;
   const container = $("#compare-workflows");
   container.innerHTML = state.bootstrap.compare_workflows.map((workflow) => `
-    <label class="choice-card">
+    <label class="cc-chip" title="${escapeHtml(workflow.key.replaceAll("_", " · "))}">
       <input type="checkbox" name="compare-workflow" value="${escapeHtml(workflow.key)}" ${workflow.default_enabled ? "checked" : ""}>
-      <b>${escapeHtml(workflow.label)}</b>
-      <small>${escapeHtml(workflow.key.replaceAll("_", " · "))}</small>
+      <span>${escapeHtml(workflow.label)}</span>
     </label>`).join("");
 }
 
@@ -2181,6 +2167,7 @@ function normalizeCompareView(view) {
 function renderComparePreview() {
   const card = $("#compare-preview-card");
   if (!card) return;
+  window.compareCsv?.updateResultCount();
   const cases = state.compareView.cases || [];
   if (!cases.length) {
     state.compareView.sheet = null;
@@ -3343,6 +3330,7 @@ async function startAction(action, payload) {
   }
   try {
     const response = await api("/api/actions", { method: "POST", body: { action, ...payload } });
+    renderCompareDiagnostics(action);
     state.job = response.job;
     state.jobCursor = 0;
     setJobVisual("running", state.job.label);
@@ -3350,7 +3338,41 @@ async function startAction(action, payload) {
     setBusy(true);
     schedulePoll(100);
   } catch (error) {
+    renderCompareDiagnostics(action, [error.message]);
     showToast(error.message, "error");
+  }
+}
+
+function prepareCompareDiagnostics() {
+  for (const [page, form] of [["compare", "compare-form"], ["folder-compare", "folder-compare-form"]]) {
+    const panel = document.createElement("section");
+    panel.id = `${page}-diagnostics`;
+    panel.className = "compare-diagnostics hidden";
+    panel.setAttribute("aria-label", "Chi tiết lỗi so sánh CSV");
+    panel.innerHTML = '<div class="compare-diagnostics-heading"><strong aria-live="polite"></strong><button type="button" class="secondary-button small"><i data-lucide="copy" aria-hidden="true"></i>Sao chép chi tiết</button></div><div class="compare-diagnostics-list"></div>';
+    $(`#${form}`).before(panel);
+    $("button", panel).addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(panel.dataset.diagnosticText || "");
+        showToast("Đã sao chép chi tiết compare.", "success");
+      } catch (error) { showToast(error.message, "error"); }
+    });
+  }
+  window.lucide?.createIcons();
+}
+
+function renderCompareDiagnostics(action, errors = [], warnings = []) {
+  if (!["compare", "folder_compare"].includes(action)) return;
+  const panels = [action === "compare" ? "compare" : "folder-compare"];
+  const items = [...errors.map(text => ({ kind: "error", text: String(text) })), ...warnings.map(text => ({ kind: "warning", text: String(text) }))];
+  for (const page of panels) {
+    const panel = $(`#${page}-diagnostics`);
+    if (!panel) continue;
+    panel.classList.toggle("hidden", !items.length);
+    panel.classList.toggle("warnings-only", !errors.length);
+    $("strong", panel).textContent = `Chi tiết compare · ${errors.length} lỗi · ${warnings.length} cảnh báo`;
+    panel.dataset.diagnosticText = items.map(item => item.text).join("\n\n--------------------\n\n");
+    $(".compare-diagnostics-list", panel).innerHTML = items.map((item, index) => `<details${index === 0 ? " open" : ""} class="compare-diagnostic-${item.kind}"><summary><span>${item.kind === "error" ? "Lỗi" : "Cảnh báo"} ${index + 1}</span>${escapeHtml(item.text.split("\n")[0])}</summary><pre>${escapeHtml(item.text)}</pre></details>`).join("");
   }
 }
 
@@ -3413,33 +3435,40 @@ function updateJobState(job) {
     }).catch(() => {});
   }
   if (state.handledJobs.has(job.id)) {
-    const finishedKind = job.state === "succeeded" ? "success" : (job.state === "cancelled" ? "idle" : "error");
-    const finishedText = job.state === "succeeded" ? "Hoàn tất" : (job.state === "cancelled" ? "Đã hủy" : "Thất bại");
+    const hasCompareErrors = ["compare", "folder_compare"].includes(job.action) && job.result?.error_count > 0;
+    const finishedKind = job.state === "succeeded" ? (hasCompareErrors ? "error" : "success") : (job.state === "cancelled" ? "idle" : "error");
+    const finishedText = job.state === "succeeded" ? (hasCompareErrors ? "Hoàn tất có lỗi" : "Hoàn tất") : (job.state === "cancelled" ? "Đã hủy" : "Thất bại");
     setJobVisual(finishedKind, finishedText);
     return;
   }
   state.handledJobs.add(job.id);
   if (job.state === "cancelled") {
     setJobVisual("idle", "Đã hủy");
-    $("#activity-panel").classList.remove("collapsed");
+    // Excel/PDF compare explain the outcome on their own page, so the log stays closed.
+    if (!window.fileCompare?.fail(job)) $("#activity-panel").classList.remove("collapsed");
     updateActivityToggleTitle();
     appendJobFinishLog(job, "Đã hủy", job.error || "Tác vụ đã được hủy.");
     showToast(job.error || "Tác vụ đã được hủy.", "success", 5500);
     return;
   }
   if (job.state === "failed") {
+    renderCompareDiagnostics(job.action, [job.error || "Tác vụ thất bại."]);
+    const shownInline = window.fileCompare?.fail(job);
     setJobVisual("error", "Tác vụ thất bại");
-    $("#activity-panel").classList.remove("collapsed");
+    if (!shownInline) $("#activity-panel").classList.remove("collapsed");
     updateActivityToggleTitle();
     appendJobFinishLog(job, "Thất bại", job.error || "Tác vụ thất bại.");
-    showToast(job.error || "Tác vụ thất bại.", "error", 7000);
+    showToast(["compare", "folder_compare"].includes(job.action) ? "Compare thất bại. Xem vùng Chi tiết compare để kiểm tra file và vị trí lỗi." : job.error || "Tác vụ thất bại.", "error", 7000);
     return;
   }
   setJobVisual("success", "Hoàn tất");
   consumeJobResult(job);
+  renderCompareDiagnostics(job.action, job.result?.errors || [], job.result?.warnings || []);
+  const hasCompareErrors = ["compare", "folder_compare"].includes(job.action) && job.result?.error_count > 0;
+  if (hasCompareErrors) setJobVisual("error", "Hoàn tất có lỗi");
   const message = summaryMessage(job);
-  appendJobFinishLog(job, "Hoàn tất", message);
-  showToast(message, "success", 5500);
+  appendJobFinishLog(job, hasCompareErrors ? "Hoàn tất có lỗi" : "Hoàn tất", message);
+  showToast(message, hasCompareErrors ? "error" : "success", 5500);
 }
 
 function consumeJobResult(job) {
@@ -3463,10 +3492,7 @@ function consumeJobResult(job) {
     state.compareView = normalizeCompareView(result.compare_view);
     renderComparePreview();
     preloadCompareSheets();
-    if (state.compareView.cases.length && $("#page-compare.active, #page-folder-compare.active")) {
-      showPage("compare", true, { scrollTop: false });
-      $("#tab-compare-preview-card")?.click();
-    }
+    if (state.compareView.cases.length && $("#page-compare.active")) window.selectCompareTab?.("compare-preview-card");
   }
   if (Array.isArray(result.fixme_scan_locations)) {
     state.fixmeScanLocations = result.fixme_scan_locations;
@@ -3534,22 +3560,7 @@ function consumeJobResult(job) {
     }
     activateSqlWorkspaceTab("results");
   }
-  if (job.action === "excel_compare") {
-    const panel = $("#excel-compare-result");
-    if (panel) {
-      panel.innerHTML = `<strong>Đã tạo file compare Excel</strong><span>${escapeHtml(result.output_path || "")}</span><br><span>${Number(result.sheet_pair_count || 0)} bộ sheet · ${Number(result.difference_count || 0)} ô sai khác</span>`;
-      panel.classList.remove("hidden");
-    }
-  }
-  if (job.action === "pdf_compare") {
-    const panel = $("#pdf-compare-result");
-    if (panel) {
-      const identical = result.identical === true;
-      panel.innerHTML = `<strong>${escapeHtml(result.verdict || (identical ? "CONTENT IDENTICAL" : "DIFFERENT"))}</strong><span>${escapeHtml(result.output_path || "")}</span><br><span>Trang khác: ${Number(result.different_page_count || 0)} / ${Number(result.compared_page_count || 0)} · Vùng khác biệt: ${Number(result.difference_region_count || 0)}</span><br><span>Manifest: ${escapeHtml(result.manifest_path || "")}</span>`;
-      panel.classList.add(identical ? "match" : "different");
-      panel.classList.remove("hidden");
-    }
-  }
+  if (job.action === "excel_compare" || job.action === "pdf_compare") window.fileCompare?.show(job);
   if (job.action === "db_sql_update") {
     state.sqlWorkspace.dirty = {};
     markSqlWorkspaceStale();
@@ -4546,8 +4557,8 @@ function summaryMessage(job) {
   if (job.action === "compare_keys_extract") return `Đã lưu key cho ${job.result.saved_count} table; ${job.result.existing_count} key không đổi; bỏ qua ${job.result.skipped.length} table. Chi tiết trong log.`;
   if (job.action === "compare_keys_remove") return `Đã xóa key của ${job.result.removed_count} table khỏi config.`;
   const result = job.result || {};
-  if (job.action === "compare") return `Đã xử lý ${result.processed_count || 0} case, tạo ${result.workbook_count || 0} workbook và tìm thấy ${result.fixme_count || 0} FIXME.`;
-  if (job.action === "folder_compare") return `Đã tạo ${result.workbook_count || 1} workbook / ${result.sheet_count || 0} sheet, tìm thấy ${result.fixme_count || 0} FIXME.`;
+  if (job.action === "compare") return `Đã xử lý ${result.processed_count || 0} case, tạo ${result.workbook_count || 0} workbook; ${result.error_count || 0} lỗi, ${result.warnings?.length || 0} cảnh báo; ${result.fixme_count || 0} FIXME.`;
+  if (job.action === "folder_compare") return `Đã tạo ${result.workbook_count || 1} workbook / ${result.sheet_count || 0} sheet, ${result.warnings?.length || 0} cảnh báo; ${result.fixme_count || 0} FIXME.`;
   if (job.action === "load_compare_workbooks") return `Đã nạp ${result.workbook_count || 0} workbook Compare từ ${result.case_count || 0} case UT; ${result.fixme_count || 0} sai khác có thể gán note.`;
   if (job.action === "excel_compare") return `Đã compare ${result.sheet_pair_count || 0} sheet và tìm thấy ${result.difference_count || 0} ô sai khác.`;
   if (job.action === "pdf_compare") return result.identical

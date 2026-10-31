@@ -9,7 +9,7 @@ from openpyxl import load_workbook
 from autocompare_tool.app_config import load_app_config
 from autocompare_tool.compare_structure import read_compare_structure, save_compare_structure
 from autocompare_tool.dbeaver_csv import write_dbeaver_csv
-from autocompare_tool.processor import discover_test_cases, process_root
+from autocompare_tool.processor import describe_test_cases, discover_test_cases, process_root
 from autocompare_tool.compare_workbook_loader import load_ut_compare_workbooks
 
 
@@ -122,6 +122,33 @@ class CompareStructureTests(unittest.TestCase):
         self.assertFalse(single.errors)
         references, _ = load_ut_compare_workbooks(case_root, config)
         self.assertEqual([ref.case_folder_name for ref in references], ["Case01"])
+
+    def test_describe_reports_each_case_and_which_workflows_have_their_folders(self):
+        config = load_app_config(self.path)
+        write_dbeaver_csv(self.root / "UT01" / "Output" / "before_htm" / "a.csv", ["id"], [["1"]])
+        write_dbeaver_csv(self.root / "UT01" / "Output" / "after_htm" / "a.csv", ["id"], [["1"]])
+        write_dbeaver_csv(self.root / "UT01" / "Output" / "after_htm" / "b.csv", ["id"], [["1"]])
+        write_dbeaver_csv(self.root / "UT01" / "入力データ" / "a.csv", ["id"], [["1"]])
+        (self.root / "UT02").mkdir()
+        (self.root / "Other").mkdir()
+
+        info = describe_test_cases(self.root, config)
+
+        self.assertEqual(info["total"], 2)
+        self.assertEqual([case["name"] for case in info["cases"]], ["UT01", "UT02"])
+        first, second = info["cases"]
+        self.assertTrue(first["has_input"] and first["has_output"])
+        self.assertEqual(first["input_count"], 1)
+        htm = next(item for item in first["workflows"] if item["key"] == "htm_before_after")
+        htc = next(item for item in first["workflows"] if item["key"] == "htc_before_after")
+        self.assertTrue(htm["ready"])
+        self.assertEqual((htm["left"]["csv_count"], htm["right"]["csv_count"]), (1, 2))
+        self.assertFalse(htc["ready"])
+        self.assertIsNone(htc["left"]["csv_count"])
+        self.assertFalse(second["has_output"])
+        self.assertFalse(any(item["ready"] for item in second["workflows"]))
+        with self.assertRaises(NotADirectoryError):
+            describe_test_cases(self.root / "missing", config)
 
     def test_discovery_supports_exact_unicode_names_and_question_mark(self):
         for name in ("確認 01", "Scenario [01]", "Scenario_01", "scenario_02", "Scenario_001", "UT03"):

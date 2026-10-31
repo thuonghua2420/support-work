@@ -55,6 +55,21 @@ class PdfCompareTests(unittest.TestCase):
             finally:
                 report.close()
 
+    def test_result_lists_every_page_with_text_diff_for_changed_pages(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _make_pdf(root / "old.pdf", ["Total: 100", "Footer"])
+            _make_pdf(root / "new.pdf", ["Total: 125", "Footer"])
+
+            result = compare_pdf_files(root / "old.pdf", root / "new.pdf", root / "result.pdf")
+
+            self.assertEqual([1, 2], [page["page_number"] for page in result.pages])
+            self.assertEqual("DIFFERENT", result.pages[0]["status"])
+            self.assertFalse(result.pages[0]["text_identical"])
+            self.assertTrue(any("125" in line for line in result.pages[0]["text_diff"]))
+            manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+            self.assertNotIn("pages", manifest["summary"])
+
     def test_identical_pdf_reports_binary_and_content_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -40,6 +40,37 @@ class WebApplicationTests(unittest.TestCase):
                 app.start_action("copy_ut", {"source": "unused", "target": "unused", "confirmed": True})
             start.assert_not_called()
 
+    def test_scan_compare_cases_lists_cases_under_the_chosen_root(self) -> None:
+        app = AutoCompareWebApplication()
+        folders = app.config.folders
+        with tempfile.TemporaryDirectory() as directory:
+            case = Path(directory) / f"{folders.case_pattern.rstrip('*')}01"
+            (case / folders.output_dir / folders.after_htm_dir).mkdir(parents=True)
+            result = app.scan_compare_cases({"root": directory})
+            self.assertEqual([item["name"] for item in result["cases"]], [case.name])
+            self.assertEqual(result["total"], 1)
+            self.assertTrue(result["cases"][0]["has_output"])
+            self.assertTrue(all(not flow["ready"] for flow in result["cases"][0]["workflows"][:1]))
+            with self.assertRaises(NotADirectoryError):
+                app.scan_compare_cases({"root": str(Path(directory) / "missing")})
+
+    def test_open_result_only_serves_files_produced_by_this_session(self) -> None:
+        app = AutoCompareWebApplication()
+        with tempfile.TemporaryDirectory() as directory:
+            produced = Path(directory) / "report.pdf"
+            other = Path(directory) / "secret.txt"
+            produced.write_bytes(b"%PDF")
+            other.write_text("x")
+            summary = type("Summary", (), {"output_path": produced})()
+            app._remember_results(summary, "output_path")
+
+            with self.assertRaises(PermissionError):
+                app.open_result_path({"path": str(other)})
+            with patch("autocompare_tool.web_app.os.startfile", create=True) as startfile:
+                result = app.open_result_path({"path": str(produced)})
+            startfile.assert_called_once_with(str(produced.resolve()))
+            self.assertEqual(str(produced.resolve()), result["path"])
+
     def test_bootstrap_contains_web_defaults_and_workflows(self) -> None:
         app = AutoCompareWebApplication()
 

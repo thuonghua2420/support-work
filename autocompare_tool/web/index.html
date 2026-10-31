@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="/adminator.css">
   <link rel="stylesheet" href="/image-compare.css">
   <link rel="stylesheet" href="/workspace-theme.css">
+  <link rel="stylesheet" href="/file-compare.css">
+  <link rel="stylesheet" href="/compare-csv.css">
   <link rel="stylesheet" href="/compare-structure.css">
   <link rel="stylesheet" href="/vendor/codemirror/codemirror.css">
   <link rel="stylesheet" href="/vendor/codemirror/merge.css">
@@ -26,10 +28,7 @@
       <nav class="nav-list" aria-label="Menu chính">
         <span class="nav-label">So sánh dữ liệu</span>
         <button class="nav-item active" data-page="compare" type="button">
-          <span class="nav-icon">⌁</span><span><strong>Compare Csv</strong><small>Xuất Compare &amp; review FIXME</small></span>
-        </button>
-        <button class="nav-item" data-page="folder-compare" type="button">
-          <span class="nav-icon">⇄</span><span><strong>Compare Csv With Path</strong><small>Compare CSV bất kỳ</small></span>
+          <span class="nav-icon">⌁</span><span><strong>Compare Csv</strong><small>Theo cấu trúc folder hoặc 2 thư mục</small></span>
         </button>
         <button class="nav-item" data-page="excel-compare" type="button">
           <span class="nav-icon">X</span><span><strong>Compare Excel</strong><small>So sánh value từng cell</small></span>
@@ -155,24 +154,62 @@
             <details class="feature-guide"><summary>Hướng dẫn · đọc kết quả thư mục</summary><div class="guide-topics"><section><h4>Phân loại và mở file</h4><ol><li>Giống nhau = cùng byte; khác encoding/xuống dòng vẫn là khác. Left only / Right only là mục chỉ có ở một phía.</li><li>Bấm tên file để mở cặp trong tab văn bản. File nhị phân/quá lớn vẫn được so sánh trong cây nhưng không mở editor. Thư mục có thể thu gọn riêng.</li></ol></section><section><h4>Phạm vi quét</h4><ol><li>Loại trừ được ưu tiên; .git, node_modules và file log/tmp được bỏ qua mặc định. Xóa regex để đưa chúng vào.</li><li>Không đi theo symlink/junction. Lỗi đọc và file đổi khi quét được ghi rõ; kết quả là ảnh chụp tại thời điểm quét. Tối đa 20.000 mục mỗi bên; có thể Hủy trong LOG.</li></ol></section></div></details>
           </div>
         </section>
-        <section class="page active" id="page-compare" data-title="Compare CSV" data-eyebrow="WORKSPACE / SO SÁNH">
-          <div class="page-intro">
-            <div><span class="section-kicker">Quy trình chính</span><h2>Compare CSV HTC/HTM</h2><p>Chọn thư mục chứa các case <code data-compare-case-pattern>UT*</code>, bật những luồng cần chạy rồi theo dõi kết quả ở bảng FIXME.</p></div>
-            <div class="metric-card"><span>Luồng mặc định</span><strong id="workflow-count">—</strong><small>Cấu hình trong autocompare_config.ini</small></div>
-          </div>
+        <section class="page active" id="page-compare" data-title="Compare CSV" data-eyebrow="WORKSPACE / SO SÁNH CSV">
+          <div class="page-intro"></div>
 
-          <form class="card form-card" id="compare-form">
-            <div class="card-heading"><div><span class="step-number">01</span><h3>Nguồn dữ liệu</h3></div><button class="secondary-button small" id="open-compare-structure" type="button"><i data-lucide="folder-tree" aria-hidden="true"></i>Cấu trúc thư mục</button></div>
-            <label class="field field-wide"><span>Thư mục gốc</span><span class="path-control"><input id="compare-root" name="root" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="compare-root" data-browse-kind="directory">Chọn folder</button></span><small>Một case hoặc folder cha chứa các case khớp mẫu <code data-compare-case-pattern>UT*</code>.</small></label>
-            <div class="divider"></div>
-            <div class="card-heading compact"><div><span class="step-number">02</span><h3>Luồng so sánh</h3></div><button class="text-button" id="toggle-workflows" type="button">Chọn / bỏ tất cả</button></div>
-            <div class="choice-grid" id="compare-workflows"></div>
-            <div class="inline-actions compare-file-options">
-              <label class="checkbox-line"><input type="checkbox" id="compare-copy-input"><span>Copy các file từ folder input qua before</span></label>
-              <label class="checkbox-line"><input type="checkbox" id="compare-sort-by-key"><span>Sắp xếp record theo key và lưu vào CSV</span></label>
-              <label class="field compare-zoom-field"><span>Zoom sheet (%)</span><input id="compare-sheet-zoom" type="number" min="10" max="400" step="1" value="85" required></label>
+          <form class="card cc-card" id="compare-form">
+            <div class="cc-split">
+              <div class="cc-main">
+                <p class="cc-lead"><b>Tự động theo cấu trúc folder.</b> Chỉ cần chọn thư mục gốc: mọi case <code data-compare-case-pattern>UT*</code> bên trong được tìm, so sánh cùng lúc và lưu kết quả vào từng case.</p>
+                <label class="field"><span>Thư mục gốc</span><span class="path-control"><input id="compare-root" name="root" autocomplete="off" spellcheck="false" required placeholder="Một case hoặc thư mục cha chứa nhiều case"><button class="browse-button" type="button" data-browse-target="compare-root" data-browse-kind="directory">Chọn folder</button></span></label>
+                <div class="cc-flows">
+                  <div class="cc-flows-head"><span>Luồng so sánh</span><button class="text-button" id="toggle-workflows" type="button">Chọn / bỏ tất cả</button></div>
+                  <div class="cc-chips" id="compare-workflows"></div>
+                </div>
+                <div class="cc-options">
+                  <label class="cc-check" title="Ghi đè các CSV tương ứng trong folder before bằng file từ folder input"><input type="checkbox" id="compare-copy-input"><span>Copy Input → before</span></label>
+                  <label class="cc-check" title="Thay đổi thứ tự record của CSV được xử lý và ghi lại vào file"><input type="checkbox" id="compare-sort-by-key"><span>Sắp xếp theo key (ghi vào CSV)</span></label>
+                  <label class="cc-zoom"><span>Zoom sheet</span><input id="compare-sheet-zoom" type="number" min="10" max="400" step="1" value="85" required><span>%</span></label>
+                </div>
+                <section class="cc-cases" aria-label="Case sẽ được so sánh">
+                  <header><strong>Case sẽ so sánh</strong><span id="compare-cases-summary" role="status">Chọn thư mục gốc để xem danh sách case.</span><button class="icon-button tiny" id="rescan-compare-cases" type="button" title="Quét lại thư mục gốc" aria-label="Quét lại thư mục gốc"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></header>
+                  <div class="cc-scroll"><table class="cc-table"><thead id="compare-cases-head"></thead><tbody id="compare-cases-body"></tbody></table></div>
+                </section>
+                <div class="cc-actions"><span class="cc-hint" id="compare-output-hint"></span><button class="primary-button" type="submit">Chạy so sánh</button></div>
+              </div>
+              <aside class="cc-structure" aria-label="Cấu trúc thư mục">
+                <header><div><strong>Cấu trúc thư mục</strong><span>Mỗi case cần theo cấu trúc này</span></div><button class="secondary-button small" id="open-compare-structure" type="button"><i data-lucide="pencil" aria-hidden="true"></i>Chỉnh sửa</button></header>
+                <div class="cc-tree" id="compare-structure-view"></div>
+                <p class="cc-legend"><span><span class="cc-tag req">cần có</span> bạn chuẩn bị</span><span><span class="cc-tag auto">tự tạo</span> tool ghi ra</span><span><span class="cc-tag opt">tùy chọn</span> chỉ khi bật Copy</span></p>
+              </aside>
             </div>
-            <div class="form-actions"><span class="hint" id="compare-output-hint">Lưu kết quả tại <code>Output\Compare</code> của từng case.</span><button class="primary-button" type="submit"><span>Tạo file so sánh</span><b>→</b></button></div>
+          </form>
+
+          <form class="card cc-card" id="folder-compare-form">
+            <p class="cc-lead"><b>So sánh thủ công 2 thư mục.</b> Không cần cấu trúc case: chọn hai thư mục CSV bất kỳ, các file CSV cùng tên được ghép với nhau.</p>
+            <div class="cc-sources">
+              <label class="field cc-source"><span><i class="dc-badge">CŨ</i>Thư mục bên trái (Old)</span><span class="path-control"><input id="folder-left" autocomplete="off" spellcheck="false" required placeholder="Đường dẫn thư mục gốc / before"><button class="browse-button" type="button" data-browse-target="folder-left" data-browse-kind="directory">Chọn</button></span></label>
+              <button class="dc-swap" id="folder-swap" type="button" title="Đổi chỗ hai thư mục" aria-label="Đổi chỗ hai thư mục"><i data-lucide="arrow-left-right" aria-hidden="true"></i></button>
+              <label class="field cc-source"><span><i class="dc-badge dc-badge-new">MỚI</i>Thư mục bên phải (New)</span><span class="path-control"><input id="folder-right" autocomplete="off" spellcheck="false" required placeholder="Đường dẫn thư mục đối chiếu / after"><button class="browse-button" type="button" data-browse-target="folder-right" data-browse-kind="directory">Chọn</button></span></label>
+            </div>
+            <div class="cc-export">
+              <div class="cc-seg" role="radiogroup" aria-label="Kiểu xuất kết quả">
+                <label><input type="radio" name="folder-export-mode" value="single" checked><span><b>1 file tổng hợp</b><small>Mọi CSV vào một workbook, mỗi CSV một sheet</small></span></label>
+                <label><input type="radio" name="folder-export-mode" value="separate"><span><b>Mỗi cặp một file</b><small>Chỉnh cặp CSV, mỗi cặp xuất workbook riêng</small></span></label>
+                <label><input type="radio" name="folder-export-mode" value="paired_single"><span><b>Gộp cặp vào 1 file</b><small>Chỉnh cặp CSV, mỗi cặp một sheet (tên theo CSV bên phải)</small></span></label>
+              </div>
+              <label class="field cc-out"><span id="folder-output-label">Lưu file Excel tại</span><span class="path-control"><input id="folder-output" autocomplete="off" spellcheck="false" required><button class="browse-button" id="folder-output-browse" type="button" data-browse-target="folder-output" data-browse-kind="save" data-browse-ext="xlsx">Chọn</button></span></label>
+            </div>
+            <section class="cc-cases hidden" id="folder-pair-panel" aria-label="Cặp file CSV">
+              <header><strong>Cặp file CSV</strong><span id="folder-pair-hint">Kéo thả để sắp lại cặp trước khi xuất.</span><button class="secondary-button small" type="button" id="load-folder-pairs">Quét lại</button></header>
+              <div class="cc-scroll">
+                <table class="cc-table cc-pairs">
+                  <thead><tr><th>CSV bên trái</th><th>CSV bên phải</th><th id="folder-pair-output-heading">Tên file xuất</th></tr></thead>
+                  <tbody id="folder-pair-body"><tr><td colspan="3">Chọn hai thư mục để quét file CSV.</td></tr></tbody>
+                </table>
+              </div>
+            </section>
+            <div class="cc-actions"><span class="cc-hint" id="folder-compare-hint"></span><button class="primary-button" type="submit">So sánh</button></div>
           </form>
 
           <section class="card fixme-card collapsed" id="fixme-expand-card">
@@ -272,86 +309,88 @@
           </section>
         </section>
 
-        <section class="page" id="page-folder-compare" data-title="Compare Csv With Path" data-eyebrow="WORKSPACE / FOLDER COMPARE">
-          <div class="page-intro"><div><span class="section-kicker">So sánh nhanh</span><h2>Compare 2 thư mục CSV</h2><p>Chọn xuất một file tổng hợp hoặc xuất riêng từng file CSV thành từng workbook compare.</p></div><div class="visual-chip"><b>CSV</b><span>⇄</span><b>CSV</b><i>→ XLSX</i></div></div>
-          <form class="card form-card" id="folder-compare-form">
-            <div class="two-column">
-              <label class="field"><span>Folder bên trái</span><span class="path-control"><input id="folder-left" required><button class="browse-button" type="button" data-browse-target="folder-left" data-browse-kind="directory">Chọn</button></span><small>Dữ liệu baseline / before</small></label>
-              <label class="field"><span>Folder bên phải</span><span class="path-control"><input id="folder-right" required><button class="browse-button" type="button" data-browse-target="folder-right" data-browse-kind="directory">Chọn</button></span><small>Dữ liệu actual / after</small></label>
-            </div>
-            <fieldset class="import-mode-fieldset folder-export-fieldset">
-              <legend>Kiểu export</legend>
-              <div class="folder-export-options">
-                <label><input type="radio" name="folder-export-mode" value="single" checked><span>Export 1 file</span></label>
-                <label><input type="radio" name="folder-export-mode" value="separate"><span>Export từng file</span></label>
-                <label><input type="radio" name="folder-export-mode" value="paired_single"><span>Gộp các pair vào 1 file</span></label>
-              </div>
-            </fieldset>
-            <label class="field field-wide"><span>File / folder Excel xuất ra</span><span class="path-control"><input id="folder-output" required><button class="browse-button" type="button" data-browse-target="folder-output" data-browse-kind="save" data-browse-ext="xlsx">Chọn</button></span></label>
-            <section class="folder-pair-panel hidden" id="folder-pair-panel">
-              <div class="card-heading compact">
-                <div><h3>Danh sách file CSV</h3><p id="folder-pair-hint">Kéo thả row để sắp lại pair trước khi export. Cột tên file xuất ra có thể sửa trực tiếp.</p></div>
-                <button class="secondary-button" type="button" id="load-folder-pairs">Quét file CSV</button>
-              </div>
-              <div class="table-wrap folder-pair-wrap">
-                <table class="folder-pair-table">
-                  <thead><tr><th>File folder bên trái</th><th>File folder bên phải</th><th id="folder-pair-output-heading">Tên file export</th></tr></thead>
-                  <tbody id="folder-pair-body"><tr><td colspan="3">Chưa quét file CSV.</td></tr></tbody>
-                </table>
-              </div>
-            </section>
-            <div class="form-actions"><span class="hint">Chế độ gộp pair tạo một sheet cho mỗi pair và dùng tên file CSV bên phải làm tên sheet.</span><button class="primary-button" type="submit">Tạo file so sánh <b>→</b></button></div>
-          </form>
-        </section>
-
         <section class="page" id="page-excel-compare" data-title="Compare Excel" data-eyebrow="WORKSPACE / EXCEL COMPARE">
-          <div class="page-intro">
-            <div><span class="section-kicker">Cell by cell</span><h2>Compare 2 file Excel</h2><p>Ghép sheet theo tên, sau đó theo thứ tự tab và chỉ ghi kết quả tại những ô có value sai khác.</p></div>
-            <div class="visual-chip excel-compare-flow"><b>Old</b><span>⇄</span><b>New</b><i>→ XLSX</i></div>
-          </div>
-          <form class="card form-card" id="excel-compare-form">
-            <div class="card-heading"><div><span class="step-number">01</span><h3>Chọn workbook</h3></div><span class="soft-badge">XLSX / XLSM</span></div>
-            <div class="two-column">
-              <label class="field"><span>File Excel cũ</span><span class="path-control"><input id="excel-compare-old" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="excel-compare-old" data-browse-kind="file" data-browse-ext="xlsx,xlsm,xltx,xltm">Chọn file</button></span><small>Workbook baseline / Old</small></label>
-              <label class="field"><span>File Excel mới</span><span class="path-control"><input id="excel-compare-new" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="excel-compare-new" data-browse-kind="file" data-browse-ext="xlsx,xlsm,xltx,xltm">Chọn file</button></span><small>Workbook actual / New</small></label>
+          <form class="card dc-card" id="excel-compare-form" data-doc-compare="excel" novalidate>
+            <header class="dc-head">
+              <span class="dc-icon" aria-hidden="true"><i data-lucide="file-diff"></i></span>
+              <div><h3>So sánh 2 file Excel</h3><p>Tìm mọi ô khác nhau giữa bản cũ và bản mới. Kết quả hiện ngay bên dưới và được lưu thành một file Excel.</p></div>
+            </header>
+            <ol class="dc-steps" aria-label="Các bước thực hiện">
+              <li><b>1</b>Chọn file cũ và file mới</li><li><b>2</b>Bấm So sánh</li><li><b>3</b>Xem kết quả hoặc mở file</li>
+            </ol>
+            <div class="dc-sources">
+              <label class="field dc-source dc-old"><span><i class="dc-badge">CŨ</i>File Excel cũ (Old)</span><span class="path-control"><input id="excel-compare-old" autocomplete="off" spellcheck="false" placeholder="Chọn file hoặc dán đường dẫn .xlsx"><button class="browse-button" type="button" data-browse-target="excel-compare-old" data-browse-kind="file" data-browse-ext="xlsx,xlsm,xltx,xltm">Chọn file</button></span></label>
+              <button class="dc-swap" type="button" title="Đổi chỗ file cũ và file mới" aria-label="Đổi chỗ file cũ và file mới"><i data-lucide="arrow-left-right"></i></button>
+              <label class="field dc-source dc-new"><span><i class="dc-badge">MỚI</i>File Excel mới (New)</span><span class="path-control"><input id="excel-compare-new" autocomplete="off" spellcheck="false" placeholder="Chọn file hoặc dán đường dẫn .xlsx"><button class="browse-button" type="button" data-browse-target="excel-compare-new" data-browse-kind="file" data-browse-ext="xlsx,xlsm,xltx,xltm">Chọn file</button></span></label>
             </div>
-            <label class="field field-wide"><span>File Excel kết quả</span><span class="path-control"><input id="excel-compare-output" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="excel-compare-output" data-browse-kind="save" data-browse-ext="xlsx">Chọn</button></span><small>Mỗi sheet tạo thành bộ ba: <code>_Old</code>, <code>_New</code> và <code>_compare</code>.</small></label>
-            <div class="excel-compare-result hidden" id="excel-compare-result" aria-live="polite"></div>
-            <div class="form-actions"><span class="hint">Ô giống nhau để trống; ô khác nhau ghi <code>Old:value # New:value</code>.</span><button class="primary-button" type="submit">Tạo file compare <b>→</b></button></div>
+            <details class="dc-options">
+              <summary>Tùy chọn nâng cao <small>nơi lưu kết quả · cách ghép sheet</small></summary>
+              <div class="dc-options-body">
+                <label class="field"><span>Lưu file kết quả tại</span><span class="path-control"><input id="excel-compare-output" autocomplete="off" spellcheck="false" placeholder="Tự đặt tên sau khi chọn file"><button class="browse-button" type="button" data-browse-target="excel-compare-output" data-browse-kind="save" data-browse-ext="xlsx">Chọn</button></span><small>Mặc định: cùng thư mục với file mới, tên <code>&lt;tên file mới&gt;_compare.xlsx</code>. File cùng tên sẽ bị ghi đè.</small></label>
+                <label class="dc-check"><input type="checkbox" id="excel-compare-pair-position" checked><span><strong>Sheet khác tên thì ghép theo thứ tự tab</strong><small>Hữu ích khi sheet bị đổi tên. Bỏ chọn nếu muốn sheet khác tên được coi là sheet bị xóa / sheet mới thêm.</small></span></label>
+              </div>
+            </details>
+            <p class="dc-error hidden" id="excel-compare-error" role="alert"></p>
+            <div class="dc-actions-bar">
+              <p class="dc-saveto" id="excel-compare-saveto"></p>
+              <button class="primary-button" type="submit">So sánh</button>
+            </div>
+            <div class="dc-result hidden" id="excel-compare-result" aria-live="polite"></div>
           </form>
         </section>
 
         <section class="page" id="page-pdf-compare" data-title="Compare PDF" data-eyebrow="WORKSPACE / PDF COMPARE">
-          <div class="page-intro">
-            <div><span class="section-kicker">Evidence report</span><h2>Compare 2 file PDF</h2><p>Kiểm tra đồng thời text, form, annotation và hình ảnh render của từng trang.</p></div>
-            <div class="visual-chip pdf-compare-flow"><b>Old</b><span>⇄</span><b>New</b><i>→ Report</i></div>
-          </div>
-          <form class="card form-card" id="pdf-compare-form">
-            <div class="card-heading"><div><span class="step-number">01</span><h3>Chọn PDF</h3></div><span class="soft-badge">TEXT + PIXEL</span></div>
-            <div class="two-column">
-              <label class="field"><span>File PDF cũ</span><span class="path-control"><input id="pdf-compare-old" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="pdf-compare-old" data-browse-kind="file" data-browse-ext="pdf">Chọn file</button></span><small>Tài liệu baseline / Old</small></label>
-              <label class="field"><span>File PDF mới</span><span class="path-control"><input id="pdf-compare-new" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="pdf-compare-new" data-browse-kind="file" data-browse-ext="pdf">Chọn file</button></span><small>Tài liệu actual / New</small></label>
+          <form class="card dc-card" id="pdf-compare-form" data-doc-compare="pdf" novalidate>
+            <header class="dc-head">
+              <span class="dc-icon" aria-hidden="true"><i data-lucide="files"></i></span>
+              <div><h3>So sánh 2 file PDF</h3><p>Kiểm tra chữ, form, chú thích và hình ảnh của từng trang. Kết quả hiện ngay bên dưới, kèm báo cáo PDF có ảnh Old / New / vùng khác biệt.</p></div>
+            </header>
+            <ol class="dc-steps" aria-label="Các bước thực hiện">
+              <li><b>1</b>Chọn file cũ và file mới</li><li><b>2</b>Bấm So sánh</li><li><b>3</b>Xem kết quả hoặc mở báo cáo</li>
+            </ol>
+            <div class="dc-sources">
+              <label class="field dc-source dc-old"><span><i class="dc-badge">CŨ</i>File PDF cũ (Old)</span><span class="path-control"><input id="pdf-compare-old" autocomplete="off" spellcheck="false" placeholder="Chọn file hoặc dán đường dẫn .pdf"><button class="browse-button" type="button" data-browse-target="pdf-compare-old" data-browse-kind="file" data-browse-ext="pdf">Chọn file</button></span></label>
+              <button class="dc-swap" type="button" title="Đổi chỗ file cũ và file mới" aria-label="Đổi chỗ file cũ và file mới"><i data-lucide="arrow-left-right"></i></button>
+              <label class="field dc-source dc-new"><span><i class="dc-badge">MỚI</i>File PDF mới (New)</span><span class="path-control"><input id="pdf-compare-new" autocomplete="off" spellcheck="false" placeholder="Chọn file hoặc dán đường dẫn .pdf"><button class="browse-button" type="button" data-browse-target="pdf-compare-new" data-browse-kind="file" data-browse-ext="pdf">Chọn file</button></span></label>
             </div>
-            <label class="field field-wide"><span>Báo cáo PDF kết quả</span><span class="path-control"><input id="pdf-compare-output" autocomplete="off" required><button class="browse-button" type="button" data-browse-target="pdf-compare-output" data-browse-kind="save" data-browse-ext="pdf">Chọn</button></span><small>Báo cáo gồm tổng quan hash, trạng thái từng trang và ảnh Old / New / Diff. File JSON kiểm chứng được tạo cùng vị trí.</small></label>
-            <div class="pdf-compare-result hidden" id="pdf-compare-result" aria-live="polite"></div>
-            <div class="form-actions"><span class="hint">Chỉ kết luận giống nhau khi số trang, text, form/annotation và toàn bộ pixel render đều khớp.</span><button class="primary-button" type="submit">Tạo báo cáo PDF <b>→</b></button></div>
+            <details class="dc-options">
+              <summary>Tùy chọn nâng cao <small>nơi lưu báo cáo</small></summary>
+              <div class="dc-options-body">
+                <label class="field"><span>Lưu báo cáo PDF tại</span><span class="path-control"><input id="pdf-compare-output" autocomplete="off" spellcheck="false" placeholder="Tự đặt tên sau khi chọn file"><button class="browse-button" type="button" data-browse-target="pdf-compare-output" data-browse-kind="save" data-browse-ext="pdf">Chọn</button></span><small>Mặc định: cùng thư mục với file mới, tên <code>&lt;tên file mới&gt;_compare.pdf</code>. Một file <code>.json</code> bằng chứng được tạo cùng tên. File cùng tên sẽ bị ghi đè.</small></label>
+              </div>
+            </details>
+            <p class="dc-error hidden" id="pdf-compare-error" role="alert"></p>
+            <div class="dc-actions-bar">
+              <p class="dc-saveto" id="pdf-compare-saveto"></p>
+              <button class="primary-button" type="submit">So sánh</button>
+            </div>
+            <div class="dc-result hidden" id="pdf-compare-result" aria-live="polite"></div>
           </form>
         </section>
 
         <section class="page" id="page-image-compare" data-title="Compare Image" data-eyebrow="WORKSPACE / IMAGE COMPARE">
+          <div class="card dc-card dc-intro">
+            <header class="dc-head">
+              <span class="dc-icon" aria-hidden="true"><i data-lucide="images"></i></span>
+              <div><h3>So sánh 2 ảnh</h3><p>Phát hiện từng pixel khác nhau giữa ảnh cũ và ảnh mới. Kết quả tự hiện khi đã có đủ hai ảnh.</p></div>
+            </header>
+            <ol class="dc-steps" aria-label="Các bước thực hiện">
+              <li><b>1</b>Dán (Ctrl+V), kéo thả hoặc chọn ảnh cũ</li><li><b>2</b>Làm tương tự với ảnh mới</li><li><b>3</b>Xem vùng khác biệt bên dưới</li>
+            </ol>
+          </div>
           <div class="ic-inputs">
             <section class="card ic-input" data-image-side="old" aria-label="Ảnh Old">
-              <div class="ic-bar"><strong>Old · Ảnh gốc</strong><div class="inline-actions"><button type="button" class="secondary-button" data-image-paste="old">Paste ảnh</button><button type="button" class="secondary-button" data-image-import="old">Import ảnh</button><button type="button" class="secondary-button" data-image-clear="old" aria-label="Xóa ảnh Old">Xóa</button></div></div>
+              <div class="ic-bar"><strong><i class="dc-badge">CŨ</i>Ảnh cũ (Old)</strong><div class="inline-actions"><button type="button" class="secondary-button" data-image-paste="old">Paste ảnh</button><button type="button" class="secondary-button" data-image-import="old">Import ảnh</button><button type="button" class="secondary-button" data-image-clear="old" aria-label="Xóa ảnh Old">Xóa</button></div></div>
               <input id="ic-file-old" class="hidden" type="file" accept="image/png,image/jpeg,image/webp,image/bmp,.bmp">
               <div class="ic-drop" id="ic-drop-old" tabindex="0" role="button" aria-label="Chọn vùng Old rồi nhấn Ctrl+V để dán ảnh; Enter để chọn file">
-                <span>Chọn vùng này rồi nhấn <b>Ctrl+V</b><small>hoặc kéo thả / import ảnh</small></span><img class="hidden" alt="Ảnh Old đã chọn">
+                <span>Nhấn <b>Ctrl+V</b> để dán ảnh vào đây<small>hoặc kéo thả file ảnh, hoặc bấm Import ảnh</small></span><img class="hidden" alt="Ảnh Old đã chọn">
               </div><p id="ic-info-old" class="ic-file-info">Chưa có ảnh</p>
             </section>
             <section class="card ic-input" data-image-side="new" aria-label="Ảnh New">
-              <div class="ic-bar"><strong>New · Ảnh đối chiếu</strong><div class="inline-actions"><button type="button" class="secondary-button" data-image-paste="new">Paste ảnh</button><button type="button" class="secondary-button" data-image-import="new">Import ảnh</button><button type="button" class="secondary-button" data-image-clear="new" aria-label="Xóa ảnh New">Xóa</button></div></div>
+              <div class="ic-bar"><strong><i class="dc-badge dc-badge-new">MỚI</i>Ảnh mới (New)</strong><div class="inline-actions"><button type="button" class="secondary-button" data-image-paste="new">Paste ảnh</button><button type="button" class="secondary-button" data-image-import="new">Import ảnh</button><button type="button" class="secondary-button" data-image-clear="new" aria-label="Xóa ảnh New">Xóa</button></div></div>
               <input id="ic-file-new" class="hidden" type="file" accept="image/png,image/jpeg,image/webp,image/bmp,.bmp">
               <div class="ic-drop" id="ic-drop-new" tabindex="0" role="button" aria-label="Chọn vùng New rồi nhấn Ctrl+V để dán ảnh; Enter để chọn file">
-                <span>Chọn vùng này rồi nhấn <b>Ctrl+V</b><small>hoặc kéo thả / import ảnh</small></span><img class="hidden" alt="Ảnh New đã chọn">
+                <span>Nhấn <b>Ctrl+V</b> để dán ảnh vào đây<small>hoặc kéo thả file ảnh, hoặc bấm Import ảnh</small></span><img class="hidden" alt="Ảnh New đã chọn">
               </div><p id="ic-info-new" class="ic-file-info">Chưa có ảnh</p>
             </section>
           </div>
@@ -738,6 +777,8 @@
   <script src="/workspace-guides.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/compare-structure.js" defer></script>
+  <script src="/file-compare.js" defer></script>
+  <script src="/compare-csv.js" defer></script>
   <script src="/image-compare.js" defer></script>
   <script src="/vendor/codemirror/codemirror.js" defer></script>
   <script src="/vendor/codemirror/diff-match-patch.js" defer></script>

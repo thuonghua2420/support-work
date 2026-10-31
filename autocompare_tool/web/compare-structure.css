@@ -44,7 +44,21 @@
 .cs-error { margin: 0 0 10px; border: 1px solid #e7c4c4; border-radius: 4px; background: #fff5f5; padding: 9px 12px; color: #ad3842; font-size: 12px; overflow-wrap: anywhere; }
 .workspace-theme .compare-structure-modal footer { flex: 0 0 auto; padding: 14px 22px; }
 .cs-save-hint { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.compare-diagnostics { margin-bottom: 18px; border: 1px solid #e8c9cc; border-left: 3px solid #bd424a; background: #fff; }
+.compare-diagnostics.warnings-only { border-color: #e6d6b5; border-left-color: #ad853d; }
+.compare-diagnostics-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); }
+.compare-diagnostics-heading strong { font-size: 12px; color: #a33841; }
+.warnings-only .compare-diagnostics-heading strong { color: #876023; }
+.workspace-theme .compare-diagnostics button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 32px; padding: 5px 9px; white-space: nowrap; }
+.compare-diagnostics button svg { width: 14px; height: 14px; flex: 0 0 14px; }
+.compare-diagnostics-list { max-height: 320px; overflow: auto; }
+.compare-diagnostics details + details { border-top: 1px solid var(--line-soft); }
+.compare-diagnostics summary { padding: 9px 14px; cursor: pointer; font-size: 12px; overflow-wrap: anywhere; }
+.compare-diagnostics summary span { display: inline-block; margin-right: 9px; font-weight: 600; color: #a33841; }
+.compare-diagnostic-warning summary span { color: #876023; }
+.compare-diagnostics pre { padding: 0 14px 12px; margin: 0; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.65 Consolas, monospace; }
 @media (max-width: 640px) {
+  .compare-diagnostics-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
   .workspace-theme .compare-structure-modal { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
   .compare-structure-modal .modal-shell { max-height: calc(100dvh - 16px); }
   .workspace-theme .compare-structure-modal header, .workspace-theme .compare-structure-modal footer { padding: 12px 14px; }

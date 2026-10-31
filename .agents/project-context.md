@@ -14,8 +14,7 @@ Primary users are developers or testers working with UT folders and database-bac
 
 The web UI is organized by a left-side navigation menu:
 
-- `Compare`: compare workflows and FIXME review.
-- `Compare CSV Folders`: ad-hoc compare for two user-selected CSV folders.
+- `Compare CSV`: one page with two modes plus a results tab. `Theo cấu trúc folder` runs the UT workflows over every case found under a root; `So sánh 2 thư mục` is the ad-hoc compare of two user-selected CSV folders. `Kết quả` holds the workbook preview and FIXME review for both.
 - `Compare Excel`: cell-by-cell compare for two OOXML workbooks.
 - `Compare PDF`: semantic and rendered-page comparison with an evidence report.
 - `File Utilities`: simple bulk file/folder operations.
@@ -54,6 +53,14 @@ Current compare workflows:
 - HTC before/after.
 - HTC after vs HTM after.
 
+### Compare CSV page layout
+
+- Tabs: `Theo cấu trúc folder` (form `#compare-form`), `So sánh 2 thư mục` (form `#folder-compare-form`), `Kết quả` (preview card, badge shows the workbook count). The last used mode is remembered in localStorage; `#folder-compare` still opens mode 2.
+- Mode 1 previews its input before running: `GET /api/compare-cases?root=` (`processor.describe_test_cases`) lists the cases found and whether each workflow's before/after folders exist; the right-hand tree renders `compare_structure` from the config and dims folders unused by the selected workflows. `Chỉnh sửa` opens the existing structure dialog; saving re-renders the tree and rescans.
+- Mode 2 pairs files automatically for the pair-based export styles, derives the output path from the right folder until the user edits it, and switches the output field between a file and a folder (`separate`).
+- Both modes feed the same compare view; success switches to the `Kết quả` tab. Diagnostics panels sit above each mode's form.
+- Styles live in `web/compare-csv.css` (`cc-*`), behaviour in `web/compare-csv.js`; legacy `choice-card` / `folder-export-*` / `folder-pair-*` rules were removed.
+
 ### Compare CSV Folders
 
 Input:
@@ -77,11 +84,15 @@ Behavior:
 Input:
 
 - An Old workbook and a New workbook in `.xlsx`, `.xlsm`, `.xltx`, or `.xltm` format.
-- An `.xlsx` output path distinct from both source files.
+- An `.xlsx` output path distinct from both source files. The web page suggests `<New file name>_compare.xlsx` beside the New file until the user edits the path.
+- Option `pair_by_position` (default on): pair sheets whose names differ by tab order.
 
 Behavior:
 
-- Pairs worksheets by exact name first, then pairs remaining sheets by tab order; Old workbook order is preserved and unmatched New tail sheets are appended.
+- Pairs worksheets by exact name first, then (when `pair_by_position`) pairs remaining sheets by tab order; Old workbook order is preserved and unmatched New tail sheets are appended. With the option off, unmatched sheets are reported as Old-only / New-only.
+- A formula cell differs when its formula differs, or when both files store a cached result and the results differ. A missing cached result on either side is not a difference (openpyxl-written files have none).
+- When both sides render to the same text but differ (text `"5"` vs number `5`, trailing or doubled spaces), the compare cell adds `(văn bản)` / `(số)` hints or wraps both values in quotes.
+- The job result carries per-sheet summaries (`sheets`: pairing, difference count, up to 100 sample cells) so the page can show the outcome without opening the workbook.
 - Creates three output worksheets per pair: `<name>_Old`, `<name>_New`, and `<name>_compare` (truncated and made unique within Excel's 31-character limit).
 - Copies source cell values/formulas and basic worksheet formatting into the Old/New snapshots.
 - Leaves equal compare cells blank. A differing cell contains rich text `Old:<old value> # New:<new value>`, with only `Old:` and `New:` bold.
@@ -100,7 +111,15 @@ Behavior:
 - Renders each page through PyMuPDF at 200 DPI and performs exact RGB pixel comparison.
 - Produces one landscape PDF report with a verdict, per-page summary, and Old/New/red-highlighted Diff panels for changed pages.
 - Writes a same-name JSON manifest containing the comparison algorithm, hashes, changed-pixel counts, ratios, and difference-region coordinates.
+- The job result carries `pages` (per-page status, text/visual/field flags, pixel ratio, and a short text diff) so the page can show which pages differ without opening the report.
 - Reports `BINARY IDENTICAL`, `CONTENT IDENTICAL`, or `DIFFERENT`; content identity requires page count, text, visual pixels, form fields, and annotations all to match.
+
+### Compare Excel / PDF / Image page flow
+
+- Excel and PDF share `web/file-compare.js` + `file-compare.css` (`dc-*` classes): pick Old and New, optional advanced options (output path, sheet pairing), one `So sánh` button, then an inline verdict, stats and per-sheet / per-page list. Image uses the same `dc-*` header/steps and compares automatically once both images are present.
+- Result files are opened through `POST /api/open-result`, which only serves paths produced by Excel/PDF compare jobs in the current server session (`_openable_results`).
+- Excel/PDF failures are explained inline on the page; the activity log is not force-opened for them.
+- Global `table` CSS in `app.css` (min-width, sticky uppercase headers) is meant for the big review grids; `.dc-table` overrides it.
 
 ### FIXME Review
 

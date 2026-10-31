@@ -4,7 +4,8 @@
 function prepareWorkspaceGuides() {
   const guides = [
     ["#workbench-compare-form", [
-      ["Tạo workbook so sánh CSV", "Chọn thư mục chứa case UT và chọn luồng HTM/HTC cần so sánh.", "Nhấn Tạo file so sánh. Khi hoàn tất, mở tab Workbook để xem kết quả; file được lưu trong Output/Compare của case."],
+      ["So sánh tự động theo cấu trúc folder", "Chọn thư mục gốc là một case hoặc thư mục cha chứa nhiều case. Mọi case khớp mẫu tên được so sánh cùng lúc; bảng “Case sẽ so sánh” cho biết case nào đủ folder cho các luồng đã chọn.", "Nhấn Chạy so sánh. Workbook được lưu trong thư mục Compare của từng case và hiện ở tab Kết quả khi hoàn tất."],
+      ["Xem và sửa cấu trúc folder", "Cây bên phải cho biết mỗi case cần những folder nào: “cần có” do bạn chuẩn bị, “tự tạo” do tool ghi ra, “tùy chọn” chỉ cần khi bật Copy. Mục mờ là folder không dùng bởi các luồng đang chọn.", "Nhấn Chỉnh sửa để đổi tên folder, mẫu tên case hoặc tên workbook (lưu vào autocompare_config.ini, áp dụng cho lần so sánh sau). Dữ liệu hiện có không bị đổi tên hay di chuyển."],
       ["Copy input và sắp xếp theo key", "Chỉ bật Copy input khi muốn ghi đè các CSV tương ứng trong before. Các file khác không bị dọn xóa.", "Sắp xếp theo key sẽ thay đổi thứ tự record của CSV được xử lý. Cấu hình key ở Database → Trích xuất key; để tắt nếu muốn giữ thứ tự file."],
     ]],
     ["#compare-preview-card", [
@@ -13,17 +14,19 @@ function prepareWorkspaceGuides() {
       ["Check FIXME và gán note", "Check FIXME quét toàn bộ file/sheet của kết quả compare hiện tại. Chọn vị trí trong kết quả để mở sheet tương ứng.", "Tick dòng cần ghi chú, chọn note rồi Gán note cho dòng đã tick; cũng có thể nhập/chọn note ngay tại dòng.", "Quản lý Note dùng để quản lý danh sách mẫu. Áp dụng tất cả Note ghi các note đã gán trên toàn bộ kết quả, không chỉ sheet đang xem."],
     ]],
     ["#folder-compare-form", [
-      ["Chọn nguồn và kiểu export", "Chọn folder Old (gốc) và New (đối chiếu), sau đó chọn nơi lưu kết quả.", "Export 1 file: một workbook kết quả. Export từng file: xuất riêng các cặp đã chọn. Gộp các pair vào 1 file: mỗi cặp là một sheet, tên theo CSV bên phải."],
-      ["Quét và chọn cặp file", "Ở chế độ có danh sách pair, quét lại sau khi đổi thư mục và kiểm tra cặp Old/New trước khi xuất.", "Chọn các cặp cần xử lý, nhấn Tạo file so sánh và xem đường dẫn kết quả trong LOG."],
+      ["Chọn hai thư mục và kiểu xuất", "Chọn thư mục Old (trái) và New (phải); nút mũi tên đổi chỗ hai bên. Không cần cấu trúc case: CSV cùng tên được ghép với nhau.", "1 file tổng hợp: một workbook, mỗi CSV một sheet. Mỗi cặp một file: xuất workbook riêng cho từng cặp vào một thư mục. Gộp cặp vào 1 file: mỗi cặp một sheet, tên theo CSV bên phải."],
+      ["Chỉnh cặp CSV", "Ở hai kiểu xuất theo cặp, danh sách cặp được quét tự động khi đã có cả hai thư mục; bấm Quét lại sau khi thay đổi file.", "Kéo thả ô CSV trong cùng một cột để ghép lại cặp (hữu ích khi tên file có dấu thời gian khác nhau), rồi bấm So sánh. Kết quả hiện ở tab Kết quả."],
     ]],
     ["#excel-compare-form", [
-      ["So sánh giá trị ô", "Chọn workbook Old, New và file kết quả. Hệ thống đối chiếu giá trị từng ô của các sheet tương ứng.", "Mỗi cặp sheet có hai sheet nguồn và một sheet _compare. Ô khác hiển thị Old:value # New:value; ô giống để trống. Đây là so sánh giá trị, không phải xác nhận mọi định dạng giống nhau."],
+      ["Cách so sánh", "Chọn file cũ (Old) và file mới (New) rồi bấm So sánh. Sheet cùng tên được ghép với nhau; sheet khác tên được ghép theo thứ tự tab (có thể tắt trong Tùy chọn nâng cao).", "Chỉ so sánh nội dung ô: giá trị và công thức (kèm kết quả đã lưu trong file nếu cả hai file có). Định dạng, hình ảnh và biểu đồ không được so sánh."],
+      ["Đọc kết quả", "Mỗi sheet cho biết số ô khác nhau; bấm vào sheet để xem trước các ô đầu tiên. Sheet chỉ có ở một phía được đánh dấu riêng.", "File kết quả có bộ ba sheet _Old, _New, _compare. Ô giống nhau để trống, ô khác ghi Old:… # New:…. Chèn hoặc xóa dòng làm các dòng bên dưới bị lệch và cùng được tính là khác."],
     ]],
     ["#pdf-compare-form", [
-      ["So sánh PDF và đọc bằng chứng", "Chọn PDF Old/New và đường dẫn báo cáo, sau đó tạo báo cáo.", "Xem tổng quan và từng trang Old/New/Diff. Chỉ kết luận giống theo các kiểm tra nội dung, form/annotation và pixel render; xem thêm JSON bằng chứng cạnh báo cáo. Giống hiển thị không đồng nghĩa file nhị phân giống nhau."],
+      ["Cách so sánh", "Chọn file cũ (Old) và file mới (New) rồi bấm So sánh. Hệ thống đối chiếu từng trang: chữ, form/chú thích và hình ảnh render ở 200 DPI.", "Chỉ kết luận giống nhau khi số trang, chữ, form/chú thích và từng pixel đều trùng khớp. Giống nội dung không đồng nghĩa hai file giống từng byte; kết quả cho biết cả hai."],
+      ["Đọc kết quả", "Danh sách chỉ hiện các trang khác nhau; bấm vào trang để xem khác biệt về chữ. Bật “Hiện cả trang giống nhau” nếu cần xem đủ.", "Mở báo cáo PDF để xem ảnh Old / New / vùng khác biệt của từng trang. File JSON cạnh báo cáo lưu bằng chứng (hash, số pixel khác, tọa độ vùng)."],
     ]],
     ["#page-image-compare", [
-      ["Paste / Import / đổi ảnh", "Chọn vùng Old hoặc New rồi Ctrl+V, kéo thả hoặc Import ảnh. Xóa để chọn lại; Đổi Old ↔ New để đảo hai nguồn.", "Hỗ trợ PNG/JPEG/WebP/BMP tĩnh, tối đa 12 MB và 12 triệu pixel mỗi ảnh. Nhấn Compare Image khi đã có cả hai ảnh."],
+      ["Paste / Import / đổi ảnh", "Nhấn Ctrl+V để dán ảnh: ảnh đầu vào ô Old, ảnh thứ hai vào ô New. Cũng có thể kéo thả hoặc Import ảnh vào đúng ô. Xóa để chọn lại; Đổi Old ↔ New để đảo hai ảnh.", "Hỗ trợ PNG/JPEG/WebP/BMP tĩnh, tối đa 12 MB và 12 triệu pixel mỗi ảnh. Kết quả tự hiện khi đã có đủ hai ảnh; thay ảnh sẽ so sánh lại."],
       ["Xem sai khác và lưu báo cáo", "Chọn Vùng sai khác, Song song hoặc Kéo Old/New. Dùng Zoom và mũi tên để xem từng vùng; màu đỏ chỉ pixel khác.", "Ảnh khác kích thước được căn góc trái trên, không tự co giãn; phần thiếu cũng tính là sai khác. Xem thông tin kiểm chứng rồi tải HTML, ảnh Diff hoặc JSON."],
     ]],
     ["#rename-exact-form", [["Đổi tên chính xác", "Chọn folder gốc dùng chung, nhập tên cũ và tên mới; chọn File/Folder cần áp dụng.", "Chỉ tên khớp hoàn toàn được đổi. Kiểm tra phạm vi và xác nhận trước khi chạy; xem LOG để biết các mục đã xử lý."]]],

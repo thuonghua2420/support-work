@@ -3,7 +3,6 @@
 function prepareAdminatorLayout() {
   const navigation = {
     compare: ["git-compare-arrows", "Compare CSV"],
-    "folder-compare": ["folders", "Compare theo folder"],
     "excel-compare": ["file-diff", "Compare Excel"],
     "pdf-compare": ["files", "Compare PDF"],
     "image-compare": ["images", "Compare Image"],
@@ -137,37 +136,7 @@ function prepareWorkspaceDesign() {
     item.before(heading);
   }
 
-  const forms = [
-    ["folder-compare-form", "folders", "So sánh hai thư mục", "Chọn dữ liệu gốc và dữ liệu cần đối chiếu, sau đó chọn cách lưu kết quả."],
-    ["excel-compare-form", "file-diff", "Đối chiếu workbook", "So sánh giá trị từng ô và xem các thay đổi trong workbook kết quả."],
-    ["pdf-compare-form", "files", "Đối chiếu tài liệu PDF", "Kiểm tra nội dung và hình ảnh, kèm báo cáo các điểm khác biệt."],
-  ];
-  for (const [id, icon, title, description] of forms) {
-    const form = document.getElementById(id);
-    if (!form) continue;
-    const header = document.createElement("div");
-    header.className = "workflow-heading";
-    header.innerHTML = `<span class="workflow-icon" aria-hidden="true"><i data-lucide="${icon}"></i></span><div><h3>${title}</h3><p>${description}</p></div>`;
-    form.prepend(header);
-  }
-
-  const sourceFields = [
-    ["folder-left", "Dữ liệu gốc", "OLD"], ["folder-right", "Dữ liệu đối chiếu", "NEW"],
-    ["excel-compare-old", "Workbook gốc", "OLD"], ["excel-compare-new", "Workbook đối chiếu", "NEW"],
-    ["pdf-compare-old", "Tài liệu gốc", "OLD"], ["pdf-compare-new", "Tài liệu đối chiếu", "NEW"],
-  ];
-  for (const [id, title, side] of sourceFields) {
-    const input = document.getElementById(id);
-    const field = input?.closest(".field");
-    const label = field?.querySelector(":scope > span:first-child");
-    if (!label) continue;
-    field.classList.add("comparison-source", side === "OLD" ? "source-old" : "source-new");
-    label.innerHTML = `<span class="source-badge">${side}</span>${title}`;
-  }
-
   const hints = {
-    "compare-root": "Chọn thư mục chứa các case UT…",
-    "folder-left": "Đường dẫn thư mục gốc…", "folder-right": "Đường dẫn thư mục đối chiếu…",
     "excel-format-root": "Chọn thư mục chứa workbook cần định dạng…",
   };
   for (const [id, placeholder] of Object.entries(hints)) {
@@ -240,16 +209,20 @@ function prepareCompactWorkspaces() {
   }
 }
 
+const COMPARE_MODE_KEY = "autocompare:compare-mode";
+
 function prepareCompareWorkbench() {
   const page = document.getElementById("page-compare");
   const tabs = document.createElement("div");
-  tabs.className = "workbench-tabs";
+  tabs.className = "workbench-tabs cc-modes";
   tabs.setAttribute("role", "tablist");
-  tabs.setAttribute("aria-label", "So sánh CSV");
-  page.querySelector(".page-intro").after(tabs);
+  tabs.setAttribute("aria-label", "Chế độ so sánh CSV");
+  // The mode tabs and, on the results tab, the workbook toolbar share one row.
+  page.querySelector(".page-intro").prepend(tabs);
   const sections = [
-    ["compare-form", "Cấu hình"],
-    ["compare-preview-card", "Workbook"],
+    ["compare-form", "Theo cấu trúc folder", "Tự động · nhiều case cùng lúc", "folder-tree"],
+    ["folder-compare-form", "So sánh 2 thư mục", "Chọn tay hai thư mục CSV bất kỳ", "folders"],
+    ["compare-preview-card", "Kết quả", "Workbook và review FIXME", "table-2"],
   ];
   document.getElementById("fixme-expand-card")?.classList.add("hidden");
   const activate = (target) => {
@@ -260,6 +233,9 @@ function prepareCompareWorkbench() {
       button.tabIndex = active ? 0 : -1;
       document.getElementById(button.getAttribute("aria-controls")).classList.toggle("active", active);
     });
+    if (target.id !== "tab-compare-preview-card") {
+      try { window.localStorage.setItem(COMPARE_MODE_KEY, target.id.slice(4)); } catch { /* the remembered mode is a convenience */ }
+    }
     const compareToolbar = document.getElementById("compare-page-toolbar");
     const comparePanel = document.getElementById("compare-preview-card");
     compareToolbar?.classList.toggle(
@@ -270,7 +246,7 @@ function prepareCompareWorkbench() {
       window.requestAnimationFrame(expandComparePanelFromTab);
     }
   };
-  sections.forEach(([id, label], index) => {
+  sections.forEach(([id, label, description, icon], index) => {
     const content = document.getElementById(id);
     const panel = document.createElement("div");
     panel.id = `workbench-${id}`;
@@ -281,7 +257,7 @@ function prepareCompareWorkbench() {
     tab.id = `tab-${id}`;
     tab.className = `workbench-tab${index === 0 ? " active" : ""}`;
     tab.type = "button";
-    tab.textContent = label;
+    tab.innerHTML = `<i data-lucide="${icon}" aria-hidden="true"></i><span class="cc-tab-text"><strong>${label}</strong><small>${description}</small></span>${id === "compare-preview-card" ? '<span class="cc-tab-count hidden" id="compare-result-count"></span>' : ""}`;
     tab.setAttribute("role", "tab");
     tab.setAttribute("aria-controls", panel.id);
     tab.setAttribute("aria-selected", String(index === 0));
@@ -310,6 +286,11 @@ function prepareCompareWorkbench() {
     activate(buttons[next]);
     buttons[next].focus();
   });
+  // Other code picks a tab by its section id (compare-form, folder-compare-form, compare-preview-card).
+  window.selectCompareTab = (id) => document.getElementById(`tab-${id}`)?.click();
+  let remembered = "";
+  try { remembered = window.localStorage.getItem(COMPARE_MODE_KEY) || ""; } catch { /* ignore */ }
+  if (remembered === "folder-compare-form") activate(document.getElementById(`tab-${remembered}`));
 }
 
 function expandComparePanelFromTab() {

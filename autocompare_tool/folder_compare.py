@@ -11,6 +11,7 @@ from .app_config import (
     load_app_config,
 )
 from .excel_writer import WorkbookFixmeEntry, write_compare_workbook_for_pairs, write_compare_workbook_with_fixmes
+from .compare_diagnostics import compare_context
 
 Logger = Callable[[str], None]
 
@@ -24,6 +25,7 @@ class FolderCompareSummary:
     workbook_count: int = 1
     output_paths: list[Path] = field(default_factory=list)
     fixme_entries: list[WorkbookFixmeEntry] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -68,6 +70,8 @@ def compare_csv_folders(
         f"Đã tạo {result.output_path.name} "
         f"({result.sheet_count} sheet, {len(result.fixme_entries)} mục FIXME)."
     )
+    for warning in result.warnings:
+        logger(warning)
 
     return FolderCompareSummary(
         left_dir=left,
@@ -77,6 +81,7 @@ def compare_csv_folders(
         workbook_count=1,
         output_paths=[result.output_path],
         fixme_entries=result.fixme_entries,
+        warnings=result.warnings,
     )
 
 
@@ -104,7 +109,8 @@ def compare_csv_folder_pairs(
 
     _validate_folder(left, "Folder bên trái")
     _validate_folder(right, "Folder bên phải")
-    output.mkdir(parents=True, exist_ok=True)
+    with compare_context("Chuẩn bị folder xuất Excel", **{"Folder trái": left, "Folder phải": right, "Folder xuất": output}):
+        output.mkdir(parents=True, exist_ok=True)
 
     logger(f"Folder bên trái: {left}")
     logger(f"Folder bên phải: {right}")
@@ -115,6 +121,7 @@ def compare_csv_folder_pairs(
     used_output_names: set[str] = set()
     sheet_count = 0
     workbook_count = 0
+    warnings: list[str] = []
     for index, pair in enumerate(pairs, start=1):
         left_name = str(pair.get("left_name", "")).strip()
         right_name = str(pair.get("right_name", "")).strip()
@@ -126,16 +133,23 @@ def compare_csv_folder_pairs(
             continue
         left_csv = _resolve_child_csv(left, left_name) if left_name else output / "__missing_left__.csv"
         right_csv = _resolve_child_csv(right, right_name) if right_name else output / "__missing_right__.csv"
-        result = write_compare_workbook_for_pairs(
-            [(left_csv, right_csv, (right_name or left_name))],
-            output / output_name,
-            excel_headers=excel_headers_for_workflow(app_config, WORKFLOW_AFTER_HTC_VS_HTM),
-            case_folder_name=f"{left.name} - {right.name}",
-        )
+        with compare_context("Xuất workbook riêng cho từng cặp CSV", **{
+            "Cặp file trong folder": f"{index}/{len(pairs)}", "Số workbook đã xuất trước lỗi": workbook_count,
+            "CSV trái": left_csv, "CSV phải": right_csv, "Workbook": output / output_name,
+        }):
+            result = write_compare_workbook_for_pairs(
+                [(left_csv, right_csv, (right_name or left_name))],
+                output / output_name,
+                excel_headers=excel_headers_for_workflow(app_config, WORKFLOW_AFTER_HTC_VS_HTM),
+                case_folder_name=f"{left.name} - {right.name}",
+            )
         workbook_count += 1
         output_paths.append(result.output_path)
         sheet_count += result.sheet_count
         fixme_entries.extend(result.fixme_entries)
+        warnings.extend(result.warnings)
+        for warning in result.warnings:
+            logger(warning)
         logger(f"Đã tạo {result.output_path.name} từ {left_name or '(trống)'} / {right_name or '(trống)'}.")
 
     if workbook_count == 0:
@@ -149,6 +163,7 @@ def compare_csv_folder_pairs(
         workbook_count=workbook_count,
         output_paths=output_paths,
         fixme_entries=fixme_entries,
+        warnings=warnings,
     )
 
 
@@ -194,6 +209,8 @@ def compare_csv_folder_pairs_to_workbook(
         excel_headers=excel_headers_for_workflow(app_config, WORKFLOW_AFTER_HTC_VS_HTM),
         case_folder_name=f"{left.name} - {right.name}",
     )
+    for warning in result.warnings:
+        logger(warning)
     logger(
         f"ÄÃ£ táº¡o {result.output_path.name} "
         f"({result.sheet_count} sheet, {len(result.fixme_entries)} má»¥c FIXME)."
@@ -206,6 +223,7 @@ def compare_csv_folder_pairs_to_workbook(
         workbook_count=1,
         output_paths=[result.output_path],
         fixme_entries=result.fixme_entries,
+        warnings=result.warnings,
     )
 
 

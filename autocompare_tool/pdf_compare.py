@@ -74,6 +74,7 @@ class PdfCompareResult:
     compared_page_count: int
     different_page_count: int
     difference_region_count: int
+    pages: tuple[dict[str, Any], ...] = ()
 
 
 def compare_pdf_files(
@@ -132,6 +133,10 @@ def compare_pdf_files(
                 verdict = "BINARY IDENTICAL" if binary_identical else ("CONTENT IDENTICAL" if identical else "DIFFERENT")
                 different_pages = sum(item.status != "IDENTICAL" for item in page_results)
                 region_count = sum(len(item.difference_regions) for item in page_results)
+                text_diffs = {item["result"].page_number: item["text_diff"] for item in report_pages}
+                page_summaries = tuple(
+                    _page_summary(item, text_diffs.get(item.page_number, [])) for item in page_results
+                )
 
                 result = PdfCompareResult(
                     old_path=old_file,
@@ -151,6 +156,7 @@ def compare_pdf_files(
                     compared_page_count=page_count,
                     different_page_count=different_pages,
                     difference_region_count=region_count,
+                    pages=page_summaries,
                 )
                 cancel_checker()
                 _write_report(result, page_results, report_pages, temp_root)
@@ -163,6 +169,22 @@ def compare_pdf_files(
     logger(f"Đã tạo báo cáo Compare PDF: {destination}")
     logger(f"Đã tạo manifest kiểm chứng: {manifest_path}")
     return result
+
+
+def _page_summary(page: PdfPageComparison, text_diff: list[str], limit: int = 14) -> dict[str, Any]:
+    return {
+        "page_number": page.page_number,
+        "status": page.status,
+        "old_present": page.old_present,
+        "new_present": page.new_present,
+        "text_identical": page.text_identical,
+        "visual_identical": page.visual_identical,
+        "fields_identical": page.fields_identical,
+        "difference_pixels": page.difference_pixels,
+        "difference_ratio": page.difference_ratio,
+        "region_count": len(page.difference_regions),
+        "text_diff": text_diff[:limit],
+    }
 
 
 def _validate_pdf(path_value: str | Path, label: str) -> Path:
@@ -578,7 +600,13 @@ def _write_report(
             story.extend([Spacer(1, 2 * mm), Paragraph("No extracted text change; the difference is visual/layout content.", styles["note"])])
 
     document.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
-    temp_output.replace(result.output_path)
+    try:
+        temp_output.replace(result.output_path)
+    except PermissionError as exc:
+        raise PermissionError(
+            f"Không ghi được báo cáo: {result.output_path}. "
+            "Hãy đóng file nếu đang mở trong trình xem PDF hoặc chọn tên file khác."
+        ) from exc
 
 
 def _report_image(path: Path, max_width: float, max_height: float) -> ReportImage:
@@ -653,4 +681,5 @@ def _jsonable_dataclass(value: Any) -> dict[str, Any]:
     return {
         key: str(item) if isinstance(item, Path) else item
         for key, item in asdict(value).items()
+        if key != "pages"
     }
