@@ -43,10 +43,11 @@
 .sr-result-action { flex-shrink: 0; font-size: 12px; }
 .sr-result-action[title^="Replace"] { display: none; }
 .sr-replace-mode .sr-result-action[title^="Replace"] { display: inline-block; }
-.sr-warnings, .sr-help { padding: 8px 10px; font-size: 10px; border-top: 1px solid var(--sr-border); color: var(--sr-muted); max-height: 160px; overflow: auto; flex-shrink: 0; }
-.sr-warnings summary, .sr-help summary { cursor: pointer; }
+.sr-warnings { padding: 8px 10px; font-size: 10px; border-top: 1px solid var(--sr-border); color: var(--sr-muted); max-height: 160px; overflow: auto; flex-shrink: 0; }
+.sr-help { border-top: 1px solid var(--sr-border); max-height: 45vh; overflow: auto; flex-shrink: 0; }
+.sr-help > .feature-guide { margin: 0; border: 0; border-radius: 0; }
+.sr-warnings summary { cursor: pointer; }
 .sr-warnings pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 10px; color: #a14836; }
-.sr-help p { line-height: 1.6; margin: 6px 0; }
 .sr-divider { background: #edf1f6; border-left: 1px solid var(--sr-border); cursor: col-resize; touch-action: none; }
 .sr-divider:hover { background: #9ebde0; }
 .sr-viewer { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }

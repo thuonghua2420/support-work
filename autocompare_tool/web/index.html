@@ -113,7 +113,7 @@
               <div id="sr-summary" class="sr-summary" role="status" aria-live="polite">Load folder để bắt đầu.</div>
               <div id="sr-results" class="sr-results" aria-label="Kết quả tìm kiếm"></div>
               <details id="sr-warnings" class="sr-warnings hidden"><summary>File bỏ qua / lỗi</summary><pre id="sr-warning-text"></pre></details>
-              <details class="sr-help"><summary>Hướng dẫn nhanh</summary><p>Enter để tìm; Shift+Enter cho nhiều dòng. Glob: *, **, ?, [a-z], {sql,cs}; phân cách bằng dấu phẩy. ./ neo tại folder gốc.</p><p>Regex: $1, $2, $&amp;, $&lt;name&gt;; \n, \r, \t; \u / \l / \U / \L để đổi hoa thường. Regex dùng Python re, có hỗ trợ nhóm đặt tên kiểu JavaScript.</p><p>Auto ưu tiên BOM, UTF-8 hợp lệ, sau đó CP932. Nếu biết encoding của source, chọn rõ để tránh nhận diện nhầm. BOM có ưu tiên cao nhất. Giữ nguyên byte ngoài vùng replace.</p><p>Tối đa 8 MiB/file, 20.000 match, 100.000 file/lượt. Nếu kết quả bị giới hạn, thu hẹp include trước khi replace. Không tự đọc .gitignore; dùng exclude ở trên.</p></details>
+              <div class="sr-help" id="sr-help"></div>
             </aside>
             <div class="sr-divider" role="separator" aria-label="Độ rộng vùng tìm kiếm" aria-orientation="vertical" tabindex="0"></div>
             <section class="sr-viewer" aria-label="Nội dung file">
@@ -141,7 +141,6 @@
             <div class="tc-editor-card"><div id="tc-headings" class="tc-headings"></div><div class="tc-editor-body"><div id="tc-editor"></div><div id="tc-map" aria-label="Tổng quan vị trí sai khác"></div></div></div>
             <div class="tc-legend"><span class="tc-key tc-changed">Dòng / từ khác</span><span class="tc-key tc-move-key">Di chuyển (khớp nguyên dòng duy nhất)</span><span>Khoảng trống nối dòng: một bên thiếu nội dung · nền trắng: dòng giống nhau</span></div>
             <p id="tc-message" class="tc-message" role="status"></p>
-            <details class="feature-guide"><summary>Hướng dẫn · so sánh và chỉnh sửa an toàn</summary><div class="guide-topics"><section><h4>2 hoặc 3 file</h4><ol><li>Chọn đường dẫn rồi Mở &amp; so sánh, hoặc dán trực tiếp. Khi so 3 file, B là mốc: hiển thị A ↔ B và B ↔ C, không tự merge.</li><li>Dùng Trước / Sau, Alt+↑ / Alt+↓ hoặc thanh tổng quan bên phải. Bấm dấu di chuyển để tới vị trí tương ứng.</li></ol></section><section><h4>Lưu và độ chính xác</h4><ol><li>Chỉnh sửa cập nhật sai khác tự động, hỗ trợ Ctrl+Z. Lưu file cần xác nhận và bị chặn nếu file đã đổi bên ngoài. Tải UTF-8 tạo bản sao.</li><li>Tô màu dòng dựa trên văn bản chuẩn hóa xuống dòng; encoding, BOM và LF/CRLF khác nhau được báo riêng. File nhị phân chỉ so sánh byte trong tab thư mục. Giới hạn editor: 1 MB / 10.000 dòng mỗi file.</li></ol></section></div></details>
           </div>
           <div id="tc-folder-panel" class="hidden">
             <form id="tc-folder-form" class="card tc-card">
@@ -151,7 +150,6 @@
             </form>
             <div class="tc-result-toolbar"><span id="tc-folder-summary" role="status">Chưa có kết quả.</span><div class="inline-actions"><label class="tc-inline">Hiển thị <select id="tc-folder-status"><option value="all">Tất cả</option><option value="changes">Chỉ khác biệt</option><option value="different">Khác nội dung</option><option value="left-only">Left only</option><option value="right-only">Right only</option><option value="same">Giống nhau</option><option value="error">Lỗi / bỏ qua</option></select></label><label><input type="checkbox" id="tc-tree" checked> Dạng cây</label></div></div>
             <div id="tc-folder-results" class="card tc-tree-results"><p class="empty-note">Chọn hai thư mục để xem file giống, khác và chỉ có ở một phía.</p></div>
-            <details class="feature-guide"><summary>Hướng dẫn · đọc kết quả thư mục</summary><div class="guide-topics"><section><h4>Phân loại và mở file</h4><ol><li>Giống nhau = cùng byte; khác encoding/xuống dòng vẫn là khác. Left only / Right only là mục chỉ có ở một phía.</li><li>Bấm tên file để mở cặp trong tab văn bản. File nhị phân/quá lớn vẫn được so sánh trong cây nhưng không mở editor. Thư mục có thể thu gọn riêng.</li></ol></section><section><h4>Phạm vi quét</h4><ol><li>Loại trừ được ưu tiên; .git, node_modules và file log/tmp được bỏ qua mặc định. Xóa regex để đưa chúng vào.</li><li>Không đi theo symlink/junction. Lỗi đọc và file đổi khi quét được ghi rõ; kết quả là ảnh chụp tại thời điểm quét. Tối đa 20.000 mục mỗi bên; có thể Hủy trong LOG.</li></ol></section></div></details>
           </div>
         </section>
         <section class="page active" id="page-compare" data-title="Compare CSV" data-eyebrow="WORKSPACE / SO SÁNH CSV">

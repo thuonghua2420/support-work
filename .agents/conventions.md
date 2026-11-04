@@ -139,3 +139,9 @@
 - Long-running DB actions should accept a cooperative cancel checker, check it between batches/files/tables, and roll back active write transactions before surfacing cancellation.
 - Use the server-side filesystem picker for absolute local paths; browsers cannot provide those paths through standard upload controls.
 - Keep Case, File compare, and Sheet selectors together above the workbook grid. Normal workbook preview expands to the full sheet height; maximize uses the full viewport and confines scrolling to the grid.
+
+## In-page Usage Guides
+
+- All "Hướng dẫn sử dụng" panels are defined in `autocompare_tool/web/workspace-guides.js` as `[selector, topics]`; a topic is `[title, ...lines]`. Lines are numbered steps; a line starting with `! ` renders as a highlighted caution. Do not hand-write `feature-guide` markup in `index.html`.
+- Write short imperative steps (about 3–5 per topic, 3–5 topics per feature) that name the exact button or field labels in the UI, and verify behaviour against the code before documenting it. Update the guide in the same change that alters a feature.
+- The theme smoke test expects at least 20 guides and a guide inside each of `#folder-compare-form`, `#excel-compare-form`, `#pdf-compare-form` and `#excel-format-form`; the connection dialog intentionally has none.

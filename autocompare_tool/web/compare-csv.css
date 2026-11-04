@@ -12,15 +12,16 @@
 .cc-tab-text small { font-size: 11px; font-weight: 400; line-height: 1.3; color: var(--muted); white-space: nowrap; }
 .cc-tab-count { min-width: 20px; padding: 0 6px; border-radius: 99px; color: #fff; background: var(--blue); font-size: 11px; font-weight: 600; line-height: 20px; text-align: center; }
 
-.cc-card { max-width: 1280px; min-width: 0; padding: 18px 20px; }
+.cc-card { min-width: 0; padding: clamp(16px, 2.4vh, 24px) clamp(18px, 1.8vw, 30px); }
 .cc-lead { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .cc-lead b { color: var(--ink); font-weight: 600; }
 .cc-card .field > span:first-child { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; color: var(--ink); }
 .cc-card code { overflow-wrap: anywhere; }
 
 /* Mode 1: form on the left, folder structure on the right. */
-.cc-split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); gap: 22px; align-items: start; }
-.cc-main { display: grid; gap: 12px; min-width: 0; }
+/* The structure sits at the far right of the card, well clear of the form controls. */
+.cc-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: clamp(28px, 4vw, 64px); align-items: start; }
+.cc-main { display: grid; gap: clamp(12px, 2vh, 20px); min-width: 0; max-width: 820px; }
 .cc-flows { display: grid; gap: 6px; }
 .cc-flows-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; font-weight: 600; }
 .cc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -61,7 +62,7 @@
 .cc-actions .primary-button { flex: 0 0 auto; min-width: 150px; }
 
 /* Folder structure view. */
-.cc-structure { min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fafafa; }
+.cc-structure { min-width: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: #fafafa; }
 .cc-structure > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .cc-structure > header > div { display: grid; gap: 1px; }
 .cc-structure > header strong { font-size: 13px; font-weight: 600; }
@@ -82,7 +83,7 @@
 .cc-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 11px; }
 
 /* Mode 2: two folders, an export style and one output path. */
-#folder-compare-form { display: grid; gap: 14px; }
+#folder-compare-form { display: grid; gap: clamp(12px, 2vh, 20px); }
 .cc-sources { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 12px; }
 .cc-sources .dc-swap { margin-bottom: 1px; }
 .cc-export { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: end; gap: 16px; }
