@@ -2,6 +2,24 @@
 
 Use this file for lightweight architecture decisions. Add newest entries at the top.
 
+## 2026-11-04 - File Compare Rebuilt In The Style Of WinMerge
+
+Decision:
+
+- Split File Compare into a path-selection page, a full-height diff/merge workspace and a full-height folder grid, instead of one card holding inputs, options and the editor.
+- Turn on the merge addon's copy buttons in both directions and add toolbar merge commands (current, current + next, all), undo/redo, find / go-to-line, keyboard shortcuts, a two-column location pane and per-pane save.
+- Implement "ignore whitespace / case / blank lines" as chunk-level neutralisation rather than changing the diff algorithm.
+- Keep folder comparison read-only; only open pairs from it.
+
+Reason:
+
+- The old layout spent most of the screen on inputs and had no way to merge differences, which is the main reason to compare text files.
+
+Consequence:
+
+- Ids from the previous layout (`tc-text-panel`, `tc-folder-panel`, `data-tc-tab`, `tc-folder-status`) no longer exist; `web_text_compare_smoke.cjs` was rewritten for the new ids.
+- Ignored chunks stay in the aligned layout but are excluded from counts, navigation and merge.
+
 ## 2026-10-31 - Merge Compare CSV And Compare By Folder
 
 Decision:

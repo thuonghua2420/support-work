@@ -53,6 +53,13 @@ Current compare workflows:
 - HTC before/after.
 - HTC after vs HTM after.
 
+### File Compare layout
+
+- `web/text-compare.js` / `.css` implement three views inside `#page-text-compare` (`data-view`): `select` (paths, recents), `files` (WinMerge-style diff/merge) and `folder` (results grid). Only `select` scrolls normally; the other two fill the viewport (`tc-fixed`).
+- Merge uses CodeMirror's merge addon with `revertButtons` and `allowEditingOriginals`; copy buttons are re-labelled by `decorateCopyButtons`. Toolbar copy/copy-all use `replaceLines`, which mirrors the addon's end-of-document rule. Ignore options (whitespace, case, blank lines) never change the diff itself: chunks whose normalised text is equal are marked `ignored` and styled/hidden, but kept for alignment.
+- Saving still goes through `/api/text-compare/save` per file (confirmed, snapshot-checked); folder scan rows now carry `left_size/right_size/left_mtime/right_mtime`.
+- The page CSP forbids `style` attributes in markup; set styles through the DOM.
+
 ### Compare CSV page layout
 
 - Tabs: `Theo cấu trúc folder` (form `#compare-form`), `So sánh 2 thư mục` (form `#folder-compare-form`), `Kết quả` (preview card, badge shows the workbook count). The last used mode is remembered in localStorage; `#folder-compare` still opens mode 2.

@@ -227,9 +227,19 @@ def compare_text_folders(left, right, include="", exclude=DEFAULT_EXCLUDE, activ
                 after = [p.stat() for p in paths]
                 if any((x.st_size, x.st_mtime_ns, x.st_ino) != (y.st_size, y.st_mtime_ns, y.st_ino) for x, y in zip(before, after)):
                     raise OSError("File thay đổi trong lúc quét; cần quét lại.")
-                row.update(status="same" if equal else "different", left_size=before[0].st_size, right_size=before[1].st_size)
+                row.update(status="same" if equal else "different", left_size=before[0].st_size, right_size=before[1].st_size,
+                           left_mtime=before[0].st_mtime, right_mtime=before[1].st_mtime)
             except OSError as exc:
                 row.update(status="error", detail=str(exc))
+        if row["kind"] == "file":
+            # Size and modified time for every file that exists, so the UI can show them like a folder-diff grid.
+            for side, key in enumerate(("left", "right")):
+                if (a, b)[side] and not {f"{key}_size", f"{key}_mtime"} <= row.keys():
+                    try:
+                        info = (roots[side] / relative).stat()
+                        row[f"{key}_size"], row[f"{key}_mtime"] = info.st_size, info.st_mtime
+                    except OSError:
+                        pass
         rows.append(row)
     counts = dict(Counter(row["status"] for row in rows if row["status"] != "folder"))
     if log:

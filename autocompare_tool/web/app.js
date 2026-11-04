@@ -4553,7 +4553,7 @@ async function updateSqlSource(relationId) {
 }
 
 function summaryMessage(job) {
-  if (job.action === "text_folder_compare") return `Đã đối chiếu ${job.result?.rows?.length || 0} mục. ${job.result?.counts?.different || 0} file khác nội dung; ${job.result?.counts?.error || 0} lỗi đọc. Xem kết quả tại File Compare → So sánh thư mục.`;
+  if (job.action === "text_folder_compare") return `Đã đối chiếu ${job.result?.rows?.length || 0} mục. ${job.result?.counts?.different || 0} file khác nội dung; ${job.result?.counts?.error || 0} lỗi đọc. Xem bảng kết quả trong File Compare.`;
   if (job.action === "compare_keys_extract") return `Đã lưu key cho ${job.result.saved_count} table; ${job.result.existing_count} key không đổi; bỏ qua ${job.result.skipped.length} table. Chi tiết trong log.`;
   if (job.action === "compare_keys_remove") return `Đã xóa key của ${job.result.removed_count} table khỏi config.`;
   const result = job.result || {};

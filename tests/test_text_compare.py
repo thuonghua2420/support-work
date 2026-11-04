@@ -110,6 +110,19 @@ class TextCompareTests(unittest.TestCase):
         statuses = {row["path"]: row["status"] for row in results["rows"]}
         self.assertEqual(statuses, {"same.bin": "same", "empty": "folder", "eol.txt": "different", "same-size.txt": "different", "a.txt": "left-only", "b.txt": "right-only", "conflict": "type-conflict"})
 
+    def test_rows_carry_size_and_modified_time_for_each_existing_side(self):
+        for name in ("left", "right"):
+            (self.root / name).mkdir()
+        (self.root / "left" / "both.txt").write_bytes(b"one")
+        (self.root / "right" / "both.txt").write_bytes(b"three")
+        (self.root / "left" / "only.txt").write_bytes(b"xy")
+        rows = {row["path"]: row for row in compare_text_folders(self.root / "left", self.root / "right")["rows"]}
+        self.assertEqual((rows["both.txt"]["left_size"], rows["both.txt"]["right_size"]), (3, 5))
+        self.assertGreater(rows["both.txt"]["left_mtime"], 0)
+        self.assertEqual(rows["only.txt"]["left_size"], 2)
+        self.assertNotIn("right_size", rows["only.txt"])
+        self.assertGreater(rows["only.txt"]["left_mtime"], 0)
+
     def test_regex_filters_exclude_subtrees_and_include_files(self):
         left, right = self.fixtures()
         for folder in [left, right]:

@@ -125,31 +125,179 @@
             </section>
           </div>
         </section>
-        <section class="page" id="page-text-compare" data-title="File Compare" data-eyebrow="WORKSPACE / FILE COMPARE">
-          <div class="tabs"><button class="tab active" type="button" data-tc-tab="text">So sánh văn bản</button><button class="tab" type="button" data-tc-tab="folder">So sánh thư mục</button></div>
-          <div id="tc-text-panel">
-            <div class="card tc-card">
-              <div class="tc-toolbar"><div><h3>Đối chiếu từng thay đổi</h3><p>Chọn file hoặc dán văn bản vào các khung bên dưới. Chỉnh sửa chưa lưu không thay đổi file gốc.</p></div><div class="inline-actions"><label class="tc-inline">Số file <select id="tc-count"><option value="2">2 file</option><option value="3">3 file</option></select></label><button class="primary-button" type="button" id="tc-open">Mở &amp; so sánh</button></div></div>
-              <div class="tc-sources" id="tc-sources">
-                <label class="field"><span>File A · trái</span><span class="path-control"><input id="tc-path-0" placeholder="Đường dẫn file A hoặc dán nội dung bên dưới"><button class="browse-button" type="button" data-browse-target="tc-path-0" data-browse-kind="file">Chọn file A</button></span></label>
-                <label class="field"><span>File B · phải / mốc giữa khi so 3 file</span><span class="path-control"><input id="tc-path-1" placeholder="Đường dẫn file B"><button class="browse-button" type="button" data-browse-target="tc-path-1" data-browse-kind="file">Chọn file B</button></span></label>
-                <label class="field hidden" id="tc-third"><span>File C · phải</span><span class="path-control"><input id="tc-path-2" placeholder="Đường dẫn file C"><button class="browse-button" type="button" data-browse-target="tc-path-2" data-browse-kind="file">Chọn file C</button></span></label>
+        <section class="page" id="page-text-compare" data-title="File Compare" data-eyebrow="WORKSPACE / FILE COMPARE" data-view="select">
+          <!-- View 1: choose what to compare (kept apart from the diff so the diff can use the whole page) -->
+          <div id="tc-select-view" class="tc-select">
+            <div class="tc-select-card card">
+              <div class="tc-select-head">
+                <div class="tc-modes" role="tablist" aria-label="Loại so sánh">
+                  <button type="button" class="tc-mode active" role="tab" aria-selected="true" data-tc-mode="files"><i data-lucide="file-diff" aria-hidden="true"></i><span><strong>So sánh file</strong><small>2 hoặc 3 file văn bản, có merge</small></span></button>
+                  <button type="button" class="tc-mode" role="tab" aria-selected="false" data-tc-mode="folders"><i data-lucide="folders" aria-hidden="true"></i><span><strong>So sánh thư mục</strong><small>Quét cây thư mục theo từng byte</small></span></button>
+                </div>
               </div>
-              <div class="tc-options"><label><input type="checkbox" id="tc-wrap" checked> Ngắt dòng</label><label><input type="checkbox" id="tc-editable" checked> Cho phép chỉnh sửa</label><label><input type="checkbox" id="tc-moved" checked> Nhận diện dòng di chuyển</label><label class="tc-inline">Cú pháp <select id="tc-language"><option value="auto">Tự nhận diện theo tên file</option><option value="text/plain">Văn bản</option><option value="javascript">JavaScript / TypeScript</option><option value="application/json">JSON</option><option value="text/x-python">Python</option><option value="text/x-sql">SQL</option><option value="text/x-csharp">C#</option><option value="text/x-java">Java</option><option value="text/x-c++src">C / C++</option><option value="text/html">HTML</option><option value="application/xml">XML</option><option value="text/css">CSS</option><option value="text/x-markdown">Markdown</option><option value="text/x-sh">Shell</option><option value="text/x-yaml">YAML</option></select></label></div>
+
+              <form id="tc-file-select" class="tc-select-panel" autocomplete="off">
+                <div class="tc-path-rows">
+                  <label class="tc-path-row"><span class="tc-path-label"><b>A</b> Trái</span><span class="path-control"><input id="tc-path-0" spellcheck="false" placeholder="Đường dẫn file A (để trống nếu dán nội dung)"><button class="browse-button" type="button" data-browse-target="tc-path-0" data-browse-kind="file">Chọn file A</button></span></label>
+                  <div class="tc-swap-row"><button class="dc-swap" type="button" id="tc-swap-paths" title="Đổi chỗ file A và B" aria-label="Đổi chỗ file A và B"><i data-lucide="arrow-up-down" aria-hidden="true"></i></button></div>
+                  <label class="tc-path-row"><span class="tc-path-label"><b>B</b> <span id="tc-label-b">Phải</span></span><span class="path-control"><input id="tc-path-1" spellcheck="false" placeholder="Đường dẫn file B"><button class="browse-button" type="button" data-browse-target="tc-path-1" data-browse-kind="file">Chọn file B</button></span></label>
+                  <label class="tc-path-row hidden" id="tc-third"><span class="tc-path-label"><b>C</b> Phải</span><span class="path-control"><input id="tc-path-2" spellcheck="false" placeholder="Đường dẫn file C"><button class="browse-button" type="button" data-browse-target="tc-path-2" data-browse-kind="file">Chọn file C</button></span></label>
+                </div>
+                <div class="tc-select-actions">
+                  <label class="tc-inline">Số file <select id="tc-count"><option value="2">2 file</option><option value="3">3 file (B là mốc giữa)</option></select></label>
+                  <span class="tc-select-spacer"></span>
+                  <button class="secondary-button" type="button" id="tc-blank" title="Mở hai khung trống để dán văn bản cần so sánh">Dán văn bản…</button>
+                  <button class="primary-button" type="submit" id="tc-open">So sánh</button>
+                </div>
+                <div id="tc-file-guide"></div>
+              </form>
+
+              <form id="tc-folder-form" class="tc-select-panel hidden" autocomplete="off">
+                <div class="tc-path-rows">
+                  <label class="tc-path-row"><span class="tc-path-label"><b>L</b> Trái</span><span class="path-control"><input id="tc-folder-left" required spellcheck="false" placeholder="Thư mục trái"><button class="browse-button" type="button" data-browse-target="tc-folder-left" data-browse-kind="directory">Chọn folder trái</button></span></label>
+                  <label class="tc-path-row"><span class="tc-path-label"><b>R</b> Phải</span><span class="path-control"><input id="tc-folder-right" required spellcheck="false" placeholder="Thư mục phải"><button class="browse-button" type="button" data-browse-target="tc-folder-right" data-browse-kind="directory">Chọn folder phải</button></span></label>
+                </div>
+                <details class="tc-filters"><summary>Bộ lọc file <small>regex Python · tùy chọn</small></summary><div class="tc-filter-grid"><label class="field"><span>Bao gồm <em>— trống là tất cả</em></span><input id="tc-include" placeholder="Ví dụ: \.(py|js|cs|txt)$" maxlength="1000"></label><label class="field"><span>Loại trừ <em>— bỏ qua cả thư mục khớp</em></span><input id="tc-exclude" value="(^|/)(\.git|node_modules|__pycache__)(/|$)|\.(log|tmp)$" maxlength="1000"></label></div><small>Đường dẫn tương đối dùng dấu /, phân biệt hoa/thường; thêm (?i) để bỏ phân biệt.</small></details>
+                <div class="tc-select-actions"><span class="tc-select-hint">Chỉ đọc: không sao chép, xóa hay đồng bộ file.</span><span class="tc-select-spacer"></span><button class="primary-button" type="submit" id="tc-folder-run">Quét &amp; so sánh</button></div>
+                <div id="tc-folder-guide"></div>
+              </form>
+              <p id="tc-select-message" class="tc-select-message" role="status"></p>
             </div>
-            <div class="tc-result-toolbar"><span id="tc-summary" role="status">Chọn file hoặc dán văn bản để bắt đầu.</span><div class="inline-actions"><button class="secondary-button" type="button" id="tc-prev" title="Sai khác trước (Alt+↑)">↑ Trước</button><span id="tc-position">0 / 0</span><button class="secondary-button" type="button" id="tc-next" title="Sai khác tiếp (Alt+↓)">Sau ↓</button><button class="secondary-button" type="button" id="tc-expand" aria-pressed="false">Phóng to</button></div></div>
-            <div class="tc-editor-card"><div id="tc-headings" class="tc-headings"></div><div class="tc-editor-body"><div id="tc-editor"></div><div id="tc-map" aria-label="Tổng quan vị trí sai khác"></div></div></div>
-            <div class="tc-legend"><span class="tc-key tc-changed">Dòng / từ khác</span><span class="tc-key tc-move-key">Di chuyển (khớp nguyên dòng duy nhất)</span><span>Khoảng trống nối dòng: một bên thiếu nội dung · nền trắng: dòng giống nhau</span></div>
-            <p id="tc-message" class="tc-message" role="status"></p>
+
+            <div class="tc-recent card hidden" id="tc-recent">
+              <div class="tc-recent-head"><strong>Gần đây</strong><button type="button" class="text-button" id="tc-recent-clear">Xóa lịch sử</button></div>
+              <ul id="tc-recent-list"></ul>
+            </div>
           </div>
-          <div id="tc-folder-panel" class="hidden">
-            <form id="tc-folder-form" class="card tc-card">
-              <div class="tc-toolbar"><div><h3>So sánh cấu trúc thư mục</h3><p>So sánh chính xác nội dung byte; không sao chép, xóa hoặc đồng bộ file.</p></div><button class="primary-button" type="submit" id="tc-folder-run">Quét &amp; so sánh</button></div>
-              <div class="two-column"><label class="field"><span>Thư mục trái</span><span class="path-control"><input id="tc-folder-left" required><button class="browse-button" type="button" data-browse-target="tc-folder-left" data-browse-kind="directory">Chọn folder trái</button></span></label><label class="field"><span>Thư mục phải</span><span class="path-control"><input id="tc-folder-right" required><button class="browse-button" type="button" data-browse-target="tc-folder-right" data-browse-kind="directory">Chọn folder phải</button></span></label></div>
-              <details class="tc-filters"><summary>Bộ lọc file · Regular Expressions</summary><div class="two-column"><label class="field"><span>Bao gồm <em>— trống là tất cả</em></span><input id="tc-include" placeholder="Ví dụ: \.(py|js|cs|txt)$" maxlength="1000"></label><label class="field"><span>Loại trừ <em>— bỏ qua cả thư mục khớp</em></span><input id="tc-exclude" value="(^|/)(\.git|node_modules|__pycache__)(/|$)|\.(log|tmp)$" maxlength="1000"></label></div><small>Regex Python, phân biệt hoa/thường; đường dẫn tương đối dùng dấu /. Thêm (?i) để không phân biệt hoa/thường.</small></details>
-            </form>
-            <div class="tc-result-toolbar"><span id="tc-folder-summary" role="status">Chưa có kết quả.</span><div class="inline-actions"><label class="tc-inline">Hiển thị <select id="tc-folder-status"><option value="all">Tất cả</option><option value="changes">Chỉ khác biệt</option><option value="different">Khác nội dung</option><option value="left-only">Left only</option><option value="right-only">Right only</option><option value="same">Giống nhau</option><option value="error">Lỗi / bỏ qua</option></select></label><label><input type="checkbox" id="tc-tree" checked> Dạng cây</label></div></div>
-            <div id="tc-folder-results" class="card tc-tree-results"><p class="empty-note">Chọn hai thư mục để xem file giống, khác và chỉ có ở một phía.</p></div>
+
+          <!-- View 2: the diff itself, using the whole page -->
+          <div id="tc-files-view" class="tc-workspace hidden">
+            <div class="tc-toolbar" id="tc-toolbar" role="toolbar" aria-label="Công cụ so sánh">
+              <div class="tc-group">
+                <button type="button" class="tc-tool tc-tool-text" id="tc-back" title="Chọn file khác (Ctrl+O)"><i data-lucide="folder-open" aria-hidden="true"></i><span id="tc-back-label">Chọn lại</span></button>
+                <button type="button" class="tc-tool" id="tc-refresh" title="Tải lại file từ ổ đĩa (F5)" aria-label="Tải lại"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool" id="tc-swap" title="Đổi chỗ trái / phải" aria-label="Đổi chỗ trái phải"><i data-lucide="arrow-left-right" aria-hidden="true"></i></button>
+              </div>
+              <div class="tc-group">
+                <button type="button" class="tc-tool" id="tc-save-all" title="Lưu tất cả file đã sửa (Ctrl+S)" aria-label="Lưu tất cả"><i data-lucide="save-all" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool" id="tc-undo" title="Hoàn tác (Ctrl+Z)" aria-label="Hoàn tác"><i data-lucide="undo-2" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool" id="tc-redo" title="Làm lại (Ctrl+Y)" aria-label="Làm lại"><i data-lucide="redo-2" aria-hidden="true"></i></button>
+              </div>
+              <div class="tc-group">
+                <button type="button" class="tc-tool" id="tc-first" title="Sai khác đầu tiên (Alt+Home)" aria-label="Sai khác đầu tiên"><i data-lucide="chevrons-up" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool" id="tc-prev" title="Sai khác trước (Alt+↑)" aria-label="Sai khác trước"><i data-lucide="arrow-up" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool" id="tc-next" title="Sai khác tiếp (Alt+↓)" aria-label="Sai khác tiếp"><i data-lucide="arrow-down" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool" id="tc-last" title="Sai khác cuối cùng (Alt+End)" aria-label="Sai khác cuối cùng"><i data-lucide="chevrons-down" aria-hidden="true"></i></button>
+                <span id="tc-position" class="tc-position" role="status">0 / 0</span>
+              </div>
+              <div class="tc-group tc-merge-group">
+                <button type="button" class="tc-tool tc-merge" id="tc-copy-right" title="Chép vùng sai khác hiện tại sang phải (Alt+→)" aria-label="Chép sang phải"><i data-lucide="arrow-right" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool tc-merge" id="tc-copy-left" title="Chép vùng sai khác hiện tại sang trái (Alt+←)" aria-label="Chép sang trái"><i data-lucide="arrow-left" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool tc-merge" id="tc-copy-right-next" title="Chép sang phải rồi tới vùng kế tiếp (Ctrl+Alt+→)" aria-label="Chép sang phải và tiếp"><i data-lucide="arrow-right-to-line" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool tc-merge" id="tc-copy-left-next" title="Chép sang trái rồi tới vùng kế tiếp (Ctrl+Alt+←)" aria-label="Chép sang trái và tiếp"><i data-lucide="arrow-left-to-line" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool tc-merge" id="tc-copy-all-right" title="Chép mọi vùng sai khác sang phải" aria-label="Chép tất cả sang phải"><i data-lucide="chevrons-right" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool tc-merge" id="tc-copy-all-left" title="Chép mọi vùng sai khác sang trái" aria-label="Chép tất cả sang trái"><i data-lucide="chevrons-left" aria-hidden="true"></i></button>
+              </div>
+              <div class="tc-group" id="tc-file-nav">
+                <button type="button" class="tc-tool" id="tc-file-prev" title="Cặp file khác biệt trước trong danh sách thư mục" aria-label="Cặp file trước"><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool" id="tc-file-next" title="Cặp file khác biệt tiếp trong danh sách thư mục" aria-label="Cặp file tiếp"><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+              </div>
+              <span class="tc-toolbar-spacer"></span>
+              <div class="tc-group">
+                <button type="button" class="tc-tool" id="tc-find-btn" title="Tìm / đi tới dòng (Ctrl+F)" aria-label="Tìm"><i data-lucide="search" aria-hidden="true"></i></button>
+                <span class="tc-menu-wrap">
+                  <button type="button" class="tc-tool tc-tool-text" id="tc-options-btn" aria-haspopup="true" aria-expanded="false" title="Tùy chọn so sánh và hiển thị"><i data-lucide="sliders-horizontal" aria-hidden="true"></i><span>Tùy chọn</span></button>
+                  <div class="tc-menu hidden" id="tc-options-menu" role="menu">
+                    <p class="tc-menu-title">Bỏ qua khi so sánh</p>
+                    <label><input type="checkbox" id="tc-opt-ws"> Khoảng trắng</label>
+                    <label><input type="checkbox" id="tc-opt-case"> Hoa / thường</label>
+                    <label><input type="checkbox" id="tc-opt-blank"> Dòng trống</label>
+                    <p class="tc-menu-title">Hiển thị</p>
+                    <label><input type="checkbox" id="tc-only-diff"> Chỉ hiện vùng sai khác</label>
+                    <label><input type="checkbox" id="tc-moved" checked> Đánh dấu dòng di chuyển</label>
+                    <label><input type="checkbox" id="tc-lines" checked> Số dòng</label>
+                    <label><input type="checkbox" id="tc-wrap" checked> Ngắt dòng</label>
+                    <label><input type="checkbox" id="tc-editable" checked> Cho phép chỉnh sửa và merge</label>
+                    <label class="tc-menu-select">Cú pháp <select id="tc-language"><option value="auto">Tự nhận theo tên file</option><option value="text/plain">Văn bản</option><option value="javascript">JavaScript / TypeScript</option><option value="application/json">JSON</option><option value="text/x-python">Python</option><option value="text/x-sql">SQL</option><option value="text/x-csharp">C#</option><option value="text/x-java">Java</option><option value="text/x-c++src">C / C++</option><option value="text/html">HTML</option><option value="application/xml">XML</option><option value="text/css">CSS</option><option value="text/x-markdown">Markdown</option><option value="text/x-sh">Shell</option><option value="text/x-yaml">YAML</option></select></label>
+                  </div>
+                </span>
+                <span class="tc-menu-wrap">
+                  <button type="button" class="tc-tool" id="tc-help-btn" aria-haspopup="true" aria-expanded="false" title="Phím tắt" aria-label="Phím tắt"><i data-lucide="keyboard" aria-hidden="true"></i></button>
+                  <div class="tc-menu tc-help hidden" id="tc-help-pop" role="dialog" aria-label="Phím tắt">
+                    <p class="tc-menu-title">Phím tắt</p>
+                    <dl>
+                      <dt>Alt+↓ / Alt+↑</dt><dd>Sai khác tiếp / trước</dd>
+                      <dt>Alt+Home / End</dt><dd>Sai khác đầu / cuối</dd>
+                      <dt>Alt+→ / Alt+←</dt><dd>Chép vùng hiện tại sang phải / trái</dd>
+                      <dt>Ctrl+Alt+→ / ←</dt><dd>Chép rồi tới vùng kế tiếp</dd>
+                      <dt>Ctrl+Z / Ctrl+Y</dt><dd>Hoàn tác / làm lại</dd>
+                      <dt>Ctrl+S</dt><dd>Lưu mọi file đã sửa</dd>
+                      <dt>Ctrl+F / Ctrl+G</dt><dd>Tìm / đi tới dòng</dd>
+                      <dt>F5</dt><dd>Tải lại file</dd>
+                      <dt>Ctrl+O</dt><dd>Chọn file khác</dd>
+                      <dt>Esc</dt><dd>Đóng thanh tìm / thu nhỏ</dd>
+                    </dl>
+                  </div>
+                </span>
+                <button type="button" class="tc-tool" id="tc-expand" aria-pressed="false" title="Phóng to toàn màn hình" aria-label="Phóng to"><i data-lucide="maximize-2" aria-hidden="true"></i></button>
+              </div>
+            </div>
+            <div class="tc-findbar hidden" id="tc-findbar">
+              <i data-lucide="search" aria-hidden="true"></i>
+              <input id="tc-find-input" placeholder="Tìm trong khung đang chọn" spellcheck="false" aria-label="Tìm">
+              <button type="button" class="tc-tool" id="tc-find-case" aria-pressed="false" title="Phân biệt hoa/thường" aria-label="Phân biệt hoa thường"><i data-lucide="case-sensitive" aria-hidden="true"></i></button>
+              <button type="button" class="tc-tool" id="tc-find-prev" title="Kết quả trước (Shift+Enter)" aria-label="Kết quả trước"><i data-lucide="chevron-up" aria-hidden="true"></i></button>
+              <button type="button" class="tc-tool" id="tc-find-next" title="Kết quả tiếp (Enter)" aria-label="Kết quả tiếp"><i data-lucide="chevron-down" aria-hidden="true"></i></button>
+              <span id="tc-find-info" class="tc-find-info" role="status"></span>
+              <span class="tc-find-sep"></span>
+              <input id="tc-goto-input" type="number" min="1" placeholder="Dòng" aria-label="Đi tới dòng">
+              <button type="button" class="tc-tool tc-tool-text" id="tc-goto-go" title="Đi tới dòng (Ctrl+G)">Đi tới</button>
+              <button type="button" class="tc-tool" id="tc-find-close" title="Đóng (Esc)" aria-label="Đóng"><i data-lucide="x" aria-hidden="true"></i></button>
+            </div>
+            <div id="tc-headings" class="tc-titles"></div>
+            <div class="tc-body"><div id="tc-editor"></div><div id="tc-map" aria-label="Tổng quan vị trí sai khác"></div></div>
+            <div class="tc-statusbar" id="tc-statusbar">
+              <span id="tc-summary" role="status">Chọn file hoặc dán văn bản để bắt đầu.</span>
+              <span id="tc-message" class="tc-message" role="status"></span>
+              <span class="tc-status-spacer"></span>
+              <span id="tc-cursor" class="tc-cursor"></span>
+              <span id="tc-flags" class="tc-flags"></span>
+            </div>
+          </div>
+
+          <!-- View 3: folder comparison results -->
+          <div id="tc-folder-view" class="tc-workspace hidden">
+            <div class="tc-toolbar">
+              <div class="tc-group">
+                <button type="button" class="tc-tool tc-tool-text" id="tc-folder-back" title="Chọn thư mục khác"><i data-lucide="folder-open" aria-hidden="true"></i><span>Chọn lại</span></button>
+                <button type="button" class="tc-tool" id="tc-folder-rescan" title="Quét lại hai thư mục" aria-label="Quét lại"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
+              </div>
+              <div class="tc-chips" id="tc-chips" role="group" aria-label="Lọc theo trạng thái"></div>
+              <span class="tc-toolbar-spacer"></span>
+              <div class="tc-group">
+                <label class="tc-check"><input type="checkbox" id="tc-tree" checked> Dạng cây</label>
+                <button type="button" class="tc-tool" id="tc-expand-all" title="Mở rộng mọi thư mục" aria-label="Mở rộng tất cả"><i data-lucide="chevrons-down-up" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool" id="tc-collapse-all" title="Thu gọn mọi thư mục" aria-label="Thu gọn tất cả"><i data-lucide="chevrons-up-down" aria-hidden="true"></i></button>
+                <button type="button" class="tc-tool tc-tool-text" id="tc-folder-open" title="Mở cặp file đang chọn (Enter hoặc bấm đúp)" disabled><i data-lucide="file-diff" aria-hidden="true"></i><span>Mở so sánh</span></button>
+              </div>
+            </div>
+            <div class="tc-folder-paths" id="tc-folder-paths"></div>
+            <div id="tc-folder-results" class="tc-grid-wrap" tabindex="0" aria-label="Kết quả so sánh thư mục">
+              <table class="tc-grid">
+                <thead><tr>
+                  <th data-sort="name"><button type="button">Tên</button></th>
+                  <th data-sort="dir"><button type="button">Thư mục</button></th>
+                  <th data-sort="status"><button type="button">Kết quả</button></th>
+                  <th data-sort="left_size" class="tc-num"><button type="button">Cỡ trái</button></th>
+                  <th data-sort="right_size" class="tc-num"><button type="button">Cỡ phải</button></th>
+                  <th data-sort="left_mtime"><button type="button">Sửa đổi trái</button></th>
+                  <th data-sort="right_mtime"><button type="button">Sửa đổi phải</button></th>
+                </tr></thead>
+                <tbody id="tc-grid-body"></tbody>
+              </table>
+              <p class="empty-note" id="tc-grid-empty">Chưa có kết quả.</p>
+            </div>
+            <div class="tc-statusbar"><span id="tc-folder-summary" role="status">Chưa có kết quả.</span></div>
           </div>
         </section>
         <section class="page active" id="page-compare" data-title="Compare CSV" data-eyebrow="WORKSPACE / SO SÁNH CSV">
