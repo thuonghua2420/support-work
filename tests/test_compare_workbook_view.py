@@ -123,6 +123,46 @@ class CompareWorkbookViewTests(unittest.TestCase):
         self.assertTrue(sheet["record_count_mismatch"])
         self.assertEqual([5], sheet["record_count_mismatch_pair_starts"])
 
+    def test_legacy_workbook_status_uses_values_and_diff_fill_without_metadata_or_label_parsing(self):
+        from openpyxl.styles import PatternFill
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "legacy.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "legacy"
+            sheet.append(["Diff", 0])
+            sheet.append(["Left field", "Right field", *["arbitrary label"] * 12])
+            # INSERT, DELETE, UPDATE, UNCHANGED, visually equal but diff-filled,
+            # and the accepted ambiguity: a real all-empty record looks absent.
+            sheet.append(["value", "value", None, "insert", "delete", None, "old", "new", "same", "same", "NULL", "NULL", "", "present"])
+            diff = PatternFill("solid", fgColor="E5CCFF")
+            sheet.cell(3, 11).fill = diff
+            sheet.cell(3, 12).fill = diff
+            workbook.save(output)
+            workbook.close()
+            result = read_compare_sheet(CompareWorkbookReference("UT01", output, output.name), "legacy", [])
+        self.assertEqual(result["record_statuses"], [
+            {"pair_start": 3, "record_number": 1, "status": "INSERT"},
+            {"pair_start": 5, "record_number": 2, "status": "DELETE"},
+            {"pair_start": 7, "record_number": 3, "status": "UPDATE"},
+            {"pair_start": 9, "record_number": 4, "status": "UNCHANGED"},
+            {"pair_start": 11, "record_number": 5, "status": "UPDATE"},
+            {"pair_start": 13, "record_number": 6, "status": "INSERT"},
+        ])
+        self.assertEqual(result["status_counts"], {"INSERT": 2, "DELETE": 1, "UPDATE": 2, "UNCHANGED": 1})
+        self.assertEqual(result["record_count_mismatch_pair_starts"], [3, 5, 13])
+
+    def test_empty_sheet_has_zero_status_counts(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "empty.xlsx"
+            workbook = Workbook()
+            workbook.active["A1"] = "No CSV"
+            workbook.save(output)
+            workbook.close()
+            result = read_compare_sheet(CompareWorkbookReference("UT01", output, output.name), "Sheet", [])
+        self.assertEqual(result["record_statuses"], [])
+        self.assertEqual(result["status_counts"], {"INSERT": 0, "DELETE": 0, "UPDATE": 0, "UNCHANGED": 0})
+
     def test_scan_compare_workbook_fixmes_reports_remaining_fixme_cells(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "compare.xlsx"

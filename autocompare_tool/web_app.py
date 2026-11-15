@@ -20,7 +20,7 @@ from .app_config import (
     AppConfig, WORKFLOW_AFTER_HTC_VS_HTM, WORKFLOW_HTC_BEFORE_AFTER,
     WORKFLOW_HTM_BEFORE_AFTER, load_app_config,
 )
-from .compare_keys import extract_all_compare_keys, remove_compare_keys
+from .compare_keys import extract_all_compare_keys, remove_compare_keys, save_compare_key
 from .compare_structure import read_compare_structure, save_compare_structure
 from .compare_workbook_view import (
     CompareWorkbookReference,
@@ -223,6 +223,7 @@ class AutoCompareWebApplication:
     ACTION_LABELS = {
         "load_compare_workbooks": "Đang nạp workbook Compare từ folder UT...",
         "compare_keys_extract": "Đang trích xuất primary key...",
+        "compare_keys_save": "Đang lưu key compare...",
         "compare_keys_remove": "Đang xóa key compare đã lưu...",
         "compare": "Đang chạy so sánh UT...",
         "folder_compare": "Đang so sánh hai folder CSV...",
@@ -608,6 +609,13 @@ class AutoCompareWebApplication:
             ))
         if action == "compare_keys_remove":
             return lambda log, cancel: asdict(remove_compare_keys(log))
+        if action == "compare_keys_save":
+            table, columns = payload.get("table"), payload.get("columns")
+            if not isinstance(table, str) or not isinstance(columns, list) or any(
+                not isinstance(column, str) for column in columns
+            ):
+                raise ValueError("Key requires a table name and a list of column names.")
+            return lambda log, cancel: asdict(save_compare_key(table, columns))
         if action == "db_normalize":
             return lambda log, cancel: self._database_summary(
                 normalize_csv_folder(

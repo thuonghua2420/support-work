@@ -13,6 +13,7 @@ from openpyxl.utils import get_column_letter
 
 from .app_config import ExcelCompareStyleConfig, load_app_config
 from .excel_writer import WorkbookFixmeEntry
+from .compare import STATUS_INSERT, STATUS_DELETE, STATUS_UPDATE, STATUS_UNCHANGED
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,11 @@ def read_compare_sheet(
             worksheet, max_row, max_column
         )
 
+        record_statuses = _record_statuses(worksheet, max_row, max_column, record_count_mismatch_pair_starts)
+        status_counts = dict.fromkeys((STATUS_INSERT, STATUS_DELETE, STATUS_UPDATE, STATUS_UNCHANGED), 0)
+        for record in record_statuses:
+            status_counts[record["status"]] += 1
+
         rows: list[dict[str, Any]] = []
         for row_index in range(1, max_row + 1):
             cells: list[dict[str, Any]] = []
@@ -135,6 +141,8 @@ def read_compare_sheet(
             "sheet_name": sheet_name,
             "row_count": max_row,
             "column_count": max_column,
+            "record_statuses": record_statuses,
+            "status_counts": status_counts,
             "record_count_mismatch": bool(record_count_mismatch_pair_starts),
             "record_count_mismatch_pair_starts": record_count_mismatch_pair_starts,
             "column_letters": [get_column_letter(index) for index in range(1, max_column + 1)],
@@ -242,6 +250,38 @@ def _record_count_mismatch_pair_starts(worksheet: Any, max_row: int, max_column:
         if left_is_missing != right_is_missing:
             mismatch_pairs.append(pair_start)
     return mismatch_pairs
+
+
+def _record_statuses(worksheet: Any, max_row: int, max_column: int, mismatch_pairs: list[int]) -> list[dict[str, Any]]:
+    # Import locally: the loader also uses CompareWorkbookReference from this module.
+    from .compare_workbook_loader import _is_difference
+
+    common_field_rows = [
+        row for row in range(3, max_row + 1)
+        if _display_value(worksheet.cell(row, 1).value).strip()
+        and _display_value(worksheet.cell(row, 2).value).strip()
+    ]
+    field_rows = [
+        row for row in range(3, max_row + 1)
+        if _display_value(worksheet.cell(row, 1).value).strip()
+        or _display_value(worksheet.cell(row, 2).value).strip()
+    ]
+    mismatches = set(mismatch_pairs)
+    statuses: list[dict[str, Any]] = []
+    for pair_start in range(3, max_column, 2):
+        if not _display_value(worksheet.cell(2, pair_start).value).strip():
+            continue
+        if not _display_value(worksheet.cell(2, pair_start + 1).value).strip():
+            continue
+        if pair_start in mismatches:
+            left_is_missing = all(_display_value(worksheet.cell(row, pair_start).value) == "" for row in common_field_rows)
+            status = STATUS_INSERT if left_is_missing else STATUS_DELETE
+        elif any(_is_difference(worksheet.cell(row, pair_start), worksheet.cell(row, pair_start + 1)) for row in field_rows):
+            status = STATUS_UPDATE
+        else:
+            status = STATUS_UNCHANGED
+        statuses.append({"pair_start": pair_start, "record_number": (pair_start - 3) // 2 + 1, "status": status})
+    return statuses
 
 
 def _display_value(value: Any) -> str:

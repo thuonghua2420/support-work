@@ -61,6 +61,7 @@ def compare_csv_folders(
         left,
         right,
         output,
+        key_columns_by_table=app_config.update_compare_keys,
         excel_headers=excel_headers_for_workflow(app_config, WORKFLOW_AFTER_HTC_VS_HTM),
         case_folder_name=f"{left.name} - {right.name}",
         include_left_only_files=True,
@@ -140,6 +141,7 @@ def compare_csv_folder_pairs(
             result = write_compare_workbook_for_pairs(
                 [(left_csv, right_csv, (right_name or left_name))],
                 output / output_name,
+                key_columns_by_table=app_config.update_compare_keys,
                 excel_headers=excel_headers_for_workflow(app_config, WORKFLOW_AFTER_HTC_VS_HTM),
                 case_folder_name=f"{left.name} - {right.name}",
             )
@@ -206,6 +208,7 @@ def compare_csv_folder_pairs_to_workbook(
     result = write_compare_workbook_for_pairs(
         csv_pairs,
         output,
+        key_columns_by_table=app_config.update_compare_keys,
         excel_headers=excel_headers_for_workflow(app_config, WORKFLOW_AFTER_HTC_VS_HTM),
         case_folder_name=f"{left.name} - {right.name}",
     )

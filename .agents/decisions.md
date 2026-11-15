@@ -2,6 +2,41 @@
 
 Use this file for lightweight architecture decisions. Add newest entries at the top.
 
+## 2026-11-15 - Key Extraction Is Add-Only, Keys Editable In The UI
+
+Decision:
+
+- `extract_all_compare_keys` merges into `[update_compare_keys]` instead of rewriting it: new tables are added, identical keys are kept, conflicting keys keep the stored value and are reported in `skipped` and the log. The file is not written when nothing is added.
+- Add `save_compare_key` + web action `compare_keys_save` and an inline editor in Database > Trích xuất key to add or change one table's key. "Xóa key" still clears everything; no per-table delete.
+
+Why:
+
+- One workspace can use several databases; extracting from the second must not erase the first one's keys or manual entries.
+- With old keys preserved, an explicit way to change a key was needed.
+
+Consequences:
+
+- Saving through the editor or extraction rewrites only the `[update_compare_keys]` section; comment lines inside that section are not preserved.
+
+## 2026-11-14 - CSV Compare Pairs Records By Configured Key
+
+Decision:
+
+- Reverse the 2026-10-07 "pair strictly by position" rule. `compare.py` matches records by the complete `[update_compare_keys]` key using an in-memory sort-merge (stable sort of `(key, index)` + two pointers) and classifies INSERT / DELETE / UPDATE / UNCHANGED.
+- Apply to every writer caller: HTM/HTC before-after, HTC after vs HTM after, and folder compare.
+- Missing/unusable keys fall back to positional pairing with a workbook warning instead of failing.
+- Statuses are displayed only in the web preview; the Excel layout, labels and FIXME behaviour are unchanged.
+
+Why:
+
+- Positional pairing compared unrelated records after any insert/delete, even with `sort_by_key`, producing false differences.
+- Streaming two-pointer merge on files would require sorted input (not guaranteed) and gives no memory benefit because CSVs and workbook sheets are already fully in memory and capped at 8190 pairs per sheet.
+
+Consequences:
+
+- Regenerated workbooks may order record pairs differently and can have more pairs (up to N+M) than before; the Excel column-limit check uses the real pair count.
+- Tables whose primary key is regenerated on each run show DELETE + INSERT; this is accepted.
+
 ## 2026-11-04 - File Compare Rebuilt In The Style Of WinMerge
 
 Decision:

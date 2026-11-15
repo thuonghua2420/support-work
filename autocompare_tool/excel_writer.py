@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from typing import Mapping
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from zipfile import ZipFile
@@ -84,6 +85,7 @@ def write_compare_workbook_with_fixmes(
     recursive: bool = False,
     omit_equal_sheets: bool = False,
     sheet_zoom: int = 85,
+    key_columns_by_table: Mapping[str, tuple[str, ...]] | None = None,
 ) -> CompareWorkbookWriteResult:
     with compare_context("Quét danh sách CSV", **{
         "Folder trái": before_dir, "Folder phải": after_dir, "Workbook": output_path,
@@ -99,6 +101,7 @@ def write_compare_workbook_with_fixmes(
         case_folder_name=case_folder_name,
         omit_equal_sheets=omit_equal_sheets,
         sheet_zoom=sheet_zoom,
+        key_columns_by_table=key_columns_by_table,
     )
 
 
@@ -110,6 +113,7 @@ def write_compare_workbook_for_pairs(
     case_folder_name: str = "",
     omit_equal_sheets: bool = False,
     sheet_zoom: int = 85,
+    key_columns_by_table: Mapping[str, tuple[str, ...]] | None = None,
 ) -> CompareWorkbookWriteResult:
     with compare_context("Chuẩn bị file Excel", **{"Case": case_folder_name, "Workbook": output_path}):
         app_config = None if excel_headers is not None and excel_style is not None else load_app_config()
@@ -125,6 +129,7 @@ def write_compare_workbook_for_pairs(
     equal_before_files: list[Path] = []
     record_counts: dict[str, tuple[int, int]] = {}
     warnings: list[str] = []
+    table_keys = {name.casefold(): columns for name, columns in (key_columns_by_table or {}).items()}
     total_cells = 0
     temporary_path: Path | None = None
     try:
@@ -142,12 +147,23 @@ def write_compare_workbook_for_pairs(
                     "Số column trái": len(before_table.headers), "Số column phải": len(after_table.headers),
                 }):
                     sheet_cells = _check_sheet_dimensions(before_table, after_table)
-                    total_cells += sheet_cells
                     warning = _header_warning(before_table, after_table, before_csv, after_csv, output_path, sheet_name)
                     if warning:
                         warnings.append(warning)
                     with compare_context("Tạo dữ liệu compare / ghi sheet", **{"Số ô dự kiến sheet": sheet_cells}):
-                        comparison = build_sheet_comparison(Path(csv_display_name).stem, before_table, after_table)
+                        table_name = Path(csv_display_name).stem
+                        key_columns = table_keys.get(table_name.casefold())
+                        comparison = build_sheet_comparison(table_name, before_table, after_table, key_columns=key_columns)
+                        sheet_cells = _check_sheet_dimensions(before_table, after_table, len(comparison.pairs))
+                        total_cells += sheet_cells
+                        if comparison.fallback_reason:
+                            warnings.append(str(CompareDiagnosticError(
+                                "CẢNH BÁO: Không thể ghép record theo key. Đã ghép theo vị trí dòng.",
+                                **{"Workbook": output_path, "Sheet": sheet_name, "Table CSV": table_name,
+                                   "CSV trái": before_csv, "CSV phải": after_csv,
+                                   "Key cấu hình": ", ".join(key_columns or ()) or "[không có]",
+                                   "Lý do": comparison.fallback_reason},
+                            )))
                         worksheet = workbook.create_sheet(sheet_name)
                         worksheet.sheet_view.zoomScale = sheet_zoom
                         sheet_entries = _write_sheet(
@@ -193,9 +209,9 @@ def write_compare_workbook_for_pairs(
     )
 
 
-def _check_sheet_dimensions(before: CsvTable, after: CsvTable) -> int:
+def _check_sheet_dimensions(before: CsvTable, after: CsvTable, pair_count: int | None = None) -> int:
     columns = [name for name in dict.fromkeys([*after.headers, *before.headers]) if name not in SKIP_COLUMN_NAMES]
-    records = max(len(before.rows), len(after.rows))
+    records = max(len(before.rows), len(after.rows)) if pair_count is None else pair_count
     required_columns, required_rows = 4 + records * 2, 2 + len(columns)
     cells = required_columns * required_rows
     details = {"Dòng Excel cần": required_rows, "Cột Excel cần": required_columns, "Số ô dự kiến": cells}
@@ -203,7 +219,7 @@ def _check_sheet_dimensions(before: CsvTable, after: CsvTable) -> int:
         raise CompareDiagnosticError(
             "Số record CSV vượt giới hạn cột của sheet Excel.",
             hint="Mỗi record tạo 2 cột trái/phải, cộng 4 cột cho tên column, khoảng cách và FIXME. Chia CSV thành các cặp nhỏ hơn và compare riêng; không tự cắt record.",
-            **details, **{"Record lớn nhất hai phía": records, "Record tối đa mỗi cặp CSV": (MAX_COLUMN - 4) // 2,
+            **details, **{"Số cặp record": records, "Record tối đa mỗi cặp CSV": (MAX_COLUMN - 4) // 2,
                          "Record đầu tiên vượt giới hạn": (MAX_COLUMN - 4) // 2 + 1, "Giới hạn cột Excel": MAX_COLUMN},
         )
     if required_rows > MAX_ROW:
@@ -226,7 +242,7 @@ def _header_warning(before: CsvTable, after: CsvTable, left: Path, right: Path, 
         return "; ".join(values[:20]) + (f"; ... còn {len(values) - 20} column" if len(values) > 20 else "") or "Không có"
     return str(CompareDiagnosticError(
         "CẢNH BÁO: Header hai file CSV khác nhau; tiếp tục compare theo tên column.",
-        hint="Kiểm tra header hai file. Column chỉ có ở một phía vẫn được đưa vào sheet, không bỏ dữ liệu; thứ tự record vẫn giữ nguyên.",
+        hint="Kiểm tra header hai file. Column chỉ có ở một phía vẫn được đưa vào sheet, không bỏ dữ liệu.",
         **{"Workbook": output, "Sheet": sheet, "CSV trái": left, "CSV phải": right,
            "Số column trái": len(before.headers), "Số column phải": len(after.headers),
            "Chỉ có bên trái": missing(before.headers, right_names), "Chỉ có bên phải": missing(after.headers, left_names),
@@ -348,9 +364,9 @@ def _write_sheet(
             before_value = cell_value(pair.before, column_name)
             after_value = cell_value(pair.after, column_name)
             _set_excel_text(before_cell, before_value, source=before_csv, table=before_table,
-                            column_name=column_name, record=record_index + 1, side="Trái")
+                            column_name=column_name, record=pair.before_index + 1 if pair.before_index is not None else 0, side="Trái")
             _set_excel_text(after_cell, after_value, source=after_csv, table=after_table,
-                            column_name=column_name, record=record_index + 1, side="Phải")
+                            column_name=column_name, record=pair.after_index + 1 if pair.after_index is not None else 0, side="Phải")
 
             before_cell.font = styles.base_font
             after_cell.font = styles.base_font

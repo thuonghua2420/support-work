@@ -445,6 +445,7 @@
                 </div>
                 <div class="compare-tab-line compare-sheet-line"><span>Sheet</span><div class="compare-tabs sheet-tabs" id="compare-sheet-tabs"></div></div>
               </header>
+              <div class="compare-status-counts hidden" id="compare-status-counts" role="status" aria-live="polite"></div>
               <div class="compare-grid-host">
                 <div class="compare-grid-wrap">
                   <div class="compare-preview-status" id="compare-preview-status">Chọn case, file compare và sheet để xem dữ liệu.</div>
@@ -787,11 +788,11 @@
               <div class="compare-key-toolbar">
                 <label class="field"><span>Database lấy primary key</span><select id="compare-key-role" aria-label="Database lấy primary key"><option value="main">Database 1</option><option value="target">Database 2</option></select></label>
                 <div class="inline-actions">
-                  <button class="secondary-button" id="extract-compare-keys" type="button" title="Lấy primary key cho toàn bộ table trong database đã chọn"><i data-lucide="key-round" aria-hidden="true"></i>Trích xuất key</button>
+                  <button class="secondary-button" id="extract-compare-keys" type="button" title="Lấy primary key cho toàn bộ table trong database đã chọn; chỉ thêm key mới, giữ nguyên và không xóa key đã lưu"><i data-lucide="key-round" aria-hidden="true"></i>Trích xuất key</button>
                   <button class="ghost-button" id="remove-compare-keys" type="button" title="Xóa toàn bộ key compare đã lưu trong config"><i data-lucide="trash-2" aria-hidden="true"></i>Xóa key</button>
                 </div>
               </div>
-              <details id="compare-key-details" open><summary id="compare-key-count">Key đã lưu: 0 table</summary><div class="compare-key-table-wrap"><table class="compare-key-table"><thead><tr><th>Table CSV</th><th>Key</th></tr></thead><tbody id="compare-key-body"></tbody></table></div></details>
+              <details id="compare-key-details" open><summary id="compare-key-count">Key đã lưu: 0 table</summary><div class="compare-key-table-wrap"><table class="compare-key-table"><thead><tr><th scope="col">Table CSV</th><th scope="col">Key (các cột cách nhau bằng dấu phẩy)</th><th scope="col">Lưu</th></tr></thead><tbody id="compare-key-body"></tbody></table></div></details>
             </section>
           </div>
 

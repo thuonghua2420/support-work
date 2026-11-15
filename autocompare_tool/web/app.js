@@ -197,9 +197,13 @@ function renderCompareKeys() {
   const keys = state.bootstrap?.update_compare_keys || {};
   const entries = Object.entries(keys).sort(([a], [b]) => a.localeCompare(b));
   $("#compare-key-count").textContent = `Key đã lưu: ${entries.length} table`;
-  $("#compare-key-body").innerHTML = entries.length
-    ? entries.map(([table, columns]) => `<tr><td>${escapeHtml(table)}</td><td>${escapeHtml(columns.join(", "))}</td></tr>`).join("")
-    : '<tr><td colspan="2">Chưa có key đã lưu.</td></tr>';
+  const body = $("#compare-key-body");
+  const signature = JSON.stringify(entries);
+  if (body.dataset.keys !== signature) {
+    body.dataset.keys = signature;
+    body.innerHTML = entries.map(([table, columns]) => `<tr data-compare-key-table="${escapeHtml(table)}"><td>${escapeHtml(table)}</td><td><input data-compare-key-columns aria-label="Key của ${escapeHtml(table)} (các cột cách nhau bằng dấu phẩy)" value="${escapeHtml(columns.join(", "))}"></td><td><button class="secondary-button" type="button" data-save-compare-key aria-label="Lưu key của ${escapeHtml(table)}">Lưu</button></td></tr>`).join("")
+      + `<tr class="compare-key-add"><td><label class="field"><input data-compare-key-name aria-label="Tên table CSV mới" placeholder="Tên table CSV"></label></td><td><input data-compare-key-columns aria-label="Key mới (các cột cách nhau bằng dấu phẩy)" placeholder="Id, LineNo"></td><td><button class="secondary-button" type="button" data-save-compare-key aria-label="Lưu key mới">Add key</button></td></tr>`;
+  }
   const connections = state.bootstrap?.database_connections || {};
   for (const option of $("#compare-key-role").options) {
     const connection = connections[option.value];
@@ -210,6 +214,7 @@ function renderCompareKeys() {
   const selectedRole = valueOf("compare-key-role") || "main";
   $("#extract-compare-keys").disabled = Boolean(busy) || !state.dbVerified[selectedRole];
   $("#remove-compare-keys").disabled = Boolean(busy) || !entries.length;
+  $$("input, button", body).forEach((element) => { element.disabled = Boolean(busy); });
 }
 
 function showPage(pageKey, updateHash, options = {}) {
@@ -892,6 +897,19 @@ function bindForms() {
     startAction("compare_keys_extract", { role });
   });
   $("#compare-key-role").addEventListener("change", renderCompareKeys);
+  $("#compare-key-body").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-save-compare-key]");
+    if (!button) return;
+    const row = button.closest("tr");
+    const table = row.dataset.compareKeyTable || $("[data-compare-key-name]", row).value.trim();
+    const columns = $("[data-compare-key-columns]", row).value.split(",").map((column) => column.trim());
+    startAction("compare_keys_save", { table, columns });
+  });
+  $("#compare-key-body").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || !event.target.matches("input")) return;
+    event.preventDefault();
+    $("[data-save-compare-key]", event.target.closest("tr")).click();
+  });
   $("#remove-compare-keys").addEventListener("click", async () => {
     const count = Object.keys(state.bootstrap.update_compare_keys || {}).length;
     if (await confirmAction("Xóa key compare?", `Xóa toàn bộ key đã lưu của ${count} table, bao gồm key nhập thủ công. Các lần compare tiếp theo sẽ bỏ qua sắp xếp theo key cho đến khi có key mới.`)) {
@@ -2505,6 +2523,7 @@ function showComparePreviewStatus(message, options = {}) {
   $("#compare-preview-status").classList.remove("hidden");
   $("#compare-preview-table").classList.add("hidden");
   $("#compare-navigation-tools")?.classList.add("hidden");
+  $("#compare-status-counts")?.classList.add("hidden");
 }
 
 function scrollComparePreview(direction) {
@@ -2544,6 +2563,7 @@ function renderCompareSheet() {
   $("#compare-preview-status").classList.add("hidden");
   table.classList.remove("hidden");
   setCompareGridWidth(table);
+  renderCompareStatusCounts(sheet);
   $("#compare-navigation-tools")?.classList.remove("hidden");
   if (needsDomSwap) {
     bindCompareCellCopyControls(table);
@@ -2569,9 +2589,20 @@ function setCompareGridWidth(table) {
   table.style.setProperty("--compare-grid-width", `${rowNumberWidth + valueColumns * valueWidth + checkWidth}px`);
 }
 
+const COMPARE_RECORD_STATUSES = ["INSERT", "UPDATE", "DELETE", "UNCHANGED"];
+
+function renderCompareStatusCounts(sheet) {
+  const summary = $("#compare-status-counts");
+  if (!summary) return;
+  const counts = sheet?.status_counts;
+  summary.classList.toggle("hidden", !counts);
+  summary.textContent = counts ? COMPARE_RECORD_STATUSES.map((status) => `${status} ${Number(counts[status]) || 0}`).join(" · ") : "";
+}
+
 function buildCompareSheetHtml(sheet) {
   const widths = Array.isArray(sheet.column_widths) ? sheet.column_widths : [];
   const letters = Array.isArray(sheet.column_letters) ? sheet.column_letters : [];
+  const recordStatuses = new Map((sheet.record_statuses || []).map((record) => [Number(record.pair_start), record.status]));
   const hiddenColumns = new Set();
   if (state.compareExcludeRecordCountDifferences) {
     compareRecordCountMismatchPairStarts(sheet).forEach((pairStart) => {
@@ -2596,7 +2627,7 @@ function buildCompareSheetHtml(sheet) {
     <tbody>${rows.map((row) => `
       <tr>
         <th class="compare-row-number">${escapeHtml(row.number)}</th>
-        ${visibleColumnIndexes.map((index) => compareCellHtml((row.cells || [])[index], row, index)).join("")}
+        ${visibleColumnIndexes.map((index) => compareCellHtml((row.cells || [])[index], row, index, recordStatuses.get(index + 1))).join("")}
         ${compareCheckCellHtml(row)}
       </tr>`).join("")}</tbody>`;
 }
@@ -2629,7 +2660,7 @@ function compareColumnStickyClass(index) {
   return "";
 }
 
-function compareCellHtml(cell, row, columnIndex = -1) {
+function compareCellHtml(cell, row, columnIndex = -1, recordStatus = "") {
   const fixmeIndices = compareVisibleFixmeIndices(Array.isArray(cell.fixme_indices) ? cell.fixme_indices : []);
   const classes = ["compare-cell", compareColumnStickyClass(columnIndex), ...compareCellColorClasses(cell, row)].filter(Boolean);
   if (Number(cell?.row || row?.number || 0) === 2) classes.push("compare-header-cell");
@@ -2638,7 +2669,10 @@ function compareCellHtml(cell, row, columnIndex = -1) {
   const rowNumber = Number(cell?.row || row?.number || 0);
   const columnNumber = Number(cell?.column || columnIndex + 1);
   const address = `${compareColumnLetter(columnNumber)}${rowNumber}`;
-  return `<td class="${classes.join(" ")}" data-compare-address="${escapeHtml(address)}" data-compare-row="${rowNumber}" data-compare-column="${columnNumber}"><div class="compare-cell-clip">${compareCellContent(cell, fixmeIndices)}</div></td>`;
+  const badge = rowNumber === 2 && COMPARE_RECORD_STATUSES.includes(recordStatus)
+    ? `<span class="compare-record-status status-${recordStatus.toLowerCase()}" aria-label="Record ${Math.floor((columnNumber - 3) / 2) + 1}: ${recordStatus}">${recordStatus}</span>` : "";
+  if (badge) classes.push("compare-record-header");
+  return `<td class="${classes.join(" ")}" data-compare-address="${escapeHtml(address)}" data-compare-row="${rowNumber}" data-compare-column="${columnNumber}"><div class="compare-cell-clip">${compareCellContent(cell, fixmeIndices)}${badge}</div></td>`;
 }
 
 function compareColumnLetter(column) {
@@ -3476,6 +3510,7 @@ function consumeJobResult(job) {
   if (job.action === "text_folder_compare") window.textCompare?.showFolders(result);
   if (result.update_compare_keys) {
     state.bootstrap.update_compare_keys = result.update_compare_keys;
+    if (job.action === "compare_keys_save") delete $("#compare-key-body").dataset.keys;
     renderCompareKeys();
     $("#compare-key-details").open = true;
   }
@@ -4555,6 +4590,7 @@ async function updateSqlSource(relationId) {
 function summaryMessage(job) {
   if (job.action === "text_folder_compare") return `Đã đối chiếu ${job.result?.rows?.length || 0} mục. ${job.result?.counts?.different || 0} file khác nội dung; ${job.result?.counts?.error || 0} lỗi đọc. Xem bảng kết quả trong File Compare.`;
   if (job.action === "compare_keys_extract") return `Đã lưu key cho ${job.result.saved_count} table; ${job.result.existing_count} key không đổi; bỏ qua ${job.result.skipped.length} table. Chi tiết trong log.`;
+  if (job.action === "compare_keys_save") return "Đã lưu key compare.";
   if (job.action === "compare_keys_remove") return `Đã xóa key của ${job.result.removed_count} table khỏi config.`;
   const result = job.result || {};
   if (job.action === "compare") return `Đã xử lý ${result.processed_count || 0} case, tạo ${result.workbook_count || 0} workbook; ${result.error_count || 0} lỗi, ${result.warnings?.length || 0} cảnh báo; ${result.fixme_count || 0} FIXME.`;

@@ -97,6 +97,132 @@ class ProcessorAndExcelTests(unittest.TestCase):
             self.assertEqual(worksheet["F4"].value, "after")
             self.assertEqual(worksheet["J4"].value, "FIXME")
 
+    def test_key_regression_keeps_layout_fixmes_source_counts_and_loader(self):
+        from autocompare_tool.compare_record_counts import read_record_counts
+        from autocompare_tool.compare_workbook_loader import _read_compare_entries
+        from autocompare_tool.compare_workbook_view import CompareWorkbookReference, read_compare_sheet
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            before, after = root / "before", root / "after"
+            before.mkdir()
+            after.mkdir()
+            _write_text(before / "ORDERS.csv", "id,value\n234,same\n387,deleted\n634,old\n")
+            _write_text(after / "ORDERS.csv", "id,value\n135,first\n234,same\n375,insert\n634,new\n")
+            output = root / "compare.xlsx"
+            result = write_compare_workbook_with_fixmes(before, after, output, key_columns_by_table={"Orders": ("ID",)})
+            self.assertEqual(result.warnings, [])
+            workbook = load_workbook(output)
+            try:
+                sheet = workbook["ORDERS"]
+                self.assertEqual((sheet.max_row, sheet.max_column), (4, 14))
+                for number, col in enumerate(range(3, 13, 2), 1):
+                    self.assertEqual(sheet.cell(2, col).value, f"前:{number}行目")
+                    self.assertEqual(sheet.cell(2, col + 1).value, f"後:{number}行目")
+                self.assertEqual([sheet.cell(3, col).value for col in range(3, 13)],
+                                 [None, "135", "234", "234", None, "375", "387", None, "634", "634"])
+                self.assertEqual(sheet["N3"].value, "FIXME")
+                self.assertEqual(sheet["N4"].value, "FIXME")
+                self.assertEqual(sheet["B1"].value, 2)
+                self.assertEqual(workbook.sheetnames, ["ORDERS"])
+                self.assertNotIn("status", workbook.properties.description.lower())
+            finally:
+                workbook.close()
+            self.assertEqual({(entry.record_number, entry.column_name) for entry in result.fixme_entries},
+                             {(1, "id"), (1, "value"), (3, "id"), (3, "value"), (4, "id"), (4, "value"), (5, "value")})
+            self.assertEqual((read_record_counts(output)[0]["left_count"], read_record_counts(output)[0]["right_count"]), (3, 4))
+            reference = CompareWorkbookReference("UT01", output, output.name)
+            loaded = _read_compare_entries(reference, load_app_config())
+            self.assertEqual([(e.record_number, e.column_name, e.left_value, e.right_value) for e in loaded],
+                             [(e.record_number, e.column_name, e.left_value, e.right_value) for e in result.fixme_entries])
+            view = read_compare_sheet(reference, "ORDERS", [])
+            self.assertEqual([item["status"] for item in view["record_statuses"]], ["INSERT", "UNCHANGED", "INSERT", "DELETE", "UPDATE"])
+            self.assertEqual(view["status_counts"], {"INSERT": 2, "DELETE": 1, "UPDATE": 1, "UNCHANGED": 1})
+            self.assertEqual(view["record_count_mismatch_pair_starts"], [3, 7, 9])
+
+    def test_excel_limit_uses_union_pair_count_before_writing_sheet(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            before, after = root / "before", root / "after"
+            before.mkdir()
+            after.mkdir()
+            _write_text(before / "table.csv", "id\n1\n3\n")
+            _write_text(after / "table.csv", "id\n2\n4\n")
+            output = root / "compare.xlsx"
+            output.write_bytes(b"keep existing output")
+            with patch("autocompare_tool.excel_writer.MAX_COLUMN", 10), patch("autocompare_tool.excel_writer._write_sheet") as writer:
+                with self.assertRaisesRegex(ValueError, "Số cặp record: 4"):
+                    write_compare_workbook_with_fixmes(before, after, output, key_columns_by_table={"table": ("id",)})
+            writer.assert_not_called()
+            self.assertEqual(output.read_bytes(), b"keep existing output")
+
+    def test_key_fallback_warning_has_table_paths_reason_and_positional_labels(self):
+        cases = [(None, "id,value\n2,old\n1,old\n", "[update_compare_keys]"),
+                 (("missing",), "id,value\n2,old\n1,old\n", "missing"),
+                 (("id",), "id,value\n,old\n1,old\n", "NULL/blank"),
+                 (("id",), 'id,value\n"",old\n1,old\n', "NULL/blank"),
+                 (("id",), "id,value\n2,old\n2,old\n", "Duplicate")]
+        for keys, text, reason in cases:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                before, after = root / "before", root / "after"
+                before.mkdir()
+                after.mkdir()
+                _write_text(before / "table.csv", text)
+                _write_text(after / "table.csv", "id,value\n1,new\n2,new\n")
+                output = root / "compare.xlsx"
+                result = write_compare_workbook_with_fixmes(before, after, output, key_columns_by_table={"table": keys} if keys else {})
+                self.assertEqual(len(result.warnings), 1)
+                for detail in (reason, "Sheet: table", "Table CSV: table", str(before / "table.csv"), str(after / "table.csv"),
+                               str(output), "Key cấu hình", "Đã ghép theo vị trí dòng"):
+                    self.assertIn(detail, result.warnings[0])
+                workbook = load_workbook(output)
+                try:
+                    self.assertEqual((workbook.active["C2"].value, workbook.active["D2"].value), ("前:1行目", "後:1行目"))
+                    self.assertEqual(workbook.active["D3"].value, "1")
+                    self.assertEqual(workbook.active["F3"].value, "2")
+                finally:
+                    workbook.close()
+
+    def test_reordered_key_diagnostic_points_to_original_csv_record(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            before, after = root / "before", root / "after"
+            before.mkdir()
+            after.mkdir()
+            for side in (before, after):
+                for path in (before / "table.csv", after / "table.csv"):
+                    _write_text(path, "id,value\n2,ok\n1,short\n")
+                _write_text(side / "table.csv", 'id,value\n2,ok\n1,"' + "x" * 32768 + '"\n')
+                with self.assertRaises(ValueError) as raised:
+                    write_compare_workbook_with_fixmes(before, after, root / "compare.xlsx", key_columns_by_table={"table": ("id",)})
+                message = str(raised.exception)
+                for expected in ("Record CSV: 2", "Dòng vật lý CSV: 3", str(side / "table.csv"),
+                                 "Ô Excel: C4" if side == before else "Ô Excel: D4"):
+                    self.assertIn(expected, message)
+
+    def test_all_folder_compare_modes_use_csv_stem_keys(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            left, right = root / "left", root / "right"
+            left.mkdir()
+            right.mkdir()
+            _write_text(left / "old.csv", "id,value\n3,delete\n2,same\n")
+            _write_text(right / "new.csv", "id,value\n1,insert\n2,same\n")
+            config = replace(load_app_config(), update_compare_keys={"new": ("id",), "old": ("id",)})
+            pairs = [{"left_name": "old.csv", "right_name": "new.csv"}]
+            separate = compare_csv_folder_pairs(left, right, root / "out", pairs, config=config)
+            merged = compare_csv_folder_pairs_to_workbook(left, right, root / "merged.xlsx", pairs, config=config)
+            (left / "old.csv").rename(left / "new.csv")
+            recursive = compare_csv_folders(left, right, root / "recursive.xlsx", config=config)
+            for result in (separate, merged, recursive):
+                self.assertEqual(result.warnings, [])
+                workbook = load_workbook(result.output_paths[0])
+                try:
+                    self.assertEqual([workbook.active.cell(3, col).value for col in range(3, 9)], [None, "1", "2", "2", "3", None])
+                finally:
+                    workbook.close()
+
     def test_process_root_respects_selected_compare_workflows_and_applies_notes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

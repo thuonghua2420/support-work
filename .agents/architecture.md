@@ -141,9 +141,10 @@ Owns:
 
 Matching rule:
 
-- Use the first CSV column as key.
-- Duplicate keys are disambiguated by occurrence order.
-- Rows present only in before are appended after after-driven rows.
+- Callers pass `key_columns` (from `[update_compare_keys]` via `excel_writer`'s `key_columns_by_table`).
+- With a usable key: build `(key tuple, row index)` per side, stable-sort, two-pointer merge; output in ascending key order with `RecordPair.status` and source `before_index`/`after_index`.
+- Without a usable key (none configured, missing column, NULL/blank/duplicate value): pair by position, `match_mode="position"`, `fallback_reason` becomes a workbook warning.
+- `compare_workbook_view.read_compare_sheet` re-derives `record_statuses`/`status_counts` from workbook cells for the web preview.
 
 ### `autocompare_tool/excel_writer.py`
 

@@ -113,8 +113,11 @@ Trước khi ghi sheet, hệ thống kiểm tra giới hạn Excel: 32.767 ký t
 
 In Database > Trích xuất key, select a connected Database 1 or Database 2 and use
 **Trich xuat key**. The tool reads primary-key metadata for all tables in the
-selected database/schema and rewrites `[update_compare_keys]` with the complete
-keys it can extract, including composite keys. The existing database adapters
+selected database/schema and only **adds** the keys of tables that are not yet in
+`[update_compare_keys]`, including composite keys. Existing keys (from another
+database or entered by hand) are never removed or overwritten; if a table already
+has a different key, the stored key is kept and a conflict is logged. To change a
+key, edit it in the "Key đã lưu" table and press Lưu, or use the Thêm key row. The existing database adapters
 support SQL Server, MySQL, PostgreSQL and Oracle. No database rows are written.
 Tables without a primary key are skipped with a log entry. The saved table/key
 list is used on the next compare without restarting. **Xoa key** clears all
@@ -137,8 +140,8 @@ Compare CSV > Theo cấu trúc folder has two independent checkboxes, both off b
   clearing existing files. With this off, compare uses the existing before folders.
   After HTC versus HTM never requires Input or before and ignores this checkbox.
 - **Sắp xếp record theo key và lưu vào CSV** sorts both sides of selected workflows
-  in place by every configured key column, using ascending text order. The workbook
-  then pairs records by position from top to bottom. Missing columns/config or
+  in place by every configured key column, using ascending text order. Records are
+  paired by key whether or not this is enabled. Missing columns/config or
   duplicate/blank/NULL keys stop the selected workflow with an error instead of
   creating an unsorted workbook. Original CSV encoding, quoting,
   values and record counts are preserved, including NULL versus quoted empty string.
@@ -280,7 +283,7 @@ Mỗi case có thể tạo tối đa ba workbook theo các checkbox đang bật:
 
 Chỉ copy CSV từ `Input` vào hai folder before khi bật checkbox copy. Compare không tự xóa record, CSV hay folder before. Checkbox sắp xếp ghi thứ tự theo key vào CSV và giữ nguyên số lượng record. Workbook của workflow không được chọn được giữ nguyên.
 
-Record được ghép theo thứ tự từ trên xuống dưới của hai CSV, kể cả khi giá trị cột đầu tiên khác nhau. Nếu một phía ít record hơn, vị trí còn thiếu được để trống. Các cột metadata `ValidationErrors`, `HasErrors`, `TargetProperties` và `DataState` được bỏ qua khi compare.
+Record được ghép theo KEY cấu hình trong `[update_compare_keys]` (hỗ trợ key nhiều cột), không theo vị trí dòng. Key chỉ có ở before là DELETE, chỉ có ở after là INSERT, có ở cả hai là UPDATE hoặc UNCHANGED; key đổi giá trị được tính là DELETE + INSERT. Cặp record được sắp theo thứ tự key tăng dần, phía không tồn tại để trống. Nếu table chưa có key, thiếu column key, hoặc key NULL/rỗng/trùng, sheet đó được ghép theo vị trí dòng như trước và có cảnh báo nêu lý do. Màn hình xem kết quả hiển thị trạng thái INSERT/UPDATE/DELETE/UNCHANGED cho từng record và số lượng mỗi loại; file Excel không thay đổi cấu trúc. Các cột metadata `ValidationErrors`, `HasErrors`, `TargetProperties` và `DataState` được bỏ qua khi compare.
 
 ## FIXME review
 

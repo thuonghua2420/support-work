@@ -183,11 +183,49 @@ def extract_all_compare_keys(
     finally:
         connection.close()
     cancel()
-    old_keys = dict(load_app_config(path).update_compare_keys)
-    unchanged_count = sum(1 for table, columns in found.items() if old_keys.get(table) == columns)
-    _write_keys(path, found)
-    log(f"Saved keys for {len(found)} tables; unchanged {unchanged_count}; skipped {len(skipped)}.")
-    return CompareKeyResult(found, saved_count=len(found), existing_count=unchanged_count, skipped=tuple(skipped))
+    # Reload before merging so keys edited while querying are retained.
+    keys = dict(load_app_config(path).update_compare_keys)
+    saved_count = existing_count = conflict_count = 0
+    for table, columns in found.items():
+        if table not in keys:
+            keys[table] = columns
+            saved_count += 1
+        elif keys[table] == columns:
+            existing_count += 1
+        else:
+            conflict_count += 1
+            message = f"[{table}] Conflict: giữ key đang lưu ({', '.join(keys[table])}), DB trả về ({', '.join(columns)})"
+            skipped.append(message)
+            log(message)
+    if saved_count:
+        _write_keys(path, keys)
+    log(f"Added {saved_count} tables; kept {existing_count}; conflicts {conflict_count}; skipped {len(skipped) - conflict_count}.")
+    return CompareKeyResult(keys, saved_count=saved_count, existing_count=existing_count, skipped=tuple(skipped))
+
+
+def save_compare_key(
+    table: str,
+    columns: list[str] | tuple[str, ...],
+    config_path: Path | None = None,
+) -> CompareKeyResult:
+    if not isinstance(table, str) or any(char in table for char in "\r\n=:[]"):
+        raise ValueError(f"Unsupported config table name: {table!r}")
+    table = table.strip().casefold()
+    if not table or table[0] in "#;":
+        raise ValueError(f"Unsupported config table name: {table!r}")
+    if not isinstance(columns, (list, tuple)) or not columns or any(
+        not isinstance(col, str) or not col.strip() or any(char in col for char in ",\r\n")
+        for col in columns
+    ):
+        raise ValueError(f"Unsupported key columns for {table!r}")
+    columns = tuple(col.strip() for col in columns)
+    if len({col.casefold() for col in columns}) != len(columns):
+        raise ValueError("Key columns must be unique (case-insensitive).")
+    path = config_path if config_path is not None else default_config_path()
+    keys = dict(load_app_config(path).update_compare_keys)
+    keys[table] = columns
+    _write_keys(path, keys)
+    return CompareKeyResult(keys, saved_count=1)
 
 
 def remove_compare_keys(log: Callable[[str], None], *, config_path: Path | None = None) -> CompareKeyResult:

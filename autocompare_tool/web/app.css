@@ -278,6 +278,14 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .compare-grid tbody tr { height: var(--compare-row-height); max-height: var(--compare-row-height); }
 .compare-cell { width: var(--compare-cell-width); min-width: var(--compare-cell-width); max-width: var(--compare-cell-width); height: var(--compare-row-height); min-height: var(--compare-row-height); max-height: var(--compare-row-height); padding: 0; color: #000000; background: white; font-size: 11px; line-height: 1.35; vertical-align: top; white-space: pre; overflow: hidden; overflow-wrap: normal; }
 .compare-cell-clip { display: block; width: 100%; height: var(--compare-row-height); max-height: var(--compare-row-height); overflow: hidden; }
+.compare-status-counts { padding: 6px 12px; color: var(--ink); background: var(--surface); border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 600; }
+.compare-record-header .compare-cell-clip { display: flex; align-items: center; }
+.compare-record-header .compare-cell-value { flex: 1; min-width: 0; }
+.compare-record-status { flex: 0 0 auto; margin-right: 4px; padding: 1px 4px; border: 1px solid currentColor; border-radius: 4px; font-size: 8px; line-height: 16px; font-weight: 700; }
+.compare-record-status.status-insert { color: var(--green); background: var(--green-soft); }
+.compare-record-status.status-delete { color: var(--red); background: var(--red-soft); }
+.compare-record-status.status-update { color: var(--amber); background: var(--amber-soft); }
+.compare-record-status.status-unchanged { color: var(--blue); background: var(--blue-soft); }
 .compare-bg-a1 { background: #FFC7CE; }
 .compare-bg-header { background: #C6EFCE; }
 .compare-bg-name { background: #E2EFDA; }
@@ -625,6 +633,12 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .sql-grid-pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 9px; color: #7e8da0; font-size: 10px; }
 .sql-join-tooltip { position: fixed; z-index: 120; max-width: min(520px, calc(100vw - 24px)); padding: 10px 12px; border: 1px solid #bfd2ea; border-radius: 9px; color: #132238; background: #ffffff; box-shadow: 0 14px 38px rgba(14,31,53,.22); font: 11px/1.55 "Cascadia Code", Consolas, monospace; white-space: pre-line; pointer-events: none; opacity: 0; transform: translateY(3px); transition: opacity .12s ease, transform .12s ease; }
 .sql-join-tooltip.visible { opacity: 1; transform: translateY(0); }
+
+.compare-key-table input { min-width: 0; background: var(--surface); color: var(--ink); border-color: var(--line); }
+.compare-key-table th:last-child { width: 110px; }
+.compare-key-table .field { margin: 0; }
+.compare-key-add .field > span { color: var(--muted); }
+.compare-key-table button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 
 .activity-panel { position: fixed; right: 22px; bottom: 22px; left: auto; z-index: 90; width: min(440px, calc(100vw - 44px)); height: clamp(320px, 58vh, 520px); max-height: calc(100vh - 44px); border: 1px solid #cbd8e5; border-radius: 18px; background: #13253c; box-shadow: 0 18px 48px rgba(13,31,51,.25); overflow: hidden; transition: width .18s ease, height .18s ease, border-radius .18s ease, box-shadow .18s ease; }
 .activity-panel.collapsed { display: none; }

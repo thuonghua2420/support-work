@@ -6,7 +6,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from autocompare_tool.app_config import load_app_config
-from autocompare_tool.compare_keys import extract_all_compare_keys, extract_compare_keys, remove_compare_keys
+from autocompare_tool.compare_keys import (
+    extract_all_compare_keys, extract_compare_keys, remove_compare_keys, save_compare_key,
+)
 from autocompare_tool.database_io import (
     DatabaseColumn, DatabaseConnectionSettings, OperationCancelledError, TableMetadata, TableNotFoundError,
     validate_connection_settings,
@@ -113,7 +115,7 @@ class CompareKeyTests(unittest.TestCase):
         self.assertEqual(remove_compare_keys(lambda _: None, config_path=self.path).removed_count, 0)
         self.assertEqual(self.path.read_bytes(), original)
 
-    def test_extract_all_keys_from_connected_database_replaces_key_section(self):
+    def test_extract_all_keys_from_connected_database_only_adds_keys(self):
         self.table("orders", ["OrderNo", "LineNo"])
         self.table("customers", ["CustomerId"])
         self.metadata["audit"] = TableMetadata("dbo", "audit", [
@@ -123,12 +125,148 @@ class CompareKeyTests(unittest.TestCase):
         result = extract_all_compare_keys(self.settings, lambda _: None, config_path=self.path)
 
         self.assertEqual(result.update_compare_keys, {
+            "manual": ("BusinessCode",),
             "customers": ("CustomerId",),
             "orders": ("OrderNo", "LineNo"),
         })
         self.assertEqual((result.saved_count, result.existing_count, len(result.skipped)), (2, 0, 1))
         self.assertEqual(load_app_config(self.path).update_compare_keys, result.update_compare_keys)
         self.adapter.list_tables.assert_called_once()
+        self.metadata.clear()
+        self.table("invoices", ["InvoiceId"])
+        second = extract_all_compare_keys(self.settings, lambda _: None, config_path=self.path)
+        self.assertEqual(second.update_compare_keys, {
+            **result.update_compare_keys, "invoices": ("InvoiceId",),
+        })
+        self.assertEqual(second.saved_count, 1)
+        self.assertTrue(self.path.read_bytes().startswith(self.prefix))
+        self.assertTrue(self.path.read_bytes().endswith(self.suffix))
+
+    def test_extract_all_conflicts_keep_stored_key_and_report_warning(self):
+        self.table("manual", ["DatabaseId"])
+        self.table("orders", ["OrderId"])
+        log = Mock()
+        result = extract_all_compare_keys(self.settings, log, config_path=self.path)
+        self.assertEqual(result.update_compare_keys, {
+            "manual": ("BusinessCode",), "orders": ("OrderId",),
+        })
+        self.assertEqual((result.saved_count, result.existing_count), (1, 0))
+        self.assertEqual(len(result.skipped), 1)
+        self.assertIn("[manual] Conflict:", result.skipped[0])
+        self.assertIn("BusinessCode", result.skipped[0])
+        self.assertIn("DatabaseId", result.skipped[0])
+        log.assert_any_call(result.skipped[0])
+        log.assert_called_with("Added 1 tables; kept 0; conflicts 1; skipped 0.")
+        self.assertEqual(load_app_config(self.path).update_compare_keys, result.update_compare_keys)
+
+    def test_extract_all_without_additions_never_writes_config(self):
+        for keys, expected_existing, expected_skipped in (
+            (["BusinessCode"], 1, 0), (["OtherId"], 0, 1), ([], 0, 1),
+        ):
+            with self.subTest(keys=keys):
+                self.table("manual", keys)
+                original = self.path.read_bytes()
+                mtime = self.path.stat().st_mtime_ns
+                with patch("autocompare_tool.compare_keys._write_keys") as write:
+                    result = extract_all_compare_keys(self.settings, lambda _: None, config_path=self.path)
+                write.assert_not_called()
+                self.assertEqual(result.saved_count, 0)
+                self.assertEqual(result.existing_count, expected_existing)
+                self.assertEqual(len(result.skipped), expected_skipped)
+                self.assertEqual(result.update_compare_keys, {"manual": ("BusinessCode",)})
+                self.assertEqual(self.path.read_bytes(), original)
+                self.assertEqual(self.path.stat().st_mtime_ns, mtime)
+
+    def test_extract_all_reloads_keys_after_metadata_queries(self):
+        self.table("orders", ["OrderId"])
+
+        def concurrent_edit():
+            save_compare_key("orders", ["ManualOrderId"], self.path)
+            save_compare_key("other", ["OtherId"], self.path)
+
+        self.adapter.connect.return_value.close.side_effect = concurrent_edit
+        result = extract_all_compare_keys(self.settings, lambda _: None, config_path=self.path)
+        self.assertEqual(result.update_compare_keys, {
+            "manual": ("BusinessCode",), "orders": ("ManualOrderId",), "other": ("OtherId",),
+        })
+        self.assertEqual(result.saved_count, 0)
+        self.assertIn("Conflict:", result.skipped[0])
+
+    def test_extract_all_error_or_cancel_never_saves_partial_keys(self):
+        self.table("a", ["Id"])
+        self.table("b", ["Id"])
+        original = self.path.read_bytes()
+        for error in (RuntimeError("metadata query failed"), OperationCancelledError("cancelled")):
+            with self.subTest(error=error):
+                self.adapter.get_table.side_effect = [self.metadata["a"], error]
+                with self.assertRaises(type(error)):
+                    extract_all_compare_keys(self.settings, lambda _: None, config_path=self.path)
+                self.assertEqual(self.path.read_bytes(), original)
+        self.assertEqual(self.adapter.connect.return_value.close.call_count, 2)
+
+    def test_extract_all_cancellation_before_merge_never_writes(self):
+        self.table("a", ["Id"])
+        original = self.path.read_bytes()
+        cancel = Mock(side_effect=[None, None, OperationCancelledError("cancelled")])
+        with self.assertRaises(OperationCancelledError):
+            extract_all_compare_keys(self.settings, lambda _: None, config_path=self.path, cancel=cancel)
+        self.assertEqual(self.path.read_bytes(), original)
+        self.adapter.connect.return_value.close.assert_called_once()
+
+    def test_save_new_key_trims_and_casefolds_table_and_preserves_config(self):
+        result = save_compare_key("  Orders  ", [" OrderNo ", " LineNo "], self.path)
+        self.assertEqual(result.saved_count, 1)
+        self.assertEqual(result.update_compare_keys, {
+            "manual": ("BusinessCode",), "orders": ("OrderNo", "LineNo"),
+        })
+        self.assertEqual(load_app_config(self.path).update_compare_keys, result.update_compare_keys)
+        self.assertTrue(self.path.read_bytes().startswith(self.prefix))
+        self.assertTrue(self.path.read_bytes().endswith(self.suffix))
+        self.assertNotIn(b"\n", self.path.read_bytes().replace(b"\r\n", b""))
+
+    def test_save_existing_key_updates_only_selected_table(self):
+        save_compare_key("orders", ["OrderId"], self.path)
+        result = save_compare_key("MANUAL", ["NewCode", "Version"], self.path)
+        self.assertEqual(result.update_compare_keys, {
+            "manual": ("NewCode", "Version"), "orders": ("OrderId",),
+        })
+        self.assertEqual(load_app_config(self.path).update_compare_keys, result.update_compare_keys)
+        self.assertTrue(self.path.read_bytes().startswith(self.prefix))
+        self.assertTrue(self.path.read_bytes().endswith(self.suffix))
+
+    def test_save_rejects_invalid_names_and_columns_without_writing(self):
+        invalid_tables = [None, 1, "", "  ", "#table", ";table", " #table "]
+        invalid_tables += [f"a{char}b" for char in "\r\n=:[]"]
+        invalid_columns = [None, "Id", [], [""], [" "], [None], [1], ["Id", " id "],
+                           ["Id", "Id"], ["a,b"], ["a\nb"], ["a\rb"], ["Id\n"]]
+        original = self.path.read_bytes()
+        for table, columns in ([(table, ["Id"]) for table in invalid_tables]
+                               + [("orders", columns) for columns in invalid_columns]):
+            with self.subTest(table=table, columns=columns):
+                with self.assertRaises(ValueError):
+                    save_compare_key(table, columns, self.path)
+                self.assertEqual(self.path.read_bytes(), original)
+
+    def test_api_save_requires_string_table_and_list_of_strings(self):
+        app = AutoCompareWebApplication()
+        for payload in ({}, {"table": "orders"}, {"columns": ["Id"]},
+                        {"table": 1, "columns": ["Id"]}, {"table": None, "columns": ["Id"]},
+                        {"table": "orders", "columns": "Id"}, {"table": "orders", "columns": None},
+                        {"table": "orders", "columns": [1]}):
+            with self.subTest(payload=payload), patch.object(app.jobs, "start") as start:
+                with self.assertRaises(ValueError):
+                    app.start_action("compare_keys_save", payload)
+                start.assert_not_called()
+        self.assertNotIn("compare_keys_save", app.CONFIRMED_ACTIONS)
+        with patch.object(app.jobs, "start") as start:
+            app.start_action("compare_keys_save", {"table": "orders", "columns": ["Id"]})
+            start.assert_called_once()
+        with patch("autocompare_tool.compare_keys.default_config_path", return_value=self.path):
+            result = app._operation("compare_keys_save", {"table": "Orders", "columns": [" Id "]})(
+                lambda _: None, CancelToken(),
+            )
+        self.assertEqual(result["update_compare_keys"], {"manual": ("BusinessCode",), "orders": ("Id",)})
+        self.assertEqual(result["saved_count"], 1)
 
     def test_api_requires_connected_role_and_clear_confirmation(self):
         app = AutoCompareWebApplication()

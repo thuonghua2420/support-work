@@ -49,6 +49,41 @@ class CompareFileSafetyTests(unittest.TestCase):
             finally:
                 workbook.close()
 
+    def test_all_workflows_match_keys_without_sorting_or_mutating_csv(self):
+        original = self.snapshot()
+        result = process_root(self.case, config=self.config, sort_by_key=False)
+        self.assertFalse(result.errors)
+        self.assertFalse(result.warnings)
+        self.assertEqual(self.snapshot(), original)
+        for generated in result.test_cases[0].workbooks:
+            workbook = load_workbook(generated.output_path)
+            try:
+                sheet = workbook["orders"]
+                if generated.workflow_key == "after_htc_vs_htm":
+                    self.assertEqual([sheet.cell(4, col).value for col in (3, 5, 7)], ["A", "A", "C"])
+                    self.assertEqual(sheet["B1"].value, 0)
+                else:
+                    self.assertEqual([sheet.cell(4, col).value for col in (3, 5, 7, 9)], ["A", "A", "B", None])
+                    self.assertEqual([sheet.cell(4, col).value for col in (4, 6, 8, 10)], ["A", "A", None, "C"])
+            finally:
+                workbook.close()
+
+    def test_unusable_key_warns_but_does_not_stop_workflows(self):
+        cases = [(replace(self.config, update_compare_keys={}), None, "[update_compare_keys]"),
+                 (self.config, [["1", "A", "1", "a"], ["2", "A", "1", "b"]], "Duplicate"),
+                 (self.config, [["1", None, "1", "a"]], "NULL/blank"),
+                 (replace(self.config, update_compare_keys={"orders": ("missing",)}), None, "missing")]
+        for config, rows, reason in cases:
+            with self.subTest(reason=reason):
+                for name in (self.folders.before_htm_dir, self.folders.before_htc_dir):
+                    write_dbeaver_csv(self.output / name / "orders.csv", self.headers, rows or self.before_rows)
+                logs = []
+                result = process_root(self.case, config=config, log=logs.append, sort_by_key=False)
+                self.assertFalse(result.errors)
+                self.assertEqual(len(result.test_cases[0].workbooks), 3)
+                self.assertTrue(any(reason in warning for warning in result.warnings))
+                self.assertTrue(all(warning in logs for warning in result.warnings))
+
     def test_sheet_zoom_applies_to_every_generated_sheet(self):
         result = process_root(self.case, config=self.config, sheet_zoom=75)
         self.assertFalse(result.errors)
@@ -98,7 +133,7 @@ class CompareFileSafetyTests(unittest.TestCase):
         self.assertFalse((self.output / self.folders.before_htm_dir).exists())
         self.assertFalse((self.output / self.folders.before_htc_dir).exists())
 
-    def test_sort_writes_both_sides_then_pairs_rows_by_position(self):
+    def test_sort_writes_both_sides_then_matches_configured_keys(self):
         original_rows = {path: Counter(map(tuple, read_dbeaver_csv(path).rows)) for path in self.snapshot()}
         result = process_root(self.case, config=self.config, sort_by_key=True)
         self.assertFalse(result.errors)
@@ -111,12 +146,12 @@ class CompareFileSafetyTests(unittest.TestCase):
             sheet = workbook["orders"]
             self.assertEqual((sheet["C3"].value, sheet["D3"].value), ("3", "30"))
             self.assertEqual((sheet["C4"].value, sheet["D4"].value), ("A", "A"))
-            self.assertEqual((sheet["G4"].value, sheet["H4"].value), ("B", "C"))
-            self.assertIsNone(sheet["I4"].value)
+            self.assertEqual((sheet["G4"].value, sheet["H4"].value), ("B", None))
+            self.assertEqual((sheet["I4"].value, sheet["J4"].value), (None, "C"))
         finally:
             workbook.close()
 
-    def test_after_after_four_records_stay_four_pairs_with_or_without_sort(self):
+    def test_after_after_without_key_keeps_position_and_sort_with_key_matches_keys(self):
         current = self.output / self.folders.after_htc_dir / "orders.csv"
         new = self.output / self.folders.after_htm_dir / "orders.csv"
         write_dbeaver_csv(current, self.headers, [
@@ -130,7 +165,7 @@ class CompareFileSafetyTests(unittest.TestCase):
         original = (current.read_bytes(), new.read_bytes())
         workflow = {"after_htc_vs_htm"}
 
-        unsorted = process_root(self.case, config=self.config, selected_workflow_keys=workflow, sort_by_key=False)
+        unsorted = process_root(self.case, config=replace(self.config, update_compare_keys={}), selected_workflow_keys=workflow, sort_by_key=False)
         self.assertFalse(unsorted.errors)
         self.assertEqual((current.read_bytes(), new.read_bytes()), original)
         workbook = load_workbook(unsorted.test_cases[0].workbooks[0].output_path)

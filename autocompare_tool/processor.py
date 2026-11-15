@@ -300,6 +300,7 @@ def _write_workflow_workbook(
         include_left_only_files=is_update_compare or workflow.include_left_only_files,
         include_right_only_files=not is_update_compare,
         sheet_zoom=sheet_zoom,
+        key_columns_by_table=config.update_compare_keys,
     )
     return WorkbookResult(
         output_path=write_result.output_path,

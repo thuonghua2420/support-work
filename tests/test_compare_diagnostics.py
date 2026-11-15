@@ -97,8 +97,8 @@ class CompareDiagnosticsTests(unittest.TestCase):
     def test_header_difference_is_a_warning_and_all_columns_remain_in_workbook(self):
         self.right.write_bytes(b'id,current,extra\n1,new,x\n')
         result = self.compare()
-        self.assertEqual(len(result.warnings), 1)
-        warning = result.warnings[0]
+        self.assertEqual(len(result.warnings), 2)
+        warning = next(warning for warning in result.warnings if "Header hai file" in warning)
         for expected in (str(self.left), str(self.right), "Số column trái: 2", "Số column phải: 3", "cột 2: 'text'", "cột 2: 'current'", "cột 3: 'extra'"):
             self.assertIn(expected, warning)
         workbook = load_workbook(self.output)
