@@ -1082,6 +1082,7 @@ function bindForms() {
         csv_path: valueOf("db-csv-path"),
         settings: getDbSettings("main"),
         keep_identity: checked("db-keep-identity"),
+        disable_triggers: checked("db-disable-triggers"),
         existing_row_mode: importMode,
         confirmed: true,
       });
@@ -1101,6 +1102,7 @@ function bindForms() {
         csv_path: valueOf("db-csv-path"),
         settings: getDbSettings("main"),
         keep_identity: checked("db-keep-identity"),
+        disable_triggers: checked("db-disable-triggers"),
         existing_row_mode: importMode,
         table_names: tableNames,
         confirmed: true,
@@ -1696,7 +1698,11 @@ function importConfirmation(importMode, tableNames = []) {
       message: `CẢNH BÁO: ${scopeText} sẽ được nhập sau khi xóa sạch các table tương ứng và mọi table tham chiếu trực tiếp hoặc gián tiếp đến chúng, bao gồm cả table ngoài folder CSV. Dữ liệu đã xóa có thể không khôi phục được nếu bước nhập thất bại.`,
     },
   };
-  return confirmations[importMode] || confirmations.append;
+  const confirmation = confirmations[importMode] || confirmations.append;
+  if (checked("db-disable-triggers")) {
+    confirmation.message += " Trên CSDL hỗ trợ, trigger của các table nhập và các table bị xóa dữ liệu sẽ tạm thời bị tắt rồi bật lại, nên các dòng do trigger tạo ra sẽ không được sinh.";
+  }
+  return confirmation;
 }
 
 function syncImportButtonLabel() {

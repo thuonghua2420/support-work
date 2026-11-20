@@ -6,6 +6,7 @@ import pickle
 import re
 import tempfile
 import time as time_module
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -389,8 +390,17 @@ class CsvColumnMapping:
     skipped_columns: tuple[str, ...] = ()
 
 
+class _CatalogTriggerName(str):
+    def __new__(cls, name: str, *, owner: str = "", mode: str = ""):
+        trigger = super().__new__(cls, name)
+        trigger.owner = owner
+        trigger.mode = mode
+        return trigger
+
+
 class DatabaseAdapter:
     transactional_truncate = True
+    supports_trigger_bypass = False
 
     def connect(self, settings: DatabaseConnectionSettings):
         raise NotImplementedError
@@ -508,6 +518,20 @@ class DatabaseAdapter:
     def validate_import_clear(self, cursor, tables: Sequence[TableMetadata]) -> None:
         return None
 
+    def list_enabled_triggers(self, cursor, metadata: TableMetadata) -> list[str]:
+        raise NotImplementedError
+
+    def disable_triggers(self, cursor, metadata: TableMetadata, names: Sequence[str]) -> None:
+        for name in names:
+            cursor.execute(self._trigger_sql(metadata, name, enabled=False))
+
+    def enable_triggers(self, cursor, metadata: TableMetadata, names: Sequence[str]) -> None:
+        for name in names:
+            cursor.execute(self._trigger_sql(metadata, name, enabled=True))
+
+    def _trigger_sql(self, metadata: TableMetadata, name: str, *, enabled: bool) -> str:
+        raise NotImplementedError
+
     def before_import(
         self,
         cursor,
@@ -531,6 +555,8 @@ class DatabaseAdapter:
 
 
 class SqlServerAdapter(DatabaseAdapter):
+    supports_trigger_bypass = True
+
     def connect(self, settings: DatabaseConnectionSettings):
         try:
             import pyodbc
@@ -545,6 +571,23 @@ class SqlServerAdapter(DatabaseAdapter):
 
     def quote_identifier(self, value: str) -> str:
         return "[" + value.replace("]", "]]") + "]"
+
+    def list_enabled_triggers(self, cursor, metadata: TableMetadata) -> list[str]:
+        self.execute(
+            cursor,
+            """
+            SELECT name FROM sys.triggers
+            WHERE parent_class = 1 AND parent_id = OBJECT_ID(?) AND is_disabled = 0
+            ORDER BY name
+            """,
+            (self.qualified_table(metadata),),
+        )
+        return [str(row[0]) for row in cursor.fetchall()]
+
+    def _trigger_sql(self, metadata: TableMetadata, name: str, *, enabled: bool) -> str:
+        action = "ENABLE" if enabled else "DISABLE"
+        trigger = f"{self.quote_identifier(metadata.schema)}.{self.quote_identifier(name)}"
+        return f"{action} TRIGGER {trigger} ON {self.qualified_table(metadata)}"
 
     def default_schema(self, settings: DatabaseConnectionSettings) -> str:
         return settings.schema.strip() or "dbo"
@@ -914,6 +957,8 @@ class MySqlAdapter(DatabaseAdapter):
 
 
 class PostgreSqlAdapter(DatabaseAdapter):
+    supports_trigger_bypass = True
+
     def connect(self, settings: DatabaseConnectionSettings):
         try:
             import psycopg
@@ -930,6 +975,25 @@ class PostgreSqlAdapter(DatabaseAdapter):
 
     def placeholder(self, index: int) -> str:
         return "%s"
+
+    def list_enabled_triggers(self, cursor, metadata: TableMetadata) -> list[str]:
+        self.execute(
+            cursor,
+            """
+            SELECT tgname, tgenabled::text FROM pg_catalog.pg_trigger
+            WHERE tgrelid = %s::regclass AND NOT tgisinternal AND tgenabled <> 'D'
+            ORDER BY tgname
+            """,
+            (self.qualified_table(metadata),),
+        )
+        return [_CatalogTriggerName(str(name), mode=mode) for name, mode in cursor.fetchall()]
+
+    def _trigger_sql(self, metadata: TableMetadata, name: str, *, enabled: bool) -> str:
+        action = "DISABLE"
+        if enabled:
+            action = {"A": "ENABLE ALWAYS", "R": "ENABLE REPLICA"}.get(getattr(name, "mode", ""), "ENABLE")
+        # ONLY prevents changing the enable state of trigger clones on other tables.
+        return f"ALTER TABLE ONLY {self.qualified_table(metadata)} {action} TRIGGER {self.quote_identifier(name)}"
 
     def stream_cursor(self, connection):
         return connection.cursor(name="autocompare_sync_stream")
@@ -1089,6 +1153,7 @@ class PostgreSqlAdapter(DatabaseAdapter):
 
 class OracleAdapter(DatabaseAdapter):
     transactional_truncate = False
+    supports_trigger_bypass = True
 
     def connect(self, settings: DatabaseConnectionSettings):
         try:
@@ -1111,6 +1176,24 @@ class OracleAdapter(DatabaseAdapter):
 
     def placeholder(self, index: int) -> str:
         return f":{index + 1}"
+
+    def list_enabled_triggers(self, cursor, metadata: TableMetadata) -> list[str]:
+        self.execute(
+            cursor,
+            """
+            SELECT trigger_name, owner FROM all_triggers
+            WHERE table_owner = :1 AND table_name = :2 AND status = 'ENABLED'
+            ORDER BY owner, trigger_name
+            """,
+            (metadata.schema, metadata.name),
+        )
+        return [_CatalogTriggerName(str(name), owner=str(owner)) for name, owner in cursor.fetchall()]
+
+    def _trigger_sql(self, metadata: TableMetadata, name: str, *, enabled: bool) -> str:
+        action = "ENABLE" if enabled else "DISABLE"
+        owner = getattr(name, "owner", "") or metadata.schema
+        trigger = f"{self.quote_identifier(owner)}.{self.quote_identifier(name)}"
+        return f"ALTER TRIGGER {trigger} {action}"
 
     def default_schema(self, settings: DatabaseConnectionSettings) -> str:
         return (settings.schema.strip() or settings.username).upper()
@@ -1579,6 +1662,90 @@ def _record_import_cycles(
             _record_import_table_error(tables[key], imports.get(key, ()), summary, logger, error)
 
 
+class _TriggerDisableError(RuntimeError):
+    pass
+
+
+@contextmanager
+def _postgresql_trigger_savepoint(adapter: DatabaseAdapter, cursor):
+    if not isinstance(adapter, PostgreSqlAdapter):
+        yield
+        return
+    adapter.execute(cursor, "SAVEPOINT autocompare_triggers")
+    try:
+        yield
+    except BaseException as exc:
+        try:
+            adapter.execute(cursor, "ROLLBACK TO SAVEPOINT autocompare_triggers")
+            adapter.execute(cursor, "RELEASE SAVEPOINT autocompare_triggers")
+        except Exception as recovery_error:
+            raise exc from recovery_error
+        raise
+    else:
+        adapter.execute(cursor, "RELEASE SAVEPOINT autocompare_triggers")
+
+
+def _disable_import_triggers(
+    adapter: DatabaseAdapter, cursor, metadata: TableMetadata, disabled: list[str], logger: Logger,
+) -> None:
+    table = f"{metadata.schema}.{metadata.name}"
+    try:
+        with _postgresql_trigger_savepoint(adapter, cursor):
+            names = adapter.list_enabled_triggers(cursor, metadata)
+            if names:
+                # Oracle ALTER TRIGGER implicitly commits, including work preceding the DDL.
+                ddl_note = " (DDL Oracle tự động commit)" if isinstance(adapter, OracleAdapter) else ""
+                logger(f"Tắt trigger tạm thời trên {table}: {', '.join(names)}{ddl_note}")
+            for name in names:
+                adapter.disable_triggers(cursor, metadata, [name])
+                disabled.append(name)
+    except OperationCancelledError:
+        raise
+    except Exception as exc:
+        if isinstance(adapter, PostgreSqlAdapter):
+            disabled.clear()  # Rolling back the savepoint undoes any partial disable.
+        raise _TriggerDisableError(
+            f'Không tắt được trigger trên {table}: {exc}. Bỏ tùy chọn "Tắt trigger" hoặc cấp quyền ALTER.'
+        ) from exc
+
+
+def _restore_import_triggers(
+    adapter: DatabaseAdapter, cursor, metadata: TableMetadata, disabled: Sequence[str],
+) -> RuntimeError | None:
+    failed = []
+    for name in disabled:
+        try:
+            with _postgresql_trigger_savepoint(adapter, cursor):
+                adapter.enable_triggers(cursor, metadata, [name])
+        except Exception:
+            failed.append(name)
+    if not failed:
+        return None
+    table = f"{metadata.schema}.{metadata.name}"
+    sql = "; ".join(adapter._trigger_sql(metadata, name, enabled=True) for name in failed) + ";"
+    return RuntimeError(
+        f"NGUY HIỂM: không bật lại được trigger {', '.join(failed)} trên {table}. Chạy thủ công: {sql}"
+    )
+
+
+@contextmanager
+def _import_trigger_writes(connection, adapter: DatabaseAdapter, cursor, logger: Logger):
+    try:
+        with _postgresql_trigger_savepoint(adapter, cursor):
+            yield
+            if isinstance(adapter, PostgreSqlAdapter):
+                # Check pending deferred FK events before ALTER TABLE re-enables the user triggers.
+                adapter.execute(cursor, "SET CONSTRAINTS ALL IMMEDIATE")
+    except BaseException:
+        if isinstance(adapter, OracleAdapter):
+            # ENABLE is DDL and would otherwise commit partial writes after an error or cancellation.
+            try:
+                connection.rollback()
+            except Exception as exc:
+                logger(f"Không thể rollback trước khi bật lại trigger Oracle: {exc}")
+        raise
+
+
 def _clear_import_tables(
     connection,
     adapter: DatabaseAdapter,
@@ -1588,6 +1755,8 @@ def _clear_import_tables(
     summary: DatabaseCsvSummary,
     logger: Logger,
     cancel: CancelChecker | None,
+    *,
+    disable_triggers: bool = False,
 ) -> set[_TableKey]:
     tables = {key: csvs[0][1] for key, csvs in imports.items()}
     parents: dict[_TableKey, set[_TableKey]] = {}
@@ -1630,18 +1799,53 @@ def _clear_import_tables(
 
     cursor = None
     target = "bắt đầu pha xóa dữ liệu"
+    disabled: dict[_TableKey, list[str]] = {}
+    restore_failed: set[_TableKey] = set()
     try:
         _check_cancel(cancel)
         cursor = connection.cursor()
         adapter.validate_import_clear(cursor, [tables[key] for key, _ in clear_steps])
-        for key, action in clear_steps:
-            _check_cancel(cancel)
-            target = f"{action} {labels[key]}"
-            if action == "TRUNCATE TABLE":
-                adapter.truncate_table(cursor, tables[key])
-            else:
-                adapter.execute(cursor, target)
-        _check_cancel(cancel)
+        try:
+            if disable_triggers:
+                blocked = set()
+                clear_roots = {key for key, _ in clear_steps if key in imports}
+                for key, _ in clear_steps:
+                    _check_cancel(cancel)
+                    if key in blocked:
+                        continue
+                    try:
+                        _disable_import_triggers(adapter, cursor, tables[key], disabled.setdefault(key, []), logger)
+                    except _TriggerDisableError as exc:
+                        _record_import_table_error(tables[key], imports.get(key, ()), summary, logger, exc)
+                        affected = _related_tables([key], parents)
+                        for parent in sorted((affected - blocked - {key}) & clear_roots):
+                            error = RuntimeError(f"Không thể xóa dữ liệu vì table phụ thuộc {labels[key]} gặp lỗi: {exc}")
+                            _record_import_table_error(tables[parent], imports[parent], summary, logger, error)
+                        blocked.update(affected)
+                clearable = _related_tables(clear_roots - blocked, children)
+                clear_steps = [(key, action) for key, action in clear_steps if key in clearable]
+            # Disable all triggers before clearing any rows so Oracle's DDL cannot commit a partial clear.
+            with _import_trigger_writes(connection, adapter, cursor, logger) if any(disabled.values()) else nullcontext():
+                for key, action in clear_steps:
+                    _check_cancel(cancel)
+                    target = f"{action} {labels[key]}"
+                    if action == "TRUNCATE TABLE":
+                        adapter.truncate_table(cursor, tables[key])
+                    else:
+                        adapter.execute(cursor, target)
+                _check_cancel(cancel)
+        finally:
+            for key, names in disabled.items():
+                error = _restore_import_triggers(adapter, cursor, tables[key], names)
+                if error is not None:
+                    _record_import_table_error(tables[key], imports.get(key, ()), summary, logger, error)
+                    restore_failed.add(key)
+        if restore_failed:
+            target = "bật lại trigger"
+            raise RuntimeError("Không thể bật lại toàn bộ trigger sau khi xóa dữ liệu.")
+        if not clear_steps:
+            connection.rollback()
+            return set()
         target = "commit pha xóa dữ liệu"
         connection.commit()
     except Exception as exc:
@@ -1653,12 +1857,13 @@ def _clear_import_tables(
             raise
         error = RuntimeError(f"Pha xóa dữ liệu thất bại tại {target}: {exc}")
         for key, _ in clear_steps:
-            _record_import_table_error(tables[key], imports.get(key, ()), summary, logger, error)
+            if key not in restore_failed:
+                _record_import_table_error(tables[key], imports.get(key, ()), summary, logger, error)
         return set()
     finally:
         if cursor is not None:
             _close_cursor(cursor)
-    return set(order)
+    return {key for key, _ in clear_steps}
 
 
 def import_csv_folder(
@@ -1669,11 +1874,15 @@ def import_csv_folder(
     existing_row_mode: str = IMPORT_MODE_APPEND,
     cancel: CancelChecker | None = None,
     table_names: Iterable[str] | str | None = None,
+    disable_triggers: bool = False,
 ) -> DatabaseCsvSummary:
     root = _validate_folder(root_path, must_exist=True)
     settings = validate_connection_settings(settings)
     adapter = get_adapter(settings.normalized_type)
     logger = log or (lambda message: None)
+    if disable_triggers and not adapter.supports_trigger_bypass:
+        logger(f"Không hỗ trợ tắt trigger trên {DATABASE_LABELS[settings.normalized_type]}; import tiếp tục với trigger đang bật.")
+        disable_triggers = False
     existing_row_mode = _validate_import_mode(existing_row_mode)
     requested_tables = _parse_table_names(table_names)
     requested_table_keys = {name.casefold() for name in requested_tables}
@@ -1717,7 +1926,10 @@ def import_csv_folder(
         cleared = set()
         if edges:
             if truncate_mode:
-                cleared = _clear_import_tables(connection, adapter, imports, edges, csv_stems, summary, logger, cancel)
+                cleared = _clear_import_tables(
+                    connection, adapter, imports, edges, csv_stems, summary, logger, cancel,
+                    disable_triggers=disable_triggers,
+                )
                 import_order, _ = order_tables_by_dependency(imports.keys() & cleared, edges)
             else:
                 import_order, cycles = order_tables_by_dependency(imports, edges)
@@ -1737,6 +1949,7 @@ def import_csv_folder(
                 _import_one_csv(
                     connection, adapter, settings, root, csv_path, keep_identity, summary, logger,
                     existing_row_mode, cancel, already_cleared=key in cleared, metadata=metadata,
+                    disable_triggers=disable_triggers,
                 )
         summary.skipped_items.extend(
             DatabaseCsvIssue(name, "Không tìm thấy CSV phù hợp với table đã chọn")
@@ -2098,8 +2311,10 @@ def _import_one_csv(
     *,
     already_cleared: bool = False,
     metadata: TableMetadata | None = None,
+    disable_triggers: bool = False,
 ) -> None:
     relative_csv_path = _relative_to(csv_path, root)
+    restore_error = None
     try:
         _check_cancel(cancel)
         prepared = _read_import_csv(connection, adapter, settings, root, csv_path, keep_identity, summary, logger, metadata)
@@ -2114,36 +2329,50 @@ def _import_one_csv(
         _check_cancel(cancel)
         cursor = connection.cursor()
         insert_sql = adapter.insert_sql(metadata, mapping.columns, keep_identity)
+        disabled: list[str] = []
         try:
-            if not already_cleared or existing_row_mode != IMPORT_MODE_TRUNCATE_TABLE:
-                _prepare_table_for_import(
-                    cursor,
-                    adapter,
-                    metadata,
-                    table,
-                    mapping,
-                    existing_row_mode,
-                    relative_csv_path,
-                    logger,
-                    cancel,
-                )
-            adapter.before_import(cursor, metadata, mapping.columns, keep_identity)
-            import_error: Exception | None = None
             try:
-                if insert_rows:
-                    _check_cancel(cancel)
-                    adapter.executemany(cursor, insert_sql, insert_rows)
-                    _check_cancel(cancel)
-            except Exception as exc:
-                import_error = exc
-            try:
-                adapter.after_import(cursor, metadata, mapping.columns, keep_identity)
-            except Exception as cleanup_exc:
-                if import_error is None:
-                    raise
-                logger(f"{relative_csv_path} -> lỗi khi dọn trạng thái identity: {cleanup_exc}")
-            if import_error is not None:
-                raise import_error
+                if disable_triggers:
+                    _disable_import_triggers(adapter, cursor, metadata, disabled, logger)
+                with _import_trigger_writes(connection, adapter, cursor, logger) if disabled else nullcontext():
+                    if not already_cleared or existing_row_mode != IMPORT_MODE_TRUNCATE_TABLE:
+                        _prepare_table_for_import(
+                            cursor,
+                            adapter,
+                            metadata,
+                            table,
+                            mapping,
+                            existing_row_mode,
+                            relative_csv_path,
+                            logger,
+                            cancel,
+                        )
+                    adapter.before_import(cursor, metadata, mapping.columns, keep_identity)
+                    import_error: Exception | None = None
+                    try:
+                        if insert_rows:
+                            _check_cancel(cancel)
+                            adapter.executemany(cursor, insert_sql, insert_rows)
+                            _check_cancel(cancel)
+                    except Exception as exc:
+                        import_error = exc
+                    try:
+                        adapter.after_import(cursor, metadata, mapping.columns, keep_identity)
+                    except Exception as cleanup_exc:
+                        if import_error is None:
+                            raise
+                        logger(f"{relative_csv_path} -> lỗi khi dọn trạng thái identity: {cleanup_exc}")
+                    if import_error is not None:
+                        raise import_error
+                    if disable_triggers:
+                        _check_cancel(cancel)
+            finally:
+                restore_error = _restore_import_triggers(adapter, cursor, metadata, disabled)
+                if restore_error is not None:
+                    _record_error(summary, logger, csv_path, restore_error, table=csv_path.stem)
+            if restore_error is not None:
+                connection.rollback()
+                return
             connection.commit()
         except Exception:
             connection.rollback()
@@ -2167,7 +2396,10 @@ def _import_one_csv(
     except OperationCancelledError:
         raise
     except Exception as exc:
-        _record_error(summary, logger, csv_path, exc, table=csv_path.stem)
+        if restore_error is None:
+            _record_error(summary, logger, csv_path, exc, table=csv_path.stem)
+        else:
+            logger(f"LỖI {csv_path}: {exc}")
 
 
 def _prepare_table_for_import(

@@ -2,6 +2,23 @@
 
 Use this file for lightweight architecture decisions. Add newest entries at the top.
 
+## 2026-11-20 - Import Respects Foreign Keys, Can Bypass Triggers, Reports Every Table
+
+Decision:
+
+- Import orders tables parents-first from FK metadata; truncate mode also clears dependent tables outside the CSV folder (children first, one transaction per database) because otherwise the database refuses to delete. Per-CSV commits are kept for inserts.
+- Add an opt-in `disable_triggers` import option that temporarily disables enabled triggers on the written tables (SQL Server, PostgreSQL, Oracle) so an unrelated trigger target cannot fail the import. MySQL cannot do this.
+- Import/export report succeeded / failed / skipped tables with reasons in the log and the result payload.
+
+Why:
+
+- Alphabetical CSV order and per-table `TRUNCATE` failed on databases with foreign keys; triggers that copy rows into stricter log tables made inserts fail for reasons unrelated to the imported table.
+
+Consequences:
+
+- Truncate is more destructive (extra tables emptied); the confirmation text and log say so. After a clear, a CSV that later fails to insert leaves its table empty.
+- Trigger bypass needs ALTER privileges, skips trigger-generated rows, and Oracle's trigger DDL auto-commits. FK/trigger SQL is covered by mocks only; verify on a test database before production use.
+
 ## 2026-11-15 - Key Extraction Is Add-Only, Keys Editable In The UI
 
 Decision:

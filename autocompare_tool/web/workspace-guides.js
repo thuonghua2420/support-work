@@ -225,6 +225,7 @@ function prepareWorkspaceGuides() {
       ["Import CSV vào database",
         "Chọn Folder CSV rồi Quét file CSV. Chỉ CSV nằm trực tiếp trong folder được đọc; tên file (không có .csv) phải trùng tên table, CSV không có table tương ứng bị bỏ qua.",
         "Chọn cách xử lý dữ liệu hiện có: Insert thêm, Xóa record trùng key (xóa record trùng toàn bộ primary key của CSV rồi insert) hoặc Truncate toàn table. Bật giữ identity nếu cần và database hỗ trợ.",
+        "Tắt trigger của table khi import cần quyền ALTER và bỏ qua việc tạo log từ trigger. MySQL không hỗ trợ.",
         "Import All xử lý mọi CSV đã quét; Import Single chỉ xử lý table đang chọn (Ctrl+A chọn cả danh sách). Đọc hộp xác nhận rồi mới chạy.",
         "! Truncate xóa sạch table nhập và mọi table tham chiếu trực tiếp hoặc gián tiếp, kể cả ngoài folder CSV."],
       ["Export database ra CSV",

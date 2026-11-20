@@ -411,14 +411,17 @@ class WebApplicationTests(unittest.TestCase):
         summary = DatabaseCsvSummary(action_name="Nhập CSV vào CSDL", root_path=Path.cwd())
         cancel = type("Cancel", (), {"throw_if_cancelled": lambda self: None})()
 
-        with patch("autocompare_tool.web_app.import_csv_folder", return_value=summary) as import_mock:
-            operation = app._operation("db_import", payload)
-            operation(lambda _message: None, cancel)
+        for trigger_option, expected in (({}, False), ({"disable_triggers": True}, True), ({"disable_triggers": "false"}, False)):
+            with self.subTest(trigger_option=trigger_option):
+                with patch("autocompare_tool.web_app.import_csv_folder", return_value=summary) as import_mock:
+                    operation = app._operation("db_import", {**payload, **trigger_option})
+                    operation(lambda _message: None, cancel)
 
-        self.assertTrue(import_mock.call_args.kwargs["keep_identity"])
-        self.assertEqual("delete_matching_keys", import_mock.call_args.kwargs["existing_row_mode"])
-        self.assertEqual(["customers", "orders"], import_mock.call_args.kwargs["table_names"])
-        self.assertIsNotNone(import_mock.call_args.kwargs["log"])
+                self.assertTrue(import_mock.call_args.kwargs["keep_identity"])
+                self.assertIs(import_mock.call_args.kwargs["disable_triggers"], expected)
+                self.assertEqual("delete_matching_keys", import_mock.call_args.kwargs["existing_row_mode"])
+                self.assertEqual(["customers", "orders"], import_mock.call_args.kwargs["table_names"])
+                self.assertIsNotNone(import_mock.call_args.kwargs["log"])
 
     def test_database_summary_keeps_legacy_keys_and_serializes_table_results(self) -> None:
         root = Path.cwd()

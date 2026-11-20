@@ -1031,6 +1031,200 @@ class ForeignKeyImportTests(unittest.TestCase):
                 cursor.execute.assert_called_once()
                 cursor.close.assert_called_once()
 
+    def test_adapter_trigger_sql_quotes_identifiers_and_filters_enabled_triggers(self) -> None:
+        metadata = TableMetadata("dbo", "items", [])
+        cases = [
+            (SqlServerAdapter(), [('audit]"',)], ("sys.triggers", "parent_class = 1", "OBJECT_ID(?)", "is_disabled = 0"),
+             ("[dbo].[items]",), 'DISABLE TRIGGER [dbo].[audit]]"] ON [dbo].[items]',
+             'ENABLE TRIGGER [dbo].[audit]]"] ON [dbo].[items]'),
+            (PostgreSqlAdapter(), [('audit]"', "R")], ("pg_trigger", "%s::regclass", "NOT tgisinternal", "tgenabled <> 'D'"),
+             ('"dbo"."items"',), 'ALTER TABLE ONLY "dbo"."items" DISABLE TRIGGER "audit]"""',
+             'ALTER TABLE ONLY "dbo"."items" ENABLE REPLICA TRIGGER "audit]"""'),
+            (OracleAdapter(), [("audit]", "Other Owner")], ("all_triggers", "table_owner = :1", "table_name = :2", "status = 'ENABLED'"),
+             ("dbo", "items"), 'ALTER TRIGGER "Other Owner"."audit]" DISABLE',
+             'ALTER TRIGGER "Other Owner"."audit]" ENABLE'),
+        ]
+        for adapter, rows, fragments, params, disable_sql, enable_sql in cases:
+            with self.subTest(adapter=type(adapter).__name__):
+                cursor = Mock()
+                cursor.fetchall.return_value = rows
+                self.assertTrue(adapter.supports_trigger_bypass)
+                names = adapter.list_enabled_triggers(cursor, metadata)
+                self.assertEqual(names, [rows[0][0]])
+                query, bound = cursor.execute.call_args.args
+                for fragment in fragments:
+                    self.assertIn(fragment, query)
+                self.assertEqual(bound, params[0] if isinstance(adapter, SqlServerAdapter) else params)
+                adapter.disable_triggers(cursor, metadata, names)
+                adapter.enable_triggers(cursor, metadata, names)
+                self.assertEqual([call.args for call in cursor.execute.call_args_list[1:]], [(disable_sql,), (enable_sql,)])
+
+    def test_trigger_bypass_is_opt_in_and_turns_off_only_catalog_results(self) -> None:
+        self._write_csvs("items")
+        delete = "DELETE FROM [dbo].[items] WHERE [id] = ?"
+        insert = "INSERT INTO [dbo].[items] ([id]) VALUES (?)"
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled):
+                adapter = SqlServerTriggerImportAdapter(["items"], [])
+                logs = []
+                log_line = "Tắt trigger tạm thời trên dbo.items: audit, trace"
+                adapter.trigger_names = ["audit", "trace"]
+
+                def execute_logged_ddl(sql):
+                    self.assertIn(log_line, logs)
+                    adapter.execute(None, sql)
+
+                adapter.connection.cursor.return_value.execute.side_effect = execute_logged_ddl
+                with patch("autocompare_tool.database_io.get_adapter", return_value=adapter):
+                    summary = import_csv_folder(
+                        self.root, self.settings, existing_row_mode=IMPORT_MODE_DELETE_MATCHING_KEYS,
+                        disable_triggers=enabled, log=logs.append,
+                    )
+                expected = [delete, insert, "commit"]
+                if enabled:
+                    expected = [
+                        "list dbo.items", "DISABLE TRIGGER [dbo].[audit] ON [dbo].[items]",
+                        "DISABLE TRIGGER [dbo].[trace] ON [dbo].[items]", delete, insert,
+                        "ENABLE TRIGGER [dbo].[audit] ON [dbo].[items]",
+                        "ENABLE TRIGGER [dbo].[trace] ON [dbo].[items]", "commit",
+                    ]
+                self.assertEqual(adapter.writes, [(sql,) for sql in expected])
+                self.assertEqual(logs.count(log_line), int(enabled))
+                self.assertEqual(summary.succeeded, [DatabaseCsvSuccess("items", 1)])
+
+    def test_trigger_cleanup_follows_failed_or_cancelled_insert(self) -> None:
+        self._write_csvs("items")
+        insert = "INSERT INTO [dbo].[items] ([id]) VALUES (?)"
+        for cancelled in (False, True):
+            with self.subTest(cancelled=cancelled):
+                adapter = SqlServerTriggerImportAdapter(["items"], [], fail_sql=None if cancelled else insert)
+
+                def cancel():
+                    if cancelled and (insert,) in adapter.writes:
+                        raise OperationCancelledError()
+
+                if cancelled:
+                    with self.assertRaises(OperationCancelledError):
+                        self._import(adapter, disable_triggers=True, cancel=cancel)
+                else:
+                    summary, _ = self._import(adapter, disable_triggers=True, cancel=cancel)
+                    self.assertEqual([item.table for item in summary.failed], ["items"])
+                self.assertEqual(adapter.writes, [
+                    ("list dbo.items",), ("DISABLE TRIGGER [dbo].[audit] ON [dbo].[items]",),
+                    (insert,), ("ENABLE TRIGGER [dbo].[audit] ON [dbo].[items]",), ("rollback",),
+                ])
+
+    def test_trigger_bypass_clears_outside_table_before_inserting(self) -> None:
+        self._write_csvs("parent")
+        adapter = SqlServerTriggerImportAdapter(["parent"], [_fk("outside", "parent")])
+        summary, _ = self._import(adapter, IMPORT_MODE_TRUNCATE_TABLE, disable_triggers=True)
+        self.assertEqual(adapter.writes, [(sql,) for sql in [
+            "list dbo.outside", "DISABLE TRIGGER [dbo].[audit] ON [dbo].[outside]",
+            "list dbo.parent", "DISABLE TRIGGER [dbo].[audit] ON [dbo].[parent]",
+            "TRUNCATE TABLE [dbo].[outside]", "DELETE FROM [dbo].[parent]",
+            "ENABLE TRIGGER [dbo].[audit] ON [dbo].[outside]", "ENABLE TRIGGER [dbo].[audit] ON [dbo].[parent]",
+            "commit", "list dbo.parent", "DISABLE TRIGGER [dbo].[audit] ON [dbo].[parent]",
+            "INSERT INTO [dbo].[parent] ([id]) VALUES (?)", "ENABLE TRIGGER [dbo].[audit] ON [dbo].[parent]", "commit",
+        ]])
+        self.assertEqual(summary.succeeded, [DatabaseCsvSuccess("parent", 1)])
+
+    def test_trigger_bypass_disable_failure_skips_table_and_continues(self) -> None:
+        self._write_csvs("bad", "good")
+        adapter = SqlServerTriggerImportAdapter(
+            ["bad", "good"], [], fail_sql="DISABLE TRIGGER [dbo].[audit] ON [dbo].[bad]",
+        )
+        summary, logs = self._import(adapter, disable_triggers=True)
+        self.assertEqual(summary.succeeded, [DatabaseCsvSuccess("good", 1)])
+        self.assertEqual(summary.failed, [DatabaseCsvIssue(
+            "bad", 'Không tắt được trigger trên dbo.bad: FK driver failure. Bỏ tùy chọn "Tắt trigger" hoặc cấp quyền ALTER.',
+        )])
+        self.assertNotIn(("INSERT INTO [dbo].[bad] ([id]) VALUES (?)",), adapter.writes)
+        self.assertLess(logs.index("Tắt trigger tạm thời trên dbo.bad: audit"),
+                        next(index for index, message in enumerate(logs) if "Không tắt được trigger" in message))
+
+    def test_clear_trigger_disable_failure_blocks_fk_parent_and_clears_unrelated_table(self) -> None:
+        self._write_csvs("parent", "unrelated")
+        adapter = SqlServerTriggerImportAdapter(
+            ["parent", "unrelated"], [_fk("outside", "parent")],
+            fail_sql="DISABLE TRIGGER [dbo].[audit] ON [dbo].[outside]",
+        )
+        summary, _ = self._import(adapter, IMPORT_MODE_TRUNCATE_TABLE, disable_triggers=True)
+        self.assertEqual([item.table for item in summary.failed], ["dbo.outside", "parent"])
+        self.assertEqual(summary.succeeded, [DatabaseCsvSuccess("unrelated", 1)])
+        self.assertIn(("TRUNCATE TABLE [dbo].[unrelated]",), adapter.writes)
+        self.assertNotIn(("DELETE FROM [dbo].[parent]",), adapter.writes)
+        self.assertNotIn(("TRUNCATE TABLE [dbo].[outside]",), adapter.writes)
+
+    def test_trigger_enable_failure_logs_repair_sql_and_fails_table(self) -> None:
+        self._write_csvs("items")
+        enable = "ENABLE TRIGGER [dbo].[audit] ON [dbo].[items]"
+        adapter = SqlServerTriggerImportAdapter(["items"], [], fail_sql=enable)
+        adapter.trigger_names = ["audit", "trace"]
+        summary, logs = self._import(adapter, disable_triggers=True)
+        error = f"NGUY HIỂM: không bật lại được trigger audit trên dbo.items. Chạy thủ công: {enable};"
+        self.assertEqual(summary.failed, [DatabaseCsvIssue("items", error)])
+        self.assertTrue(any(error in message for message in logs))
+        self.assertEqual(summary.succeeded, [])
+        self.assertEqual(adapter.writes[-4:], [
+            ("INSERT INTO [dbo].[items] ([id]) VALUES (?)",), (enable,),
+            ("ENABLE TRIGGER [dbo].[trace] ON [dbo].[items]",), ("rollback",),
+        ])
+
+    def test_postgresql_recovers_failed_insert_transaction_before_enabling_trigger(self) -> None:
+        class TriggerAdapter(TriggerImportAdapter, PostgreSqlAdapter):
+            pass
+
+        self._write_csvs("items")
+        insert = 'INSERT INTO "dbo"."items" ("id") VALUES (%s)'
+        adapter = TriggerAdapter(["items"], [], fail_sql=insert)
+        summary, _ = self._import(adapter, disable_triggers=True)
+        self.assertEqual(adapter.writes[-7:], [(sql,) for sql in [
+            insert, "ROLLBACK TO SAVEPOINT autocompare_triggers", "RELEASE SAVEPOINT autocompare_triggers",
+            "SAVEPOINT autocompare_triggers", 'ALTER TABLE ONLY "dbo"."items" ENABLE TRIGGER "audit"',
+            "RELEASE SAVEPOINT autocompare_triggers", "rollback",
+        ]])
+        self.assertEqual([item.table for item in summary.failed], ["items"])
+
+    def test_oracle_clear_rolls_back_before_enabling_triggers_after_failure(self) -> None:
+        class TriggerAdapter(TriggerImportAdapter, OracleAdapter):
+            pass
+
+        self._write_csvs("parent")
+        adapter = TriggerAdapter(["parent"], [_fk("outside", "parent")], fail_sql='DELETE FROM "dbo"."parent"')
+        summary, logs = self._import(adapter, IMPORT_MODE_TRUNCATE_TABLE, disable_triggers=True)
+        self.assertEqual(adapter.writes[-6:], [(sql,) for sql in [
+            'DELETE FROM "dbo"."outside"', 'DELETE FROM "dbo"."parent"', "rollback",
+            'ALTER TRIGGER "dbo"."audit" ENABLE', 'ALTER TRIGGER "dbo"."audit" ENABLE', "rollback",
+        ]])
+        self.assertEqual([item.table for item in summary.failed], ["dbo.outside", "parent"])
+        self.assertIn("Tắt trigger tạm thời trên dbo.outside: audit (DDL Oracle tự động commit)", logs)
+
+    def test_oracle_partial_disable_failure_restores_only_disabled_triggers(self) -> None:
+        class TriggerAdapter(TriggerImportAdapter, OracleAdapter):
+            pass
+
+        self._write_csvs("items")
+        adapter = TriggerAdapter(["items"], [], fail_sql='ALTER TRIGGER "dbo"."trace" DISABLE')
+        adapter.trigger_names = ["audit", "trace"]
+        summary, _ = self._import(adapter, disable_triggers=True)
+        self.assertEqual(adapter.writes, [(sql,) for sql in [
+            "list dbo.items", 'ALTER TRIGGER "dbo"."audit" DISABLE', 'ALTER TRIGGER "dbo"."trace" DISABLE',
+            'ALTER TRIGGER "dbo"."audit" ENABLE', "rollback",
+        ]])
+        self.assertEqual([item.table for item in summary.failed], ["items"])
+
+    def test_unsupported_trigger_bypass_warns_once_and_imports(self) -> None:
+        self._write_csvs("first", "second")
+        adapter = FolderImportAdapter(["first", "second"], [])
+        settings = DatabaseConnectionSettings(database_type="mysql", host=".", database="sample", username="tester")
+        logs = []
+        with patch("autocompare_tool.database_io.get_adapter", return_value=adapter):
+            summary = import_csv_folder(self.root, settings, disable_triggers=True, log=logs.append)
+        self.assertFalse(MySqlAdapter.supports_trigger_bypass)
+        self.assertEqual(logs.count("Không hỗ trợ tắt trigger trên MySQL; import tiếp tục với trigger đang bật."), 1)
+        self.assertEqual(summary.csv_count, 2)
+        self.assertEqual(summary.errors, [])
+
     def test_all_import_modes_insert_parents_first(self) -> None:
         self._write_csvs("a_child", "z_parent")
         for mode in (IMPORT_MODE_APPEND, IMPORT_MODE_DELETE_MATCHING_KEYS, IMPORT_MODE_TRUNCATE_TABLE):
@@ -1536,6 +1730,22 @@ class FolderImportAdapter(RecordingImportAdapter):
 
     def executemany(self, cursor, sql, rows) -> None:
         self.execute(cursor, sql)
+
+
+class TriggerImportAdapter(FolderImportAdapter):
+    def __init__(self, tables, edges, fail_sql=None) -> None:
+        super().__init__(tables, edges, fail_sql)
+        self.trigger_names = ["audit"]
+        self.connection.cursor = Mock()
+        self.connection.cursor.return_value.execute.side_effect = lambda sql: self.execute(None, sql)
+
+    def list_enabled_triggers(self, cursor, metadata):
+        self.writes.append((f"list {metadata.schema}.{metadata.name}",))
+        return self.trigger_names
+
+
+class SqlServerTriggerImportAdapter(TriggerImportAdapter, SqlServerAdapter):
+    pass
 
 
 if __name__ == "__main__":
