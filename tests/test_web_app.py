@@ -485,9 +485,10 @@ class WebApplicationTests(unittest.TestCase):
         main = {"id": "main", "settings": settings}
         extras = [
             {"id": f"extra-{index}", "settings": {**settings, "database": f"db{index}"}}
-            for index in range(9)
+            for index in range(1, 10)
         ]
         duplicate = {"id": "target", "settings": settings}
+        target = {"id": "target", "settings": {**settings, "database": "target"}}
         for connections, message in (
             ({}, "danh sách"), (None, "danh sách"),
             ([None], "settings"), ([{"id": "main"}], "settings"),
@@ -497,11 +498,11 @@ class WebApplicationTests(unittest.TestCase):
             ([main, {**main, "settings": {**settings, "database": "other"}}], "Trùng id"),
             ([main, duplicate], "Trùng thông tin"),
             ([main, {**duplicate, "settings": {**settings, "database_type": "mssql", "schema": "dbo"}}], "Trùng thông tin"),
-            ([main, *extras], "tối đa 9"), (extras, "tối đa 8"),
+            ([main, target, *extras], "tối đa 10"), (extras, "tối đa 8"),
         ):
             with self.subTest(connections=connections), self.assertRaisesRegex(ValueError, message):
                 app.start_action("db_import", {"connections": connections, "confirmed": True})
-        self.assertEqual(len(app._multi_db_connections({"connections": [main, *extras[:8]]})), 9)
+        self.assertEqual(len(app._multi_db_connections({"connections": [main, target, *extras[:8]]})), 10)
         with self.assertRaises(PermissionError):
             app.start_action("db_import", {"connections": [main]})
 

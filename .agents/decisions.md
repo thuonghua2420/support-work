@@ -2,6 +2,21 @@
 
 Use this file for lightweight architecture decisions. Add newest entries at the top.
 
+## 2026-11-20 - Multi-Database CSV Import/Export And Compact Connection Popup
+
+Decision:
+
+- Import/export can target several databases in one action (`connections` payload, ids `main`/`target`/`extra-1..8`). A CSV goes to every selected database that has the table; export writes one shared folder and skips later duplicates instead of overwriting.
+- The connection popup became a connection list plus one editor with a 3-column field grid; a "Nhiều database" switch (default `[database] multi_database_default = false`) reveals selection checkboxes and extra connections. The selected databases are shown as chips beside the Import/Export controls and in the confirmation text.
+
+Why:
+
+- Projects with several databases forced the user to reconnect three times per task; the old two-card popup needed scrolling and had no room for more connections.
+
+Consequences:
+
+- Truncate/trigger options apply to every selected database, so confirmations list the databases. Extra connections live in the server session cache and the UI cache; removing one in the UI does not clear the server cache entry. Behaviour with the switch off is identical to before.
+
 ## 2026-11-20 - Import Respects Foreign Keys, Can Bypass Triggers, Reports Every Table
 
 Decision:

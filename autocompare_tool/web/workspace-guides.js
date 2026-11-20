@@ -221,7 +221,7 @@ function prepareWorkspaceGuides() {
       ["Kết nối cơ sở dữ liệu",
         "Bấm Kết nối CSDL ở đầu trang (hai nhãn Database 1 / 2 bên cạnh cho biết đã kiểm tra chưa): chọn loại (SQL Server, MySQL, PostgreSQL, Oracle), nhập Host, Port, Database, Schema và tài khoản (SQL Server có thể dùng Xác thực Windows).",
         "Bấm Test Database Connection; trạng thái chuyển sang “Đã kiểm tra”. Kết nối từng dùng có thể chọn lại ở ô Kết nối đã dùng.",
-        "Mọi thao tác trong tab này dùng Database 1."],
+        "Import/Export dùng Database 1 theo mặc định. Bật Nhiều database trong popup Kết nối để chọn thêm. Các database đã chọn hiện ngay trên form Nhập / Xuất CSV."],
       ["Import CSV vào database",
         "Chọn Folder CSV rồi Quét file CSV. Chỉ CSV nằm trực tiếp trong folder được đọc; tên file (không có .csv) phải trùng tên table, CSV không có table tương ứng bị bỏ qua.",
         "Chọn cách xử lý dữ liệu hiện có: Insert thêm, Xóa record trùng key (xóa record trùng toàn bộ primary key của CSV rồi insert) hoặc Truncate toàn table. Bật giữ identity nếu cần và database hỗ trợ.",

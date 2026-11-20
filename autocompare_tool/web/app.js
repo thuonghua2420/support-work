@@ -25,6 +25,11 @@ const state = {
   loggedJobStarts: new Set(),
   pollTimer: null,
   dbVerified: { main: false, source: false, target: false },
+  dbMultiMode: false,
+  dbEditingScope: "main",
+  dbSelectedScopes: new Set(["main"]),
+  dbRemovedExtras: new Set(),
+  dbPendingTest: null,
   databaseNames: { main: [], source: [], target: [] },
   databaseHistory: [],
   sourceTables: [],
@@ -50,6 +55,7 @@ const UI_CACHE_KEY = "autocompare:last-inputs:v1";
 const DB_HISTORY_CACHE_KEY = "autocompare:database-history:v1";
 const UI_CACHE_DEBOUNCE_MS = 250;
 const DB_HISTORY_LIMIT = 50;
+const DB_EXTRA_SCOPES = Array.from({ length: 8 }, (_, index) => `extra-${index + 1}`);
 const COMPARE_PREVIEW_COLORS = {
   a1Background: "#FFC7CE",
   headerBackground: "#C6EFCE",
@@ -121,6 +127,8 @@ async function init() {
     saveDatabaseHistoryCache();
     hydrateDefaults();
     renderWorkflows();
+    const uiCache = readUiCache();
+    restoreDbConnectionList(uiCache);
     renderConnectionForms();
     renderNotes();
     refreshFixmeNoteOptions();
@@ -129,9 +137,10 @@ async function init() {
     renderComparePreview();
     preloadCompareSheets();
     renderTables();
-    restoreUiCache();
+    restoreUiCache(uiCache);
     updateFolderCompareMode();
     restoreDatabaseSessionConnections();
+    renderDbConnectionList();
     renderCompareKeys();
     bindUiCache();
     window.compareCsv?.ready();
@@ -306,6 +315,7 @@ function prepareDatabaseWorkspaceLayout() {
         <span class="source-target target">2</span>
         <span><strong>Database 2</strong><small data-verified-state="target">Chưa kiểm tra</small></span>
       </div>
+      <button class="secondary-button small" id="db-multi-summary" type="button" hidden></button>
       <button class="secondary-button small" id="db-open-connections" type="button">Kết nối CSDL</button>`;
     intro.appendChild(hub);
   }
@@ -322,35 +332,29 @@ function prepareDatabaseWorkspaceLayout() {
   const dialog = document.createElement("dialog");
   dialog.className = "modal db-connection-modal";
   dialog.id = "db-connection-dialog";
+  dialog.setAttribute("aria-labelledby", "db-dialog-title");
   dialog.innerHTML = `
     <div class="modal-shell">
       <header>
-        <div><span class="section-kicker">Database connection</span><h3>Kết nối dùng chung</h3><p>Database 1 dùng cho CSV, SQL Workspace và nguồn đồng bộ. Database 2 chỉ dùng làm đích khi đồng bộ.</p></div>
-        <button class="icon-button" id="db-close-connections" type="button" aria-label="Đóng">×</button>
+        <div><h3 id="db-dialog-title">Kết nối CSDL</h3><p>Chọn kết nối để chỉnh sửa.</p></div>
+        <div class="db-dialog-header-actions">
+          <label class="db-multi-switch">Nhiều database <input class="switch" id="db-multi-toggle" type="checkbox" role="switch" disabled></label>
+          <button class="secondary-button small" id="db-switch-connections" type="button">Switch DB 1 ⇄ DB 2</button>
+          <button class="icon-button" id="db-close-connections" type="button" aria-label="Đóng">×</button>
+        </div>
       </header>
       <div class="db-connection-dialog-body">
-        <form class="card connection-card db-dialog-card" data-db-scope="main">
-          <div class="card-heading"><div><span class="source-target source">1</span><h3>Database 1</h3></div><span class="connection-state" data-verified-state="main">Chưa kiểm tra</span></div>
-          <div class="connection-fields"></div>
-          <div class="two-buttons"><button class="ghost-button" data-db-load="main" type="button">Tải CSDL</button><button class="secondary-button" data-db-test="main" type="button">Test & tải table</button></div>
-        </form>
-        <form class="card connection-card db-dialog-card" data-db-scope="target">
-          <div class="card-heading"><div><span class="source-target target">2</span><h3>Database 2</h3></div><span class="connection-state" data-verified-state="target">Chưa kiểm tra</span></div>
-          <div class="connection-fields"></div>
-          <div class="two-buttons"><button class="ghost-button" data-db-load="target" type="button">Tải CSDL</button><button class="secondary-button" data-db-test="target" type="button">Test kết nối</button></div>
-        </form>
+        <div class="db-connection-sidebar" role="group" aria-label="Danh sách kết nối">
+          <div id="db-connection-list"></div>
+          <button class="ghost-button small" id="db-add-connection" type="button" hidden>+ Thêm kết nối</button>
+          <span id="db-selected-count" aria-live="polite" hidden></span>
+        </div>
+        <div id="db-connection-forms"></div>
       </div>
     </div>`;
   databasePage.appendChild(dialog);
-  const dialogHeader = $("header", dialog);
-  const closeButton = $("#db-close-connections", dialog);
-  if (dialogHeader && closeButton && !$("#db-switch-connections", dialog)) {
-    const actions = document.createElement("div");
-    actions.className = "db-dialog-header-actions";
-    actions.innerHTML = `<button class="secondary-button small" id="db-switch-connections" type="button">Switch DB 1 ⇄ DB 2</button>`;
-    actions.appendChild(closeButton);
-    dialogHeader.appendChild(actions);
-  }
+  addDbConnectionForm("main");
+  addDbConnectionForm("target");
 
   $("#db-main-form")?.remove();
   $(".database-layout", databasePage)?.classList.add("database-layout-full");
@@ -579,19 +583,21 @@ function shouldCacheControl(control) {
   if (control.closest("#page-text-compare")) return false;
   if (control.closest("#page-search-replace")) return false;
   if (control.closest("#compare-structure-dialog")) return false;
-  if (control.matches("[data-db-history-select]")) return false;
+  if (control.matches("[data-db-history-select], #db-multi-toggle")) return false;
   if (id === "activity-log" || id === "path-current" || id === "path-root-select" || id === "save-file-name") return false;
   if (id.startsWith("note-") || id.startsWith("confirm-")) return false;
   return true;
 }
 
-function restoreUiCache() {
-  let cache = null;
+function readUiCache() {
   try {
-    cache = JSON.parse(window.localStorage.getItem(UI_CACHE_KEY) || "null");
+    return JSON.parse(window.localStorage.getItem(UI_CACHE_KEY) || "null");
   } catch {
-    return;
+    return null;
   }
+}
+
+function restoreUiCache(cache) {
   if (!cache || typeof cache !== "object") return;
   uiCacheRestoring = true;
   try {
@@ -624,8 +630,7 @@ function restoreUiCache() {
 }
 
 function finalizeRestoredUiCache() {
-  ["main", "target", "source"].forEach((scope) => {
-    if (!$(`#db-${scope}-type`)) return;
+  dbConnectionScopes().forEach((scope) => {
     applyDatabaseType(scope, false);
     syncAuthFields(scope);
     ensureDefaultSqlServerDriver(scope);
@@ -650,9 +655,9 @@ function finalizeRestoredUiCache() {
 function restoreDatabaseSessionConnections() {
   const remembered = state.bootstrap?.database_connections || {};
   const tableCache = state.bootstrap?.database_tables || {};
-  ["main", "target", "source"].forEach((scope) => {
+  dbConnectionScopes().forEach((scope) => {
     const settings = remembered[scope];
-    if (!settings || !$(`#db-${scope}-type`)) return;
+    if (!settings || state.dbRemovedExtras.has(scope)) return;
     if (dbSettingsMostlyEmpty(scope)) setDbSettings(scope, settings);
     if (!dbPublicSettingsMatch(getDbSettings(scope), settings)) return;
     setVerified(scope, true);
@@ -776,7 +781,7 @@ function applyDatabaseHistorySelection(scope) {
   invalidateDbConnection(scope);
   saveUiCacheDebounced();
   showToast("Đang tự động kết nối CSDL đã chọn.", "success", 3500);
-  startAction("db_test", { settings: getDbSettings(scope), role: scope, load_tables: scope === "main" });
+  startDatabaseTest(scope);
 }
 
 function databaseHistoryKey(settings) {
@@ -835,6 +840,9 @@ function saveUiCacheNow() {
     checkboxGroups,
     selectedTables: state.selectedTables,
     selectedImportCsvTables: state.selectedImportCsvTables,
+    dbMultiMode: state.dbMultiMode,
+    dbSelectedScopes: [...state.dbSelectedScopes],
+    dbRemovedExtras: [...state.dbRemovedExtras],
   };
   try {
     window.localStorage.setItem(UI_CACHE_KEY, JSON.stringify(cache));
@@ -1074,13 +1082,14 @@ function bindForms() {
   });
   $("#db-copy-all-tables").addEventListener("click", copyAllImportCsvTables);
   $("#db-import").addEventListener("click", async () => {
-    if (!requireVerified("main")) return;
+    const connectionPayload = dbCsvConnectionPayload();
+    if (!connectionPayload) return;
     const importMode = selectedImportMode();
-    const confirmation = importConfirmation(importMode);
+    const confirmation = importConfirmation(importMode, [], connectionPayload.connections);
     if (await confirmAction(confirmation.title, confirmation.message)) {
       startAction("db_import", {
         csv_path: valueOf("db-csv-path"),
-        settings: getDbSettings("main"),
+        ...connectionPayload,
         keep_identity: checked("db-keep-identity"),
         disable_triggers: checked("db-disable-triggers"),
         existing_row_mode: importMode,
@@ -1089,18 +1098,19 @@ function bindForms() {
     }
   });
   $("#db-import-selected").addEventListener("click", async () => {
-    if (!requireVerified("main")) return;
+    const connectionPayload = dbCsvConnectionPayload();
+    if (!connectionPayload) return;
     const tableNames = selectedImportTables();
     if (!tableNames.length) {
       showToast("Vui lòng chọn ít nhất một table CSV để import.", "error");
       return;
     }
     const importMode = selectedImportMode();
-    const confirmation = importConfirmation(importMode, tableNames);
+    const confirmation = importConfirmation(importMode, tableNames, connectionPayload.connections);
     if (await confirmAction(confirmation.title, confirmation.message)) {
       startAction("db_import", {
         csv_path: valueOf("db-csv-path"),
-        settings: getDbSettings("main"),
+        ...connectionPayload,
         keep_identity: checked("db-keep-identity"),
         disable_triggers: checked("db-disable-triggers"),
         existing_row_mode: importMode,
@@ -1145,9 +1155,14 @@ function bindForms() {
   $$('input[name="db-import-mode"]').forEach((input) => input.addEventListener("change", syncImportButtonLabel));
   syncImportButtonLabel();
   $("#db-export").addEventListener("click", async () => {
-    if (!requireVerified("main")) return;
-    if (await confirmAction("ĐÃ THAY ĐỔI PATH FOLDER EXPORT CHƯA?", "Các file CSV trong folder đích có cùng tên table có thể bị ghi đè bằng dữ liệu mới.")) {
-      startAction("db_export", { csv_path: valueOf("db-csv-path"), settings: getDbSettings("main"), table_names: valueOf("db-export-tables"), confirmed: true });
+    const connectionPayload = dbCsvConnectionPayload();
+    if (!connectionPayload) return;
+    let message = "Các file CSV trong folder đích có cùng tên table có thể bị ghi đè bằng dữ liệu mới.";
+    if (connectionPayload.connections) {
+      message += " Tất cả database xuất vào cùng một folder. Bỏ qua table trùng tên ở các database sau.";
+    }
+    if (await confirmAction("ĐÃ THAY ĐỔI PATH FOLDER EXPORT CHƯA?", message)) {
+      startAction("db_export", { csv_path: valueOf("db-csv-path"), ...connectionPayload, table_names: valueOf("db-export-tables"), confirmed: true });
     }
   });
   $("#db-sync-form").addEventListener("submit", async (event) => {
@@ -1391,9 +1406,48 @@ function handleFolderPairDragEnd() {
 
 function bindDialogs() {
   const dbDialog = $("#db-connection-dialog");
-  $("#db-open-connections")?.addEventListener("click", () => dbDialog?.showModal());
+  const openDbDialog = (scope = state.dbEditingScope) => {
+    showDbConnectionScope(scope);
+    dbDialog?.showModal();
+  };
+  $("#db-open-connections")?.addEventListener("click", () => openDbDialog());
+  $("#db-multi-summary")?.addEventListener("click", () => openDbDialog());
+  $("#db-selected-databases").addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-db-label]");
+    if (chip) openDbDialog(chip.dataset.dbLabel);
+  });
   $("#db-close-connections")?.addEventListener("click", () => dbDialog?.close());
   $("#db-switch-connections")?.addEventListener("click", switchMainAndTargetDatabases);
+  $("#db-multi-toggle")?.addEventListener("change", (event) => {
+    state.dbMultiMode = event.target.checked;
+    renderDbConnectionList();
+    saveUiCacheNow();
+  });
+  $("#db-connection-list")?.addEventListener("click", (event) => {
+    const edit = event.target.closest("[data-db-edit]");
+    const remove = event.target.closest("[data-db-remove]");
+    if (edit) showDbConnectionScope(edit.dataset.dbEdit);
+    if (remove) removeExtraDbConnection(remove.dataset.dbRemove);
+  });
+  $("#db-connection-list")?.addEventListener("change", (event) => {
+    const input = event.target;
+    const scope = input.dataset.dbSelect;
+    if (!scope) return;
+    if (input.checked) state.dbSelectedScopes.add(scope);
+    else state.dbSelectedScopes.delete(scope);
+    renderDbSelection();
+    saveUiCacheNow();
+  });
+  $("#db-add-connection")?.addEventListener("click", () => {
+    const scope = DB_EXTRA_SCOPES.find((extra) => !dbConnectionForm(extra));
+    if (!scope) return;
+    const form = addDbConnectionForm(scope);
+    renderConnectionForms([form]);
+    state.dbEditingScope = scope;
+    renderDbConnectionList();
+    $(`[data-db-edit="${scope}"]`).focus();
+    saveUiCacheNow();
+  });
   dbDialog?.addEventListener("click", (event) => {
     if (event.target === dbDialog) dbDialog.close();
   });
@@ -1478,8 +1532,145 @@ function renderWorkflows() {
     </label>`).join("");
 }
 
-function renderConnectionForms() {
-  $$('[data-db-scope]').forEach((form) => {
+function dbConnectionForm(scope) {
+  return $(`#db-connection-forms [data-db-scope="${scope}"]`);
+}
+
+function dbConnectionScopes() {
+  return ["main", "target", ...DB_EXTRA_SCOPES.filter(dbConnectionForm)];
+}
+
+function dbConnectionNumber(scope) {
+  return scope === "main" ? 1 : scope === "target" ? 2 : DB_EXTRA_SCOPES.indexOf(scope) + 3;
+}
+
+function addDbConnectionForm(scope) {
+  const form = document.createElement("form");
+  const number = dbConnectionNumber(scope);
+  const busy = state.job && ["queued", "running"].includes(state.job.state);
+  form.className = "card connection-card db-dialog-card";
+  form.dataset.dbScope = scope;
+  form.hidden = scope !== state.dbEditingScope;
+  form.innerHTML = `
+    <div class="card-heading"><div><span class="source-target ${scope === "main" ? "source" : "target"}" aria-hidden="true">${number}</span><h3>Database ${number}</h3></div><span class="connection-state" data-verified-state="${scope}">Chưa kiểm tra</span></div>
+    <div class="connection-fields"></div>
+    <div class="two-buttons">
+      <button class="ghost-button" data-db-load="${scope}" type="button" ${busy ? "disabled" : ""}>Tải CSDL</button>
+      <button class="secondary-button" data-db-test="${scope}" type="button" ${busy ? "disabled" : ""}>${scope === "main" ? "Test &amp; tải table" : "Test kết nối"}</button>
+    </div>`;
+  state.dbVerified[scope] = false;
+  $("#db-connection-forms").append(form);
+  return form;
+}
+
+function restoreDbConnectionList(cache) {
+  state.dbMultiMode = typeof cache?.dbMultiMode === "boolean" ? cache.dbMultiMode : state.bootstrap.multi_database_default === true;
+  state.dbRemovedExtras = new Set(Array.isArray(cache?.dbRemovedExtras) ? cache.dbRemovedExtras : []);
+  DB_EXTRA_SCOPES.forEach((scope) => {
+    const cachedFields = Object.hasOwn(cache?.fields || {}, `db-${scope}-type`);
+    const remembered = state.bootstrap.database_connections?.[scope] && !state.dbRemovedExtras.has(scope);
+    if (cachedFields || remembered) {
+      addDbConnectionForm(scope);
+    }
+  });
+  if (Array.isArray(cache?.dbSelectedScopes)) {
+    state.dbSelectedScopes = new Set(dbConnectionScopes().filter((scope) => cache.dbSelectedScopes.includes(scope)));
+  }
+  const toggle = $("#db-multi-toggle");
+  toggle.checked = state.dbMultiMode;
+  toggle.disabled = false;
+}
+
+function removeExtraDbConnection(scope) {
+  dbConnectionForm(scope).remove();
+  state.dbRemovedExtras.add(scope);
+  state.dbSelectedScopes.delete(scope);
+  delete state.dbVerified[scope];
+  delete state.databaseNames[scope];
+  renderDbConnectionList();
+  $(`[data-db-edit="${state.dbEditingScope}"]`).focus();
+  saveUiCacheNow();
+}
+
+function renderDbConnectionList() {
+  const scopes = state.dbMultiMode ? dbConnectionScopes() : ["main", "target"];
+  const busy = state.job && ["queued", "running"].includes(state.job.state);
+  $("#db-connection-list").innerHTML = scopes.map((scope) => {
+    const number = dbConnectionNumber(scope);
+    return `<div class="db-connection-row">
+      ${state.dbMultiMode ? `<input type="checkbox" aria-label="Chọn Database ${number} cho Import/Export" data-db-select="${scope}" ${state.dbSelectedScopes.has(scope) ? "checked" : ""}>` : ""}
+      <button class="db-connection-choice" data-db-edit="${scope}" data-db-label="${scope}" type="button">
+        <span class="db-status-dot" aria-hidden="true"></span><span class="source-target ${scope === "main" ? "source" : "target"}" aria-hidden="true">${number}</span><span class="db-connection-label"></span>
+      </button>
+      ${number > 2 ? `<button class="icon-button db-remove-connection" data-db-remove="${scope}" aria-label="Xóa Database ${number}" type="button" ${busy ? "disabled" : ""}>×</button>` : ""}
+    </div>`;
+  }).join("");
+  const addButton = $("#db-add-connection");
+  addButton.hidden = !state.dbMultiMode;
+  addButton.disabled = scopes.length === DB_EXTRA_SCOPES.length + 2;
+  showDbConnectionScope(state.dbEditingScope);
+  renderDbSelection();
+}
+
+function showDbConnectionScope(scope) {
+  const edit = $(`[data-db-edit="${scope}"]`);
+  state.dbEditingScope = edit ? scope : "main";
+  $$("#db-connection-forms [data-db-scope]").forEach((form) => {
+    form.hidden = form.dataset.dbScope !== state.dbEditingScope;
+  });
+  $$("[data-db-edit]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.dbEdit === state.dbEditingScope));
+  });
+}
+
+function dbConnectionLabel(scope) {
+  const database = valueOf(`db-${scope}-database`);
+  const host = valueOf(`db-${scope}-host`);
+  if (database && host) return `${database} @ ${host}`;
+  return database || (host !== "localhost" || state.dbVerified[scope] ? host : "") || "Chưa cấu hình";
+}
+
+function namedDbConnection(scope) {
+  return `Database ${dbConnectionNumber(scope)} · ${dbConnectionLabel(scope)}`;
+}
+
+function selectedDbConnections() {
+  return dbConnectionScopes().filter((scope) => state.dbSelectedScopes.has(scope));
+}
+
+function renderDbSelection() {
+  const scopes = selectedDbConnections();
+  const chips = $("#db-selected-databases");
+  const count = $("#db-selected-count");
+  const summary = $("#db-multi-summary");
+  chips.hidden = count.hidden = summary.hidden = !state.dbMultiMode;
+  count.textContent = `Đã chọn: ${scopes.length} database`;
+  summary.textContent = `Import/Export: ${scopes.length} DB`;
+  chips.innerHTML = state.dbMultiMode ? scopes.map((scope) => `
+    <button class="db-selected-chip" data-db-label="${scope}" type="button">
+      <span class="db-status-dot" aria-hidden="true"></span><span class="db-connection-label"></span>
+    </button>`).join("") || "Chọn database cho Import/Export trong popup Kết nối." : "";
+  updateDbConnectionLabels();
+}
+
+function updateDbConnectionLabels() {
+  $$("[data-db-label]").forEach((button) => {
+    const scope = button.dataset.dbLabel;
+    const verified = state.dbVerified[scope];
+    $(".db-connection-label", button).textContent = dbConnectionLabel(scope);
+    button.title = `${namedDbConnection(scope)} · ${verified ? "Đã kết nối" : "Chưa kiểm tra"}`;
+    button.setAttribute("aria-label", button.title);
+    button.classList.toggle("verified", Boolean(verified));
+  });
+  if (state.dbMultiMode) {
+    const summary = $("#db-multi-summary");
+    summary.title = selectedDbConnections().map(namedDbConnection).join(", ");
+    summary.setAttribute("aria-label", [summary.textContent, summary.title].filter(Boolean).join(" · "));
+  }
+}
+
+function renderConnectionForms(forms = $$("#db-connection-forms [data-db-scope]")) {
+  forms.forEach((form) => {
     const scope = form.dataset.dbScope;
     const defaults = state.bootstrap.database_defaults["SQL Server"] || { port: "1433", schema: "dbo" };
     const drivers = state.bootstrap.sqlserver_drivers.length ? state.bootstrap.sqlserver_drivers : ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server", "SQL Server Native Client RDA 11.0"];
@@ -1487,16 +1678,18 @@ function renderConnectionForms() {
     $(".connection-fields", form).innerHTML = `
       <label class="field connection-history-field"><span>K&#x1EBF;t n&#x1ED1;i &#x111;&#xE3; d&#xF9;ng</span><select id="db-${scope}-history" data-db-history-select="${scope}"></select></label>
       <label class="field"><span>Loại CSDL</span><select id="db-${scope}-type">${state.bootstrap.database_types.map((item) => `<option>${escapeHtml(item)}</option>`).join("")}</select></label>
-      <label class="field"><span>Port</span><input id="db-${scope}-port" value="${escapeHtml(defaults.port)}"></label>
       <label class="field host-field"><span>Server / Host</span><input id="db-${scope}-host" value="${scope === "main" ? "localhost" : ""}" placeholder="localhost hoặc server\\instance"></label>
+      <label class="field"><span>Port</span><input id="db-${scope}-port" value="${escapeHtml(defaults.port)}"></label>
       <label class="field"><span>Database / Service</span><input id="db-${scope}-database" list="db-${scope}-database-list"><datalist id="db-${scope}-database-list"></datalist></label>
       <label class="field"><span>Schema</span><input id="db-${scope}-schema" value="${escapeHtml(defaults.schema)}"></label>
       <label class="field auth-row" id="db-${scope}-driver-field"><span>Driver ODBC</span><select id="db-${scope}-driver">${drivers.map((item) => `<option ${item === defaultDriver ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label>
       <label class="field"><span>User</span><input id="db-${scope}-username" autocomplete="username"></label>
       <label class="field"><span>Password</span><input id="db-${scope}-password" type="password" autocomplete="current-password"></label>
-      <div class="check-row auth-row" id="db-${scope}-trusted-row"><label><input type="checkbox" id="db-${scope}-trusted" ${scope === "main" || scope === "source" || scope === "target" ? "checked" : ""}> Xác thực Windows</label></div>
-      <div class="check-row auth-row" id="db-${scope}-encrypt-row"><label><input type="checkbox" id="db-${scope}-encrypt"> Encrypt</label></div>
-      <div class="check-row auth-row" id="db-${scope}-trust-cert-row"><label><input type="checkbox" id="db-${scope}-trust-cert" checked> Trust Server Certificate</label></div>`;
+      <div class="db-connection-auth">
+        <div class="check-row auth-row" id="db-${scope}-trusted-row"><label><input type="checkbox" id="db-${scope}-trusted" ${scope === "main" || scope === "target" ? "checked" : ""}> Xác thực Windows</label></div>
+        <div class="check-row auth-row" id="db-${scope}-encrypt-row"><label><input type="checkbox" id="db-${scope}-encrypt"> Encrypt</label></div>
+        <div class="check-row auth-row" id="db-${scope}-trust-cert-row"><label><input type="checkbox" id="db-${scope}-trust-cert" checked> Trust Server Certificate</label></div>
+      </div>`;
 
     form.addEventListener("submit", (event) => event.preventDefault());
 
@@ -1509,22 +1702,20 @@ function renderConnectionForms() {
       invalidateDbConnection(scope);
     }));
     $(`#db-${scope}-history`).addEventListener("change", () => applyDatabaseHistorySelection(scope));
-    $(`#db-${scope}-trusted`).addEventListener("change", () => syncAuthFields(scope));
-    $(`#db-${scope}-encrypt`).addEventListener("change", () => syncEncryptionFields(scope));
     applyDatabaseType(scope, false);
-    syncAuthFields(scope);
-    syncEncryptionFields(scope);
+    $("[data-db-test]", form).addEventListener("click", () => startDatabaseTest(scope));
+    $("[data-db-load]", form).addEventListener("click", () => {
+      startAction("db_list_databases", { settings: getDbSettings(scope), role: scope });
+    });
   });
   renderDatabaseHistorySelects();
+}
 
-  $$('[data-db-test]').forEach((button) => button.addEventListener("click", () => {
-    const scope = button.dataset.dbTest;
-    startAction("db_test", { settings: getDbSettings(scope), role: scope, load_tables: scope === "main" });
-  }));
-  $$('[data-db-load]').forEach((button) => button.addEventListener("click", () => {
-    const scope = button.dataset.dbLoad;
-    startAction("db_list_databases", { settings: getDbSettings(scope), role: scope });
-  }));
+async function startDatabaseTest(scope) {
+  const form = dbConnectionForm(scope);
+  const settings = getDbSettings(scope);
+  const job = await startAction("db_test", { settings, role: scope, load_tables: scope === "main" });
+  if (job) state.dbPendingTest = { id: job.id, form, settings };
 }
 
 function applyDatabaseType(scope, resetDefaults) {
@@ -1537,6 +1728,7 @@ function applyDatabaseType(scope, resetDefaults) {
   $(`#db-${scope}-trusted-row`).classList.toggle("hidden", !sqlServer);
   $(`#db-${scope}-encrypt-row`).classList.toggle("hidden", !sqlServer);
   $(`#db-${scope}-trust-cert-row`).classList.toggle("hidden", !sqlServer);
+  $(".db-connection-auth", dbConnectionForm(scope)).hidden = !sqlServer;
   syncAuthFields(scope);
   syncEncryptionFields(scope);
 }
@@ -1593,6 +1785,7 @@ function setDbSettings(scope, settings) {
 }
 
 function switchMainAndTargetDatabases() {
+  if (!state.bootstrap) return;
   const mainSettings = getDbSettings("main");
   const targetSettings = getDbSettings("target");
   const mainVerified = state.dbVerified.main;
@@ -1625,7 +1818,7 @@ function switchMainAndTargetDatabases() {
   markSqlWorkspaceStale();
   showToast("Đã switch Database 1 và Database 2.", "success");
   if (targetVerified) {
-    startAction("db_test", { settings: getDbSettings("main"), role: "main", load_tables: true });
+    startDatabaseTest("main");
   }
 }
 
@@ -1642,6 +1835,7 @@ function setVerified(scope, verified) {
     indicator.classList.toggle("verified", verified);
   });
   $$(`[data-db-chip="${scope}"]`).forEach((chip) => chip.classList.toggle("verified", verified));
+  updateDbConnectionLabels();
   if (scope === "main" && !verified) {
     state.sourceTables = [];
     state.selectedTables = [];
@@ -1669,6 +1863,23 @@ function requireVerified(scope) {
   return false;
 }
 
+function dbCsvConnectionPayload() {
+  if (!state.dbMultiMode) {
+    return requireVerified("main") ? { settings: getDbSettings("main") } : null;
+  }
+  const scopes = selectedDbConnections();
+  if (!scopes.length) {
+    showToast("Chọn ít nhất một database trong popup Kết nối.", "error");
+    return null;
+  }
+  const unverified = scopes.filter((scope) => !state.dbVerified[scope]);
+  if (unverified.length) {
+    showToast(`Vui lòng test kết nối: ${unverified.map(namedDbConnection).join(", ")}`, "error");
+    return null;
+  }
+  return { connections: scopes.map((scope) => ({ id: scope, settings: getDbSettings(scope) })) };
+}
+
 function selectedImportMode() {
   return $('input[name="db-import-mode"]:checked')?.value || "append";
 }
@@ -1680,7 +1891,7 @@ function selectedImportTables() {
     .filter(Boolean);
 }
 
-function importConfirmation(importMode, tableNames = []) {
+function importConfirmation(importMode, tableNames = [], connections) {
   const scopeText = tableNames.length
     ? `Các table đã chọn (${tableNames.join(", ")})`
     : "Toàn bộ CSV hợp lệ trong folder đã chọn";
@@ -1699,6 +1910,10 @@ function importConfirmation(importMode, tableNames = []) {
     },
   };
   const confirmation = confirmations[importMode] || confirmations.append;
+  if (connections) {
+    confirmation.message += ` Sẽ chạy trên ${connections.length} database: ${connections.map(({ id }) => namedDbConnection(id)).join(", ")}.`;
+    if (importMode === "truncate_table") confirmation.message += " Truncate áp dụng cho từng database đã chọn.";
+  }
   if (checked("db-disable-triggers")) {
     confirmation.message += " Trên CSDL hỗ trợ, trigger của các table nhập và các table bị xóa dữ liệu sẽ tạm thời bị tắt rồi bật lại, nên các dòng do trigger tạo ra sẽ không được sinh.";
   }
@@ -3400,6 +3615,7 @@ async function startAction(action, payload) {
     appendJobStartLog(state.job);
     setBusy(true);
     schedulePoll(100);
+    return state.job;
   } catch (error) {
     renderCompareDiagnostics(action, [error.message]);
     showToast(error.message, "error");
@@ -3509,6 +3725,8 @@ function updateJobState(job) {
     return;
   }
   state.handledJobs.add(job.id);
+  const dbTest = state.dbPendingTest?.id === job.id ? state.dbPendingTest : null;
+  if (dbTest) state.dbPendingTest = null;
   if (job.state === "cancelled") {
     setJobVisual("idle", "Đã hủy");
     // Excel/PDF compare explain the outcome on their own page, so the log stays closed.
@@ -3529,14 +3747,14 @@ function updateJobState(job) {
     return;
   }
   setJobVisual(finishedKind, finishedText);
-  consumeJobResult(job);
+  consumeJobResult(job, dbTest);
   renderCompareDiagnostics(job.action, job.result?.errors || [], job.result?.warnings || []);
   const message = summaryMessage(job);
   appendJobFinishLog(job, finishedText, message);
   showToast(message, finishedKind, 5500);
 }
 
-function consumeJobResult(job) {
+function consumeJobResult(job, dbTest = null) {
   const result = job.result || {};
   if (job.action === "text_folder_compare") window.textCompare?.showFolders(result);
   if (result.update_compare_keys) {
@@ -3568,7 +3786,14 @@ function consumeJobResult(job) {
   if (job.action === "db_test" && result.verified) {
     state.bootstrap.database_connections = { ...state.bootstrap.database_connections, [result.role]: result.connection };
     renderCompareKeys();
+    const form = dbConnectionForm(result.role);
+    if (!form) return;
+    const current = getDbSettings(result.role);
+    if (dbTest
+      ? dbTest.form !== form || JSON.stringify(dbTest.settings) !== JSON.stringify(current)
+      : !dbPublicSettingsMatch(current, result.connection)) return;
     setVerified(result.role, true);
+    if (state.dbRemovedExtras.delete(result.role)) saveUiCacheDebounced();
     if (result.role === "main" && Array.isArray(result.tables)) {
       state.sourceTables = result.tables;
       const tableLookup = new Map(state.sourceTables.map((name) => [name.toLocaleLowerCase("vi"), name]));
@@ -3577,11 +3802,12 @@ function consumeJobResult(job) {
       saveUiCacheDebounced();
     }
   }
-  if (job.action === "db_list_databases" && Array.isArray(result.databases)) {
+  if (job.action === "db_list_databases" && Array.isArray(result.databases) && dbConnectionForm(result.role)) {
     state.databaseNames[result.role] = result.databases;
     renderDatabaseNameList(result.role);
     if (!valueOf(`db-${result.role}-database`) && result.databases.length) {
       $(`#db-${result.role}-database`).value = result.databases[0];
+      invalidateDbConnection(result.role);
       saveUiCacheDebounced();
     }
   }
@@ -4663,7 +4889,8 @@ function summaryMessage(job) {
     const succeeded = result.succeeded?.length ?? result.csv_count ?? 0;
     const failed = result.failed?.length ?? result.error_count ?? 0;
     const skipped = result.skipped_items?.length ?? result.skipped?.length ?? 0;
-    return `${action}: ${succeeded} thành công / ${failed} lỗi / ${skipped} bỏ qua. ${result.row_count || 0} dòng.`;
+    const databases = Array.isArray(result.databases) ? ` Trên ${result.databases.length} database.` : "";
+    return `${action}: ${succeeded} thành công / ${failed} lỗi / ${skipped} bỏ qua. ${result.row_count || 0} dòng.${databases}`;
   }
   if (typeof result.csv_count === "number") return `${result.action_name || "Tác vụ CSDL"}: ${result.csv_count} CSV / ${result.row_count || 0} dòng.`;
   if (job.action === "apply_fixmes") return `Đã áp dụng ${result.selected_entry_count || 0} note cho ${result.cell_count || 0} ô, ${result.sheet_count || 0} sheet trong ${result.workbook_count || 0} workbook.`;
@@ -4696,6 +4923,7 @@ function setBusy(busy) {
   });
   updateFixmeToolbarState();
   updateCompareBulkToolbarState();
+  $$("[data-db-remove]").forEach((button) => { button.disabled = busy; });
   syncImportTableControls();
   renderCompareKeys();
 }
