@@ -298,12 +298,14 @@ class DatabaseSyncResult:
 class DatabaseCsvSuccess:
     table: str
     row_count: int
+    database: str | None = None
 
 
 @dataclass(frozen=True)
 class DatabaseCsvIssue:
     table: str
     message: str
+    database: str | None = None
 
 
 @dataclass
@@ -328,6 +330,57 @@ class DatabaseCsvSummary:
     @property
     def error_count(self) -> int:
         return len(self.errors)
+
+
+@dataclass
+class MultiDatabaseCsvSummary:
+    action_name: str
+    root_path: Path
+    databases: list[tuple[str, DatabaseCsvSummary]] = field(default_factory=list)
+    aggregate_skips: list[DatabaseCsvIssue] = field(default_factory=list)
+
+    @property
+    def csv_count(self) -> int:
+        return sum(summary.csv_count for _, summary in self.databases)
+
+    @property
+    def row_count(self) -> int:
+        return sum(summary.row_count for _, summary in self.databases)
+
+    @property
+    def error_count(self) -> int:
+        return sum(summary.error_count for _, summary in self.databases)
+
+    @property
+    def errors(self) -> list[str]:
+        return [f"{label}: {message}" for label, summary in self.databases for message in summary.errors]
+
+    @property
+    def skipped(self) -> list[str]:
+        return [
+            f"{label}: {message}" for label, summary in self.databases for message in summary.skipped
+        ] + [f"{item.table} -> {item.message}" for item in self.aggregate_skips]
+
+    @property
+    def succeeded(self) -> list[DatabaseCsvSuccess]:
+        return [
+            DatabaseCsvSuccess(f"{label}: {item.table}", item.row_count, database=label)
+            for label, summary in self.databases for item in summary.succeeded
+        ]
+
+    @property
+    def failed(self) -> list[DatabaseCsvIssue]:
+        return [
+            DatabaseCsvIssue(f"{label}: {item.table}", item.message, database=label)
+            for label, summary in self.databases for item in summary.failed
+        ]
+
+    @property
+    def skipped_items(self) -> list[DatabaseCsvIssue]:
+        return [
+            DatabaseCsvIssue(f"{label}: {item.table}" if item.table else label, item.message, database=label)
+            for label, summary in self.databases for item in summary.skipped_items
+        ] + self.aggregate_skips
 
 
 @dataclass
@@ -1875,6 +1928,8 @@ def import_csv_folder(
     cancel: CancelChecker | None = None,
     table_names: Iterable[str] | str | None = None,
     disable_triggers: bool = False,
+    *,
+    _missing_tables: set[str] | None = None,
 ) -> DatabaseCsvSummary:
     root = _validate_folder(root_path, must_exist=True)
     settings = validate_connection_settings(settings)
@@ -1898,7 +1953,10 @@ def import_csv_folder(
                 continue
             _check_cancel(cancel)
             try:
-                prepared = _read_import_csv(connection, adapter, settings, root, csv_path, keep_identity, summary, logger)
+                prepared = _read_import_csv(
+                    connection, adapter, settings, root, csv_path, keep_identity, summary, logger,
+                    missing_tables=_missing_tables,
+                )
                 if prepared is not None:
                     metadata = prepared[0]
                     key = _fk_table_key((metadata.schema, metadata.name))
@@ -1951,14 +2009,15 @@ def import_csv_folder(
                     existing_row_mode, cancel, already_cleared=key in cleared, metadata=metadata,
                     disable_triggers=disable_triggers,
                 )
-        summary.skipped_items.extend(
-            DatabaseCsvIssue(name, "Không tìm thấy CSV phù hợp với table đã chọn")
-            for name in requested_tables if name.casefold() not in csv_stems
-        )
-        if requested_tables and summary.csv_count == 0:
-            message = "Không tìm thấy CSV phù hợp với table đã chọn: " + ", ".join(requested_tables)
-            summary.skipped.append(message)
-            logger(message)
+        if _missing_tables is None:
+            summary.skipped_items.extend(
+                DatabaseCsvIssue(name, "Không tìm thấy CSV phù hợp với table đã chọn")
+                for name in requested_tables if name.casefold() not in csv_stems
+            )
+            if requested_tables and summary.csv_count == 0:
+                message = "Không tìm thấy CSV phù hợp với table đã chọn: " + ", ".join(requested_tables)
+                summary.skipped.append(message)
+                logger(message)
     finally:
         connection.close()
 
@@ -1972,6 +2031,10 @@ def export_csv_folder(
     table_names: Iterable[str] | str | None = None,
     log: Logger | None = None,
     cancel: CancelChecker | None = None,
+    *,
+    _missing_tables: set[str] | None = None,
+    _claimed: dict[tuple[str, str], str] | None = None,
+    _label: str = "",
 ) -> DatabaseCsvSummary:
     output = _validate_folder(output_path, must_exist=False)
     settings = validate_connection_settings(settings)
@@ -1990,11 +2053,101 @@ def export_csv_folder(
 
         for raw_table_name in tables:
             _check_cancel(cancel)
-            _export_one_table(connection, adapter, settings, output, raw_table_name, summary, logger, cancel)
+            _export_one_table(
+                connection, adapter, settings, output, raw_table_name, summary, logger, cancel,
+                missing_tables=_missing_tables if requested_tables else None, claimed=_claimed, label=_label,
+            )
     finally:
         connection.close()
 
     _log_summary(summary, logger, include_items=True)
+    return summary
+
+
+def import_csv_folder_multi(
+    root_path: str | Path,
+    connections: Sequence[tuple[str, DatabaseConnectionSettings]],
+    keep_identity: bool = False,
+    log: Logger | None = None,
+    existing_row_mode: str = IMPORT_MODE_APPEND,
+    cancel: CancelChecker | None = None,
+    table_names: Iterable[str] | str | None = None,
+    disable_triggers: bool = False,
+) -> MultiDatabaseCsvSummary:
+    root = _validate_folder(root_path, must_exist=True)
+    mode = _validate_import_mode(existing_row_mode)
+    requested_tables = _parse_table_names(table_names)
+    logger = log or (lambda message: None)
+    summary = _run_multi_database_csv(
+        "Nhập CSV vào CSDL", root, connections, logger, cancel,
+        lambda settings, db_log, missing, _label: import_csv_folder(
+            root, settings, keep_identity, db_log, mode, cancel, requested_tables, disable_triggers,
+            _missing_tables=missing,
+        ),
+    )
+    if requested_tables:
+        csv_stems = {path.stem.casefold() for path in _iter_direct_csv_files(root)}
+        summary.aggregate_skips.extend(
+            DatabaseCsvIssue(name, "Không tìm thấy CSV phù hợp với table đã chọn")
+            for name in requested_tables if name.casefold() not in csv_stems
+        )
+    _log_multi_database_summary(summary, logger)
+    return summary
+
+
+def export_csv_folder_multi(
+    output_path: str | Path,
+    connections: Sequence[tuple[str, DatabaseConnectionSettings]],
+    table_names: Iterable[str] | str | None = None,
+    log: Logger | None = None,
+    cancel: CancelChecker | None = None,
+) -> MultiDatabaseCsvSummary:
+    output = _validate_folder(output_path, must_exist=False)
+    requested_tables = _parse_table_names(table_names)
+    logger = log or (lambda message: None)
+    claimed: dict[tuple[str, str], str] = {}
+    summary = _run_multi_database_csv(
+        "Xuất CSDL ra CSV", output, connections, logger, cancel,
+        lambda settings, db_log, missing, label: export_csv_folder(
+            output, settings, requested_tables, db_log, cancel,
+            _missing_tables=missing, _claimed=claimed, _label=label,
+        ),
+    )
+    _log_multi_database_summary(summary, logger)
+    return summary
+
+
+def _run_multi_database_csv(
+    action_name: str,
+    root: Path,
+    connections: Sequence[tuple[str, DatabaseConnectionSettings]],
+    logger: Logger,
+    cancel: CancelChecker | None,
+    run: Callable[[DatabaseConnectionSettings, Logger, set[str], str], DatabaseCsvSummary],
+) -> MultiDatabaseCsvSummary:
+    summary = MultiDatabaseCsvSummary(action_name, root)
+    missing_in_all: set[str] | None = None
+    for label, settings in connections:
+        _check_cancel(cancel)
+        db_log = _database_logger(logger, label)
+        missing: set[str] = set()
+        try:
+            result = run(settings, db_log, missing, label)
+        except OperationCancelledError:
+            raise
+        except Exception as exc:
+            result = DatabaseCsvSummary(action_name, root)
+            _record_error(result, db_log, "<kết nối>", exc, table="<kết nối>")
+            _log_summary(result, db_log, include_items=True)
+        else:
+            # A failed connection cannot report which tables it is missing.
+            missing_in_all = missing if missing_in_all is None else missing_in_all & missing
+        summary.databases.append((label, result))
+    _check_cancel(cancel)
+    summary.aggregate_skips.extend(
+        DatabaseCsvIssue(table, "Không tìm thấy table trong database đã chọn")
+        for table in sorted(missing_in_all or (), key=lambda name: (name.casefold(), name))
+    )
     return summary
 
 
@@ -2277,22 +2430,27 @@ def _read_import_csv(
     summary: DatabaseCsvSummary,
     logger: Logger,
     metadata: TableMetadata | None = None,
+    *,
+    missing_tables: set[str] | None = None,
 ) -> tuple[TableMetadata, DbeaverCsv, CsvColumnMapping] | None:
     relative_csv_path = _relative_to(csv_path, root)
     table = read_dbeaver_csv(csv_path)
-    if not table.headers:
-        reason = "bỏ qua CSV rỗng"
+    try:
+        if metadata is None and (table.headers or missing_tables is not None):
+            metadata = adapter.get_table(connection, settings, csv_path.stem)
+    except TableNotFoundError:
+        if missing_tables is not None:
+            missing_tables.add(csv_path.stem)
+            return None
+        reason = f"bỏ qua vì không tìm thấy table: {settings.schema}.{csv_path.stem}"
     else:
-        try:
-            if metadata is None:
-                metadata = adapter.get_table(connection, settings, csv_path.stem)
-        except TableNotFoundError:
-            reason = f"bỏ qua vì không tìm thấy table: {settings.schema}.{csv_path.stem}"
-        else:
+        if table.headers:
             mapping = _build_import_mapping(table, metadata.columns, adapter, keep_identity)
             if mapping.columns:
                 return metadata, table, mapping
             reason = "bỏ qua vì không có column nào có thể nhập"
+        else:
+            reason = "bỏ qua CSV rỗng"
     _record_skip(summary, logger, csv_path.stem, reason, f"{relative_csv_path} -> {reason}")
     return None
 
@@ -2518,12 +2676,33 @@ def _export_one_table(
     summary: DatabaseCsvSummary,
     logger: Logger,
     cancel: CancelChecker | None = None,
+    *,
+    missing_tables: set[str] | None = None,
+    claimed: dict[tuple[str, str], str] | None = None,
+    label: str = "",
 ) -> None:
     table_name = raw_table_name
     try:
         schema, table_name = _split_table_name(raw_table_name)
-        metadata = adapter.get_table(connection, settings, table_name, schema=schema)
+        try:
+            metadata = adapter.get_table(connection, settings, table_name, schema=schema)
+        except TableNotFoundError:
+            if missing_tables is None:
+                raise
+            missing_tables.add(raw_table_name)
+            return
         table_name = metadata.name
+        output_file = output / _export_file_name(metadata, schema is not None)
+        if claimed is not None:
+            table_key = ("table", table_name.casefold())
+            file_key = ("file", str(output_file.resolve()).casefold())
+            owner = claimed.get(table_key)
+            if owner is None or owner == label:
+                owner = claimed.get(file_key)
+            if owner is not None:
+                reason = f"trùng tên với table đã xuất từ {owner}"
+                _record_skip(summary, logger, table_name, reason, f"{raw_table_name} -> {reason}")
+                return
         columns = metadata.columns
         if not columns:
             reason = "bỏ qua vì không có column xuất"
@@ -2536,13 +2715,14 @@ def _export_one_table(
         adapter.execute(cursor, select_sql)
         headers = [column.name for column in columns]
         quote_columns = [column.should_quote_export for column in columns]
-        output_file = output / _export_file_name(metadata, schema is not None)
         row_count = write_typed_dbeaver_csv_rows(
             output_file,
             headers,
             _iter_export_rows(cursor, columns, cancel),
             quote_columns,
         )
+        if claimed is not None:
+            claimed[table_key] = claimed[file_key] = label
         summary.csv_results.append(CsvDbResult(csv_path=output_file, table_name=metadata.name, row_count=row_count))
         summary.succeeded.append(DatabaseCsvSuccess(table_name, row_count))
         logger(f"{metadata.schema}.{metadata.name} -> đã xuất {row_count} dòng: {output_file}")
@@ -4065,6 +4245,36 @@ def _log_summary(summary: DatabaseCsvSummary, logger: Logger, *, include_items: 
             for index, item in enumerate(items):
                 detail = f"{item.table} — {item.message}" if item.table else item.message
                 logger(f"{label} ({len(items)}): {detail}" if index == 0 else f"  {detail}")
+
+
+def _database_logger(logger: Logger, label: str) -> Logger:
+    def log(message: str) -> None:
+        for line in message.splitlines() or [""]:
+            logger(f"[{label}] {line}")
+
+    return log
+
+
+def _log_multi_database_summary(summary: MultiDatabaseCsvSummary, logger: Logger) -> None:
+    logger("===== Tổng kết tất cả database =====")
+    for label, result in summary.databases:
+        logger(
+            f"[{label}] {result.csv_count} file CSV, {result.row_count} dòng, "
+            f"bỏ qua {len(result.skipped_items)} mục, lỗi {result.error_count} mục."
+        )
+    logger(
+        f"Tổng cộng: {summary.csv_count} file CSV, {summary.row_count} dòng, "
+        f"bỏ qua {len(summary.skipped_items)} mục, lỗi {summary.error_count} mục."
+    )
+    for title, attribute in (("Lỗi", "failed"), ("Bỏ qua", "skipped_items")):
+        logger(f"{title} ({len(getattr(summary, attribute))}):")
+        for label, result in summary.databases:
+            db_log = _database_logger(logger, label)
+            for item in getattr(result, attribute):
+                db_log(f"{item.table} — {item.message}" if item.table else item.message)
+        if attribute == "skipped_items":
+            for item in summary.aggregate_skips:
+                logger(f"{item.table} — {item.message}")
 
 
 def _log_sync_summary(summary: DatabaseSyncSummary, logger: Logger) -> None:

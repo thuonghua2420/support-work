@@ -13,6 +13,7 @@ from autocompare_tool.database_io import (
     DatabaseCsvSuccess,
     DatabaseCsvSummary,
     DatabaseSyncSummary,
+    MultiDatabaseCsvSummary,
 )
 from autocompare_tool.excel_format_presets import ExcelFormatPresetStore
 from autocompare_tool.excel_image_formatter import ExcelImageFormatSummary
@@ -91,6 +92,15 @@ class WebApplicationTests(unittest.TestCase):
         self.assertIn("folder_compare_file", result)
         self.assertIn("excel_format_presets", result)
         self.assertEqual(result["compare_options"], {"copy_input": False, "sort_by_key": False})
+        self.assertIs(result["multi_database_default"], False)
+
+    def test_bootstrap_reads_multi_database_default_from_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "autocompare_config.ini"
+            config_path.write_text("[database]\nmulti_database_default = true\n", encoding="utf-8")
+            with patch("autocompare_tool.app_config.default_config_path", return_value=config_path):
+                result = AutoCompareWebApplication().bootstrap(9876)
+        self.assertIs(result["multi_database_default"], True)
 
     def test_web_server_rejects_second_bind_on_same_port(self) -> None:
         first = AutoCompareServer(("127.0.0.1", 0), object())
@@ -448,6 +458,149 @@ class WebApplicationTests(unittest.TestCase):
             "failed": [{"table": "orders", "message": "bad key"}],
             "skipped_items": [{"table": "empty", "message": "bỏ qua CSV rỗng"}],
         })
+
+    def test_import_and_export_use_the_single_settings_path_without_connections(self) -> None:
+        app = AutoCompareWebApplication()
+        root = Path.cwd()
+        summary = DatabaseCsvSummary("CSV", root, succeeded=[DatabaseCsvSuccess("items", 1)])
+        settings = {"host": ".", "database": "sample", "trusted_connection": True}
+        for action, workflow in (("db_import", "import_csv_folder"), ("db_export", "export_csv_folder")):
+            for connections in ({}, {"connections": []}):
+                with self.subTest(action=action, connections=connections), patch(
+                    f"autocompare_tool.web_app.{workflow}", return_value=summary,
+                ) as single:
+                    payload = {"csv_path": str(root), "settings": settings, **connections}
+                    result = app._operation(action, payload)(lambda _: None, CancelToken())
+
+                self.assertEqual(single.call_args.args[1], _db_settings(settings))
+                self.assertEqual(list(result), [
+                    "action_name", "root_path", "csv_count", "row_count", "error_count", "errors",
+                    "skipped", "succeeded", "failed", "skipped_items",
+                ])
+                self.assertEqual(result["succeeded"], [{"table": "items", "rows": 1}])
+
+    def test_multi_database_payload_validation(self) -> None:
+        app = AutoCompareWebApplication()
+        settings = {"host": ".", "database": "sample", "trusted_connection": True}
+        main = {"id": "main", "settings": settings}
+        extras = [
+            {"id": f"extra-{index}", "settings": {**settings, "database": f"db{index}"}}
+            for index in range(9)
+        ]
+        duplicate = {"id": "target", "settings": settings}
+        for connections, message in (
+            ({}, "danh sách"), (None, "danh sách"),
+            ([None], "settings"), ([{"id": "main"}], "settings"),
+            ([{"id": "main", "settings": {}}], "settings"),
+            ([{**main, "id": "extra-123"}], "extra-123"),
+            ([{**main, "id": ""}], "không hợp lệ"),
+            ([main, {**main, "settings": {**settings, "database": "other"}}], "Trùng id"),
+            ([main, duplicate], "Trùng thông tin"),
+            ([main, {**duplicate, "settings": {**settings, "database_type": "mssql", "schema": "dbo"}}], "Trùng thông tin"),
+            ([main, *extras], "tối đa 9"), (extras, "tối đa 8"),
+        ):
+            with self.subTest(connections=connections), self.assertRaisesRegex(ValueError, message):
+                app.start_action("db_import", {"connections": connections, "confirmed": True})
+        self.assertEqual(len(app._multi_db_connections({"connections": [main, *extras[:8]]})), 9)
+        with self.assertRaises(PermissionError):
+            app.start_action("db_import", {"connections": [main]})
+
+    def test_multi_database_actions_recover_passwords_and_serialize_database_details(self) -> None:
+        app = AutoCompareWebApplication()
+        settings = {"host": ".", "database": "sample", "username": "tester"}
+        app._remember_db_connection("extra-12", _db_settings({**settings, "password": "stored"}))
+        root = Path.cwd()
+        label = "sample @ ."
+        summary = MultiDatabaseCsvSummary("CSV", root, [
+            (label, DatabaseCsvSummary("CSV", root,
+                csv_results=[CsvDbResult(root / "items.csv", "items", 1)],
+                succeeded=[DatabaseCsvSuccess("items", 1)],
+            )),
+            (f"{label} (2)", DatabaseCsvSummary("CSV", root, errors=["connection refused"],
+                failed=[DatabaseCsvIssue("<kết nối>", "connection refused")],
+                skipped_items=[DatabaseCsvIssue("duplicate", "trùng tên")],
+            )),
+        ], [DatabaseCsvIssue("missing", "Không tìm thấy table trong database đã chọn")])
+        payload = {
+            "csv_path": str(root),
+            "connections": [
+                {"id": "extra-12", "settings": settings},
+                {"id": "main", "settings": {**settings, "schema": "other"}},
+            ],
+            "table_names": ["items"], "keep_identity": True, "disable_triggers": True,
+            "existing_row_mode": "truncate_table",
+        }
+        for action, workflow in (("db_import", "import_csv_folder_multi"), ("db_export", "export_csv_folder_multi")):
+            with self.subTest(action=action), patch(
+                f"autocompare_tool.web_app.{workflow}", return_value=summary,
+            ) as multi:
+                token = CancelToken()
+                result = app._operation(action, payload)(lambda _: None, token)
+
+                self.assertEqual(multi.call_args.args[1], [
+                    (label, _db_settings({**settings, "password": "stored"})),
+                    (f"{label} (2)", _db_settings({**settings, "schema": "other", "password": "stored"})),
+                ])
+                self.assertEqual(multi.call_args.kwargs["cancel"], token.throw_if_cancelled)
+                if action == "db_import":
+                    self.assertTrue(multi.call_args.kwargs["keep_identity"])
+                    self.assertTrue(multi.call_args.kwargs["disable_triggers"])
+                    self.assertEqual(multi.call_args.kwargs["existing_row_mode"], "truncate_table")
+                    self.assertEqual(multi.call_args.kwargs["table_names"], ["items"])
+                else:
+                    self.assertEqual(multi.call_args.args[2], ["items"])
+
+                self.assertEqual(result["databases"], [
+                    {"label": label, "csv_count": 1, "row_count": 1, "error_count": 0, "skipped_count": 0},
+                    {"label": f"{label} (2)", "csv_count": 0, "row_count": 0, "error_count": 1, "skipped_count": 1},
+                ])
+                self.assertEqual(result["succeeded"], [{"table": f"{label}: items", "rows": 1, "database": label}])
+                self.assertEqual(result["failed"], [{
+                    "table": f"{label} (2): <kết nối>", "message": "connection refused", "database": f"{label} (2)",
+                }])
+                self.assertEqual(result["skipped_items"], [
+                    {"table": f"{label} (2): duplicate", "message": "trùng tên", "database": f"{label} (2)"},
+                    {"table": "missing", "message": "Không tìm thấy table trong database đã chọn"},
+                ])
+
+    def test_extra_roles_can_test_list_and_extract_and_survive_session_swap(self) -> None:
+        app = AutoCompareWebApplication()
+        role = "extra-12"
+        settings = {"host": ".", "database": "extra", "username": "tester", "password": "stored"}
+        with patch("autocompare_tool.web_app.test_database_connection"), patch(
+            "autocompare_tool.web_app.list_database_tables", return_value=[],
+        ), patch("autocompare_tool.web_app.list_database_names", return_value=["extra"]) as list_names:
+            tested = app._db_test({"role": role, "settings": settings, "load_tables": True}, lambda _: None)
+            public = tested["connection"]
+            self.assertEqual((tested["role"], public["password"]), (role, ""))
+            listed = app._db_list_databases({"role": role, "settings": public}, lambda _: None)
+            self.assertEqual((listed["role"], listed["databases"]), (role, ["extra"]))
+            self.assertEqual(app._db_list_tables({"role": role, "settings": public}, lambda _: None)["tables"], [])
+            list_names.assert_called_once_with(_db_settings(settings))
+
+        app._remember_db_connection("main", _db_settings({**settings, "database": "main"}), ["a"])
+        app._remember_db_connection("target", _db_settings({**settings, "database": "target"}), ["b"])
+        result = app.switch_database_session_cache()
+        self.assertEqual(result["database_connections"]["main"]["database"], "target")
+        self.assertEqual(result["database_connections"]["target"]["database"], "main")
+        self.assertEqual(result["database_tables"], {"main": ["b"], "target": ["a"], role: []})
+        self.assertEqual(app.bootstrap(9876)["database_connections"][role], public)
+        app._operation("compare_keys_extract", {"role": role})
+
+        for operation in (app._db_test, app._db_list_databases, app._db_list_tables):
+            with self.assertRaisesRegex(ValueError, "extra-100"):
+                operation({"role": "extra-100", "settings": public}, lambda _: None)
+
+    def test_connection_cache_limits_distinct_extra_roles(self) -> None:
+        app = AutoCompareWebApplication()
+        settings = _db_settings({"host": ".", "database": "sample", "trusted_connection": True})
+        for index in range(8):
+            app._remember_db_connection(f"extra-{index}", settings, [])
+        app._remember_db_connection("extra-0", settings, ["updated"])
+        with self.assertRaisesRegex(ValueError, "tối đa 8"):
+            app._remember_db_connection("extra-75", settings)
+        self.assertEqual(len(app._public_database_connection_cache()), 8)
+        self.assertEqual(app._public_database_table_cache()["extra-0"], ["updated"])
 
     def test_database_sync_passes_incremental_options_to_workflow(self) -> None:
         app = AutoCompareWebApplication()

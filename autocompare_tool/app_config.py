@@ -126,6 +126,7 @@ class AppConfig:
     update_compare_keys: dict[str, tuple[str, ...]] = field(default_factory=dict)
     copy_input_default: bool = False
     sort_by_key_default: bool = False
+    multi_database_default: bool = False
 
 
 def load_app_config(config_path: str | Path | None = None) -> AppConfig:
@@ -298,6 +299,10 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
             10240,
         ),
     )
+    try:
+        multi_database_default = _get_bool(parser, "database", "multi_database_default", False)
+    except ValueError:
+        multi_database_default = False
     return AppConfig(
         folders=folders,
         workbooks=workbooks,
@@ -310,6 +315,7 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
         update_compare_keys=_read_update_compare_keys(parser),
         copy_input_default=_get_bool(parser, "compare_workflows", "copy_input_enabled", False),
         sort_by_key_default=_get_bool(parser, "compare_workflows", "sort_by_key_enabled", False),
+        multi_database_default=multi_database_default,
     )
 
 

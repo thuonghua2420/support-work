@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -48,7 +49,9 @@ from autocompare_tool.database_io import (
     build_update_by_primary_key_sql,
     canonical_row_hash,
     export_csv_folder,
+    export_csv_folder_multi,
     import_csv_folder,
+    import_csv_folder_multi,
     normalize_database_type,
     order_tables_by_dependency,
     preferred_sqlserver_driver,
@@ -1459,6 +1462,160 @@ class ForeignKeyImportTests(unittest.TestCase):
         self.assertEqual(logs[-4:], [
             "===== Tổng kết =====", "Thành công (0)", "Lỗi (0)", "Bỏ qua (1): Không tìm thấy table để xuất.",
         ])
+
+
+class MultiDatabaseCsvTests(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.settings = ForeignKeyImportTests.settings
+        self.logs = []
+
+    def _import(self, adapters, **options):
+        return import_csv_folder_multi(
+            self.root, self._connections(adapters), log=self.logs.append, **options,
+        )
+
+    def _connections(self, adapters):
+        return [(f"db{index}", replace(self.settings, database=f"db{index}"))
+                for index in range(1, len(adapters) + 1)]
+
+    def _write_csvs(self, *names):
+        for name in names:
+            (self.root / f"{name}.csv").write_text("id\n1\n", encoding="utf-8")
+
+    def test_import_inserts_into_every_matching_database_and_aggregates_missing_tables(self):
+        self._write_csvs("items", "missing")
+        first = FolderImportAdapter(["items"], [])
+        failed = FolderImportAdapter([], [])
+        failed.connect = Mock(side_effect=RuntimeError("driver error\nconnection refused"))
+        unaffected = FolderImportAdapter([], [])
+        last = FolderImportAdapter(["items"], [])
+        adapters = [first, failed, unaffected, last]
+
+        with patch("autocompare_tool.database_io.get_adapter", side_effect=adapters):
+            summary = self._import(adapters, table_names=(name for name in ["items", "missing"]))
+
+        self.assertEqual((summary.csv_count, summary.row_count, summary.error_count), (2, 2, 1))
+        self.assertEqual(summary.succeeded, [
+            DatabaseCsvSuccess("db1: items", 1, "db1"), DatabaseCsvSuccess("db4: items", 1, "db4"),
+        ])
+        self.assertEqual(summary.failed, [
+            DatabaseCsvIssue("db2: <kết nối>", "driver error\nconnection refused", "db2"),
+        ])
+        self.assertEqual(summary.skipped_items, [
+            DatabaseCsvIssue("missing", "Không tìm thấy table trong database đã chọn"),
+        ])
+        self.assertEqual(unaffected.writes, [])
+        for adapter in (first, last):
+            self.assertEqual(adapter.writes, [('INSERT INTO "dbo"."items" ("id") VALUES (?)',), ("commit",)])
+        self.assertTrue(all(adapter.connection.closed for adapter in (first, unaffected, last)))
+        overall = self.logs.index("===== Tổng kết tất cả database =====")
+        self.assertTrue(all(line.startswith(("[db1] ", "[db2] ", "[db3] ", "[db4] "))
+                            for line in self.logs[:overall]))
+        self.assertEqual(self.logs.count("===== Tổng kết tất cả database ====="), 1)
+        self.assertIn("[db2] connection refused", self.logs[:overall])
+        self.assertIn("Tổng cộng: 2 file CSV, 2 dòng, bỏ qua 1 mục, lỗi 1 mục.", self.logs[overall:])
+        self.assertIn("[db2] <kết nối> — driver error", self.logs[overall:])
+        self.assertIn("missing — Không tìm thấy table trong database đã chọn", self.logs[overall:])
+
+    def test_import_applies_existing_row_mode_and_trigger_bypass_to_every_database(self):
+        self._write_csvs("items")
+        for mode, statement in (
+            (IMPORT_MODE_TRUNCATE_TABLE, "TRUNCATE TABLE [dbo].[items]"),
+            (IMPORT_MODE_DELETE_MATCHING_KEYS, "DELETE FROM [dbo].[items] WHERE [id] = ?"),
+        ):
+            with self.subTest(mode=mode):
+                adapters = [SqlServerTriggerImportAdapter(["items"], []) for _ in range(2)]
+                with patch("autocompare_tool.database_io.get_adapter", side_effect=adapters):
+                    summary = self._import(adapters, existing_row_mode=mode, disable_triggers=True, keep_identity=True)
+                self.assertEqual(summary.csv_count, 2)
+                for adapter in adapters:
+                    self.assertEqual(adapter.writes, [(sql,) for sql in [
+                        "list dbo.items", "DISABLE TRIGGER [dbo].[audit] ON [dbo].[items]", statement,
+                        "INSERT INTO [dbo].[items] ([id]) VALUES (?)", "ENABLE TRIGGER [dbo].[audit] ON [dbo].[items]",
+                        "commit",
+                    ]])
+
+    def test_import_cancels_inside_and_between_databases(self):
+        self._write_csvs("items")
+        for cancel_after in (('INSERT INTO "dbo"."items" ("id") VALUES (?)',), ("commit",)):
+            with self.subTest(cancel_after=cancel_after):
+                first = FolderImportAdapter(["items"], [])
+                last = FolderImportAdapter(["items"], [])
+                last.connect = Mock(return_value=last.connection)
+
+                def cancel():
+                    if cancel_after in first.writes:
+                        raise OperationCancelledError()
+
+                with patch("autocompare_tool.database_io.get_adapter", side_effect=[first, last]):
+                    with self.assertRaises(OperationCancelledError):
+                        self._import([first, last], cancel=cancel)
+                self.assertTrue(first.connection.closed)
+                self.assertEqual(first.connection.rolled_back, cancel_after != ("commit",))
+                last.connect.assert_not_called()
+
+    def _export_adapter(self, tables, value):
+        adapter = FolderImportAdapter(tables, [])
+        cursor = Mock()
+        adapter.connection.cursor = Mock(return_value=cursor)
+        adapter.execute = Mock(side_effect=lambda *_: setattr(cursor.fetchmany, "side_effect", [[(value,)], []]))
+        adapter.list_tables = Mock(return_value=tables)
+        return adapter
+
+    def test_export_filters_tables_and_keeps_the_first_export_on_both_kinds_of_collision(self):
+        first = self._export_adapter(["Items", "first_only", "unrequested"], 1)
+        last = self._export_adapter(["items", "second_only", "unrequested"], 2)
+        last.tables["alias"] = TableMetadata("dbo", "dbo.items", [_column("id")])
+        adapters = [first, last]
+        with patch("autocompare_tool.database_io.get_adapter", side_effect=adapters):
+            summary = export_csv_folder_multi(
+                self.root, self._connections(adapters), ["dbo.items", "first_only", "second_only", "alias", "missing"],
+                self.logs.append,
+            )
+
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()), [
+            "dbo.Items.csv", "first_only.csv", "second_only.csv",
+        ])
+        self.assertEqual((self.root / "dbo.Items.csv").read_bytes(), b"id\r\n1\r\n")
+        self.assertEqual((self.root / "second_only.csv").read_bytes(), b"id\r\n2\r\n")
+        self.assertEqual((summary.csv_count, summary.row_count, summary.error_count), (3, 3, 0))
+        self.assertEqual(summary.skipped_items, [
+            DatabaseCsvIssue("db2: items", "trùng tên với table đã xuất từ db1", "db2"),
+            DatabaseCsvIssue("db2: dbo.items", "trùng tên với table đã xuất từ db1", "db2"),
+            DatabaseCsvIssue("missing", "Không tìm thấy table trong database đã chọn"),
+        ])
+
+    def test_export_list_failure_closes_connection_and_continues(self):
+        failed = self._export_adapter([], 1)
+        failed.list_tables.side_effect = RuntimeError("list driver error")
+        last = self._export_adapter(["items"], 2)
+        adapters = [failed, last]
+        with patch("autocompare_tool.database_io.get_adapter", side_effect=adapters):
+            summary = export_csv_folder_multi(self.root, self._connections(adapters), log=self.logs.append)
+
+        self.assertEqual(summary.failed, [DatabaseCsvIssue("db1: <kết nối>", "list driver error", "db1")])
+        self.assertEqual(summary.succeeded, [DatabaseCsvSuccess("db2: items", 1, "db2")])
+        self.assertTrue(failed.connection.closed and last.connection.closed)
+
+    def test_export_cancellation_during_fetch_closes_connection_and_stops(self):
+        first = self._export_adapter(["items"], 1)
+        last = self._export_adapter(["items"], 2)
+        last.connect = Mock(return_value=last.connection)
+        adapters = [first, last]
+
+        def cancel():
+            if first.connection.cursor.return_value.fetchmany.called:
+                raise OperationCancelledError()
+
+        with patch("autocompare_tool.database_io.get_adapter", side_effect=adapters):
+            with self.assertRaises(OperationCancelledError):
+                export_csv_folder_multi(self.root, self._connections(adapters), cancel=cancel)
+
+        self.assertTrue(first.connection.closed)
+        last.connect.assert_not_called()
 
 
 def _fk(child: str, parent: str) -> ForeignKeyEdge:

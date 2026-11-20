@@ -4,6 +4,7 @@ import argparse
 import json
 import mimetypes
 import os
+import re
 import subprocess
 import threading
 import uuid
@@ -32,14 +33,19 @@ from .compare_workbook_loader import load_ut_compare_workbooks
 from .compare_record_counts import read_record_counts
 from .database_io import (
     DatabaseConnectionSettings,
+    DatabaseCsvIssue,
+    DatabaseCsvSuccess,
+    MultiDatabaseCsvSummary,
     OperationCancelledError,
     database_type_options,
     database_label,
     default_port,
     default_schema,
     export_csv_folder,
+    export_csv_folder_multi,
     get_available_sqlserver_drivers,
     import_csv_folder,
+    import_csv_folder_multi,
     is_modern_sqlserver_odbc_driver,
     list_database_names,
     list_database_tables,
@@ -47,6 +53,7 @@ from .database_io import (
     preferred_sqlserver_driver,
     scan_import_csv_tables,
     test_database_connection,
+    validate_connection_settings,
 )
 from .excel_image_formatter import format_excel_workbooks
 from .database_sync_worker import run_sync_isolated
@@ -85,6 +92,9 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DB_CONNECTION_HISTORY_LIMIT = 50
 DB_CONNECTION_HISTORY_FILE = "database_connection_history.json"
+MAX_EXTRA_DB_CONNECTIONS = 8
+MAX_MULTI_DB_CONNECTIONS = 9
+EXTRA_DB_ROLE = re.compile(r"extra-\d{1,2}", re.ASCII)
 STATIC_DIR = Path(__file__).resolve().parent / "web"
 Logger = Callable[[str], None]
 
@@ -301,6 +311,7 @@ class AutoCompareWebApplication:
                 "sort_by_key": self.config.sort_by_key_default,
             },
             "update_compare_keys": load_app_config().update_compare_keys,
+            "multi_database_default": self.config.multi_database_default,
             "database_types": database_type_options(),
             "database_defaults": {
                 database_type: {
@@ -425,17 +436,24 @@ class AutoCompareWebApplication:
         settings: DatabaseConnectionSettings,
         tables: list[str] | None = None,
     ) -> None:
-        role = str(role or "main")
+        role = _db_role(role)
         validated = _db_settings(asdict(settings))
         with self._state_lock:
+            self._check_extra_db_capacity_unlocked(role)
             self._db_connection_cache[role] = validated
             self._remember_db_connection_history_unlocked(validated)
             if tables is not None:
                 self._db_table_cache[role] = list(tables)
 
+    def _check_extra_db_capacity_unlocked(self, role: str) -> None:
+        if EXTRA_DB_ROLE.fullmatch(role):
+            extras = (self._db_connection_cache.keys() | self._db_table_cache.keys()) - {"main", "target"}
+            if role not in extras and len(extras) >= MAX_EXTRA_DB_CONNECTIONS:
+                raise ValueError(f"Chỉ hỗ trợ tối đa {MAX_EXTRA_DB_CONNECTIONS} kết nối CSDL bổ sung.")
+
     def _db_settings_for_role(self, raw_settings: Any, role: str) -> DatabaseConnectionSettings:
+        role = _db_role(role)
         settings = _db_settings(raw_settings)
-        role = str(role or "main")
         if settings.password:
             return settings
         with self._state_lock:
@@ -450,6 +468,47 @@ class AutoCompareWebApplication:
             if _db_settings_match_server_login_except_password(settings, previous):
                 return replace(settings, password=previous.password)
         return settings
+
+    def _multi_db_connections(self, payload: dict[str, Any]) -> list[tuple[str, DatabaseConnectionSettings]]:
+        raw_connections = payload.get("connections", [])
+        if not isinstance(raw_connections, list):
+            raise ValueError("connections phải là danh sách kết nối CSDL.")
+        if len(raw_connections) > MAX_MULTI_DB_CONNECTIONS:
+            raise ValueError(f"Chỉ hỗ trợ tối đa {MAX_MULTI_DB_CONNECTIONS} kết nối CSDL mỗi tác vụ.")
+
+        roles: set[str] = set()
+        seen_settings: set[DatabaseConnectionSettings] = set()
+        labels: set[str] = set()
+        connections = []
+        for entry in raw_connections:
+            if not isinstance(entry, dict) or not entry.get("settings"):
+                raise ValueError("Mỗi mục connections cần có id và settings kết nối CSDL.")
+            role = _db_role(entry.get("id"))
+            if role in roles:
+                raise ValueError(f"Trùng id kết nối CSDL: {role}.")
+            roles.add(role)
+            settings = self._db_settings_for_role(entry["settings"], role)
+            try:
+                comparable_settings = validate_connection_settings(settings)
+            except ValueError:
+                # The workflow reports invalid database settings for the affected connection.
+                comparable_settings = settings
+            if comparable_settings in seen_settings:
+                raise ValueError(f"Trùng thông tin kết nối CSDL tại {role}.")
+            seen_settings.add(comparable_settings)
+
+            database = settings.database.strip() or settings.schema.strip() or settings.username.strip() or role
+            host = settings.host.strip() or settings.schema.strip() or settings.username.strip() or "?"
+            base_label = label = f"{database} @ {host}"
+            suffix = 2
+            while label in labels:
+                label = f"{base_label} ({suffix})"
+                suffix += 1
+            labels.add(label)
+            connections.append((label, settings))
+        if len(roles - {"main", "target"}) > MAX_EXTRA_DB_CONNECTIONS:
+            raise ValueError(f"Chỉ hỗ trợ tối đa {MAX_EXTRA_DB_CONNECTIONS} kết nối CSDL bổ sung.")
+        return connections
 
     def enable_sql_write_mode(self, payload: dict[str, Any]) -> dict[str, Any]:
         if payload.get("confirmed") is not True:
@@ -481,7 +540,7 @@ class AutoCompareWebApplication:
             self._db_table_cache = {
                 scope: list(tables)
                 for scope, tables in self._db_table_cache.items()
-                if tables
+                if tables or scope not in {"main", "target"}
             }
         return {
             "database_connections": self._public_database_connection_cache(),
@@ -597,9 +656,7 @@ class AutoCompareWebApplication:
                 log=log, cancel=cancel.throw_if_cancelled,
             )
         if action == "compare_keys_extract":
-            role = str(payload.get("role", "main"))
-            if role not in {"main", "target"}:
-                raise ValueError("Chọn Database 1 hoặc Database 2.")
+            role = _db_role(payload.get("role", "main"))
             with self._state_lock:
                 settings = self._db_connection_cache.get(role)
             if settings is None:
@@ -628,10 +685,12 @@ class AutoCompareWebApplication:
         if action == "db_scan_csv":
             return lambda log, cancel: self._scan_import_csv_tables(_text(payload, "csv_path"), log)
         if action == "db_import":
+            connections = self._multi_db_connections(payload)
+            workflow = import_csv_folder_multi if connections else import_csv_folder
             return lambda log, cancel: self._database_summary(
-                import_csv_folder(
+                workflow(
                     _text(payload, "csv_path"),
-                    self._db_settings_for_role(payload.get("settings"), "main"),
+                    connections or self._db_settings_for_role(payload.get("settings"), "main"),
                     keep_identity=_bool(payload, "keep_identity"),
                     disable_triggers=_bool(payload, "disable_triggers"),
                     log=log,
@@ -641,10 +700,12 @@ class AutoCompareWebApplication:
                 )
             )
         if action == "db_export":
+            connections = self._multi_db_connections(payload)
+            export_workflow = export_csv_folder_multi if connections else export_csv_folder
             return lambda log, cancel: self._database_summary(
-                export_csv_folder(
+                export_workflow(
                     _text(payload, "csv_path"),
-                    self._db_settings_for_role(payload.get("settings"), "main"),
+                    connections or self._db_settings_for_role(payload.get("settings"), "main"),
                     payload.get("table_names"),
                     log,
                     cancel=cancel.throw_if_cancelled,
@@ -801,25 +862,6 @@ class AutoCompareWebApplication:
                 normalize_csv_folder(_text(payload, "csv_path"), _db_settings(payload.get("settings")), log)
             ),
             "db_scan_csv": lambda log: self._scan_import_csv_tables(_text(payload, "csv_path"), log),
-            "db_import": lambda log: self._database_summary(
-                import_csv_folder(
-                    _text(payload, "csv_path"),
-                    _db_settings(payload.get("settings")),
-                    keep_identity=_bool(payload, "keep_identity"),
-                    disable_triggers=_bool(payload, "disable_triggers"),
-                    log=log,
-                    existing_row_mode=str(payload.get("existing_row_mode", "append")),
-                    table_names=payload.get("table_names"),
-                )
-            ),
-            "db_export": lambda log: self._database_summary(
-                export_csv_folder(
-                    _text(payload, "csv_path"),
-                    _db_settings(payload.get("settings")),
-                    payload.get("table_names"),
-                    log,
-                )
-            ),
             "db_sync": lambda log: self._database_sync(payload, log),
             "db_sql_execute": lambda log: self.sql_workspace.execute(
                 _text(payload, "sql"),
@@ -1009,6 +1051,7 @@ class AutoCompareWebApplication:
         tables = list_database_tables(settings)
         log(f"Đã tải {len(tables)} table.")
         with self._state_lock:
+            self._check_extra_db_capacity_unlocked(role)
             self._remember_db_connection_history_unlocked(settings)
             self._db_table_cache[role] = list(tables)
         return {"tables": tables, "role": role, "connection": _public_db_settings(settings)}
@@ -1155,7 +1198,17 @@ class AutoCompareWebApplication:
 
     @staticmethod
     def _database_summary(summary: Any) -> dict[str, Any]:
-        return {
+        def table_result(item: DatabaseCsvSuccess | DatabaseCsvIssue) -> dict[str, Any]:
+            result: dict[str, Any] = {"table": item.table}
+            if isinstance(item, DatabaseCsvSuccess):
+                result["rows"] = item.row_count
+            else:
+                result["message"] = item.message
+            if item.database is not None:
+                result["database"] = item.database
+            return result
+
+        result = {
             "action_name": summary.action_name,
             "root_path": str(summary.root_path),
             "csv_count": summary.csv_count,
@@ -1163,10 +1216,22 @@ class AutoCompareWebApplication:
             "error_count": summary.error_count,
             "errors": summary.errors,
             "skipped": summary.skipped,
-            "succeeded": [{"table": item.table, "rows": item.row_count} for item in summary.succeeded],
-            "failed": [{"table": item.table, "message": item.message} for item in summary.failed],
-            "skipped_items": [{"table": item.table, "message": item.message} for item in summary.skipped_items],
+            "succeeded": [table_result(item) for item in summary.succeeded],
+            "failed": [table_result(item) for item in summary.failed],
+            "skipped_items": [table_result(item) for item in summary.skipped_items],
         }
+        if isinstance(summary, MultiDatabaseCsvSummary):
+            result["databases"] = [
+                {
+                    "label": label,
+                    "csv_count": database.csv_count,
+                    "row_count": database.row_count,
+                    "error_count": database.error_count,
+                    "skipped_count": len(database.skipped_items),
+                }
+                for label, database in summary.databases
+            ]
+        return result
 
     @staticmethod
     def _scan_import_csv_tables(root_path: str, log: Logger) -> dict[str, Any]:
@@ -1430,6 +1495,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     serve(args.host, args.port, open_browser=not args.no_browser)
     return 0
+
+
+def _db_role(value: Any) -> str:
+    if isinstance(value, str) and (value in {"main", "target"} or EXTRA_DB_ROLE.fullmatch(value)):
+        return value
+    raise ValueError(f"Vai trò kết nối Database không hợp lệ: {value}.")
 
 
 def _db_settings(raw_value: Any) -> DatabaseConnectionSettings:

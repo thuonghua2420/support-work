@@ -14,6 +14,19 @@ from autocompare_tool.app_config import (
 
 
 class AppConfigHeaderTests(unittest.TestCase):
+    def test_multi_database_default_is_opt_in_and_invalid_values_fall_back(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "autocompare_config.ini"
+            for content, expected in (
+                ("", False), ("[database]\n", False),
+                ("[database]\nmulti_database_default = invalid\n", False),
+                ("[database]\nmulti_database_default = false\n", False),
+                ("[database]\nmulti_database_default = true\n", True),
+            ):
+                with self.subTest(content=content):
+                    config_path.write_text(content, encoding="utf-8")
+                    self.assertIs(load_app_config(config_path).multi_database_default, expected)
+
     def test_loads_workflow_specific_excel_headers_with_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             config_path = Path(temporary) / "autocompare_config.ini"
