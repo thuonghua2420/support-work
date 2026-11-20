@@ -9,8 +9,9 @@ import time as time_module
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from heapq import heapify, heappop, heappush
 from pathlib import Path
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Iterable, Sequence, TypeVar
 
 from .dbeaver_csv import (
     DbeaverCsv,
@@ -240,6 +241,28 @@ class TableMetadata:
 
 
 @dataclass(frozen=True)
+class ForeignKeyEdge:
+    child_schema: str
+    child_table: str
+    parent_schema: str
+    parent_table: str
+    constraint_name: str
+
+    @property
+    def child(self) -> tuple[str, str]:
+        return self.child_schema, self.child_table
+
+    @property
+    def parent(self) -> tuple[str, str]:
+        return self.parent_schema, self.parent_table
+
+
+_TableKey = tuple[str, str]
+_TableName = TypeVar("_TableName", str, _TableKey)
+_ImportTables = dict[_TableKey, list[tuple[Path, TableMetadata]]]
+
+
+@dataclass(frozen=True)
 class CsvDbResult:
     csv_path: Path
     table_name: str
@@ -270,6 +293,18 @@ class DatabaseSyncResult:
     backup_row_count: int = 0
 
 
+@dataclass(frozen=True)
+class DatabaseCsvSuccess:
+    table: str
+    row_count: int
+
+
+@dataclass(frozen=True)
+class DatabaseCsvIssue:
+    table: str
+    message: str
+
+
 @dataclass
 class DatabaseCsvSummary:
     action_name: str
@@ -277,6 +312,9 @@ class DatabaseCsvSummary:
     csv_results: list[CsvDbResult] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    succeeded: list[DatabaseCsvSuccess] = field(default_factory=list)
+    failed: list[DatabaseCsvIssue] = field(default_factory=list)
+    skipped_items: list[DatabaseCsvIssue] = field(default_factory=list)
 
     @property
     def csv_count(self) -> int:
@@ -352,6 +390,8 @@ class CsvColumnMapping:
 
 
 class DatabaseAdapter:
+    transactional_truncate = True
+
     def connect(self, settings: DatabaseConnectionSettings):
         raise NotImplementedError
 
@@ -388,6 +428,17 @@ class DatabaseAdapter:
 
     def list_tables(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
         raise NotImplementedError
+
+    def list_foreign_keys(self, connection, settings: DatabaseConnectionSettings) -> list[ForeignKeyEdge]:
+        return []
+
+    def _query_foreign_keys(self, connection, sql: str, params: Sequence[object] = ()) -> list[ForeignKeyEdge]:
+        cursor = connection.cursor()
+        try:
+            self.execute(cursor, sql, params)
+            return [ForeignKeyEdge(*row) for row in cursor.fetchall()]
+        finally:
+            _close_cursor(cursor)
 
     def get_table(
         self,
@@ -454,6 +505,9 @@ class DatabaseAdapter:
     def truncate_table(self, cursor, metadata: TableMetadata) -> None:
         self.execute(cursor, f"TRUNCATE TABLE {self.qualified_table(metadata)}")
 
+    def validate_import_clear(self, cursor, tables: Sequence[TableMetadata]) -> None:
+        return None
+
     def before_import(
         self,
         cursor,
@@ -494,6 +548,20 @@ class SqlServerAdapter(DatabaseAdapter):
 
     def default_schema(self, settings: DatabaseConnectionSettings) -> str:
         return settings.schema.strip() or "dbo"
+
+    def list_foreign_keys(self, connection, settings: DatabaseConnectionSettings) -> list[ForeignKeyEdge]:
+        return self._query_foreign_keys(
+            connection,
+            """
+            SELECT DISTINCT child_schema.name, child.name, parent_schema.name, parent.name, fk.name
+            FROM sys.foreign_keys fk
+            INNER JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+            INNER JOIN sys.tables child ON child.object_id = fkc.parent_object_id
+            INNER JOIN sys.schemas child_schema ON child_schema.schema_id = child.schema_id
+            INNER JOIN sys.tables parent ON parent.object_id = fkc.referenced_object_id
+            INNER JOIN sys.schemas parent_schema ON parent_schema.schema_id = parent.schema_id
+            """,
+        )
 
     def list_databases(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
         cursor = connection.cursor()
@@ -665,6 +733,8 @@ def _build_sqlserver_connection_parts(settings: DatabaseConnectionSettings) -> l
 
 
 class MySqlAdapter(DatabaseAdapter):
+    transactional_truncate = False
+
     def connect(self, settings: DatabaseConnectionSettings):
         try:
             import mysql.connector
@@ -691,6 +761,40 @@ class MySqlAdapter(DatabaseAdapter):
 
     def default_schema(self, settings: DatabaseConnectionSettings) -> str:
         return settings.schema.strip() or settings.database
+
+    def list_foreign_keys(self, connection, settings: DatabaseConnectionSettings) -> list[ForeignKeyEdge]:
+        return self._query_foreign_keys(
+            connection,
+            """
+            SELECT DISTINCT TABLE_SCHEMA, TABLE_NAME, REFERENCED_TABLE_SCHEMA,
+                            REFERENCED_TABLE_NAME, CONSTRAINT_NAME
+            FROM information_schema.KEY_COLUMN_USAGE
+            WHERE REFERENCED_TABLE_NAME IS NOT NULL
+              AND TABLE_SCHEMA = %s AND REFERENCED_TABLE_SCHEMA = TABLE_SCHEMA
+            """,
+            (settings.database,),
+        )
+
+    def validate_import_clear(self, cursor, tables: Sequence[TableMetadata]) -> None:
+        # DELETE can be rolled back only on a transactional MySQL storage engine.
+        for schema in sorted({table.schema for table in tables}):
+            self.execute(
+                cursor,
+                """
+                SELECT t.TABLE_NAME
+                FROM information_schema.TABLES t
+                INNER JOIN information_schema.ENGINES e ON e.ENGINE = t.ENGINE
+                WHERE t.TABLE_SCHEMA = %s AND e.TRANSACTIONS = 'YES'
+                """,
+                (schema,),
+            )
+            transactional = {row[0] for row in cursor.fetchall()}
+            unsupported = [
+                f"{table.schema}.{table.name}" for table in tables
+                if table.schema == schema and table.name not in transactional
+            ]
+            if unsupported:
+                raise ValueError("Không thể rollback thao tác xóa trên các table: " + ", ".join(unsupported))
 
     def list_databases(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
         cursor = connection.cursor()
@@ -829,6 +933,20 @@ class PostgreSqlAdapter(DatabaseAdapter):
 
     def stream_cursor(self, connection):
         return connection.cursor(name="autocompare_sync_stream")
+
+    def list_foreign_keys(self, connection, settings: DatabaseConnectionSettings) -> list[ForeignKeyEdge]:
+        return self._query_foreign_keys(
+            connection,
+            """
+            SELECT child_schema.nspname, child.relname, parent_schema.nspname, parent.relname, fk.conname
+            FROM pg_catalog.pg_constraint fk
+            INNER JOIN pg_catalog.pg_class child ON child.oid = fk.conrelid
+            INNER JOIN pg_catalog.pg_namespace child_schema ON child_schema.oid = child.relnamespace
+            INNER JOIN pg_catalog.pg_class parent ON parent.oid = fk.confrelid
+            INNER JOIN pg_catalog.pg_namespace parent_schema ON parent_schema.oid = parent.relnamespace
+            WHERE fk.contype = 'f'
+            """,
+        )
 
     def list_databases(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
         cursor = connection.cursor()
@@ -970,6 +1088,8 @@ class PostgreSqlAdapter(DatabaseAdapter):
 
 
 class OracleAdapter(DatabaseAdapter):
+    transactional_truncate = False
+
     def connect(self, settings: DatabaseConnectionSettings):
         try:
             import oracledb
@@ -994,6 +1114,18 @@ class OracleAdapter(DatabaseAdapter):
 
     def default_schema(self, settings: DatabaseConnectionSettings) -> str:
         return (settings.schema.strip() or settings.username).upper()
+
+    def list_foreign_keys(self, connection, settings: DatabaseConnectionSettings) -> list[ForeignKeyEdge]:
+        return self._query_foreign_keys(
+            connection,
+            """
+            SELECT child.owner, child.table_name, parent.owner, parent.table_name, child.constraint_name
+            FROM all_constraints child
+            INNER JOIN all_constraints parent
+                ON parent.owner = child.r_owner AND parent.constraint_name = child.r_constraint_name
+            WHERE child.constraint_type = 'R'
+            """,
+        )
 
     def list_tables(self, connection, settings: DatabaseConnectionSettings) -> list[str]:
         schema = self.schema_name(settings).upper()
@@ -1317,6 +1449,218 @@ def scan_import_csv_tables(root_path: str | Path) -> list[CsvTableCandidate]:
     return candidates
 
 
+def order_tables_by_dependency(
+    tables: Iterable[_TableName],
+    edges: Iterable[ForeignKeyEdge],
+) -> tuple[list[_TableName], list[list[_TableName]]]:
+    """Return parents before children and report each cyclic component separately.
+
+    Use (schema, table) pairs to distinguish tables in different schemas. String
+    names may be qualified or unqualified when the scope is a single schema.
+    """
+    names: dict[tuple[str, ...], _TableName] = {}
+    for table in tables:
+        parts = (table,) if isinstance(table, str) else table
+        names.setdefault(tuple(part.casefold() for part in parts), table)
+
+    def find_key(table: _TableKey) -> tuple[str, ...]:
+        schema, name = _fk_table_key(table)
+        for key in ((schema, name), (f"{schema}.{name}",), (name,)):
+            if key in names:
+                return key
+        return schema, name
+
+    parents: dict[tuple[str, ...], set[tuple[str, ...]]] = {key: set() for key in names}
+    children: dict[tuple[str, ...], set[tuple[str, ...]]] = {key: set() for key in names}
+    for edge in edges:
+        child, parent = find_key(edge.child), find_key(edge.parent)
+        if child in names and parent in names and child != parent:
+            parents[child].add(parent)
+            children[parent].add(child)
+
+    cycles = _dependency_cycles(parents, children)
+    cyclic_keys = {key for cycle in cycles for key in cycle}
+    remaining = {key: len(dependencies - cyclic_keys) for key, dependencies in parents.items() if key not in cyclic_keys}
+    ready = [key for key, count in remaining.items() if count == 0]
+    heapify(ready)
+    ordered = []
+    while ready:
+        parent = heappop(ready)
+        ordered.append(names[parent])
+        for child in children[parent] - cyclic_keys:
+            remaining[child] -= 1
+            if remaining[child] == 0:
+                heappush(ready, child)
+    return ordered, [[names[key] for key in cycle] for cycle in cycles]
+
+
+def _dependency_cycles(
+    parents: dict[tuple[str, ...], set[tuple[str, ...]]],
+    children: dict[tuple[str, ...], set[tuple[str, ...]]],
+) -> list[list[tuple[str, ...]]]:
+    # Find strongly connected components without recursing through long FK chains.
+    finished = []
+    visited = set()
+    for key in parents:
+        if key in visited:
+            continue
+        visited.add(key)
+        stack = [(key, iter(children[key]))]
+        while stack:
+            current, neighbors = stack[-1]
+            child = next(neighbors, None)
+            if child is None:
+                stack.pop()
+                finished.append(current)
+            elif child not in visited:
+                visited.add(child)
+                stack.append((child, iter(children[child])))
+
+    cycles = []
+    visited.clear()
+    for key in reversed(finished):
+        if key in visited:
+            continue
+        component = [key]
+        visited.add(key)
+        for current in component:
+            unseen = parents[current] - visited
+            visited.update(unseen)
+            component.extend(unseen)
+        if len(component) > 1:
+            cycles.append(sorted(component))
+    return sorted(cycles)
+
+
+def _fk_table_key(table: _TableKey) -> _TableKey:
+    schema, name = table
+    return schema.casefold(), name.casefold()
+
+
+def _related_tables(
+    tables: Iterable[_TableKey],
+    related: dict[_TableKey, set[_TableKey]],
+) -> set[_TableKey]:
+    found = set(tables)
+    pending = list(found)
+    while pending:
+        neighbors = related.get(pending.pop(), set()) - found
+        found.update(neighbors)
+        pending.extend(neighbors)
+    return found
+
+
+def _record_import_table_error(
+    metadata: TableMetadata,
+    csvs: Sequence[tuple[Path, TableMetadata]],
+    summary: DatabaseCsvSummary,
+    logger: Logger,
+    exc: Exception,
+) -> None:
+    if csvs:
+        for csv_path, _ in csvs:
+            _record_error(summary, logger, csv_path, exc, table=csv_path.stem)
+    else:
+        qualified_name = f"{metadata.schema}.{metadata.name}"
+        _record_error(summary, logger, qualified_name, exc, table=qualified_name)
+
+
+def _record_import_cycles(
+    cycles: Sequence[Sequence[_TableKey]],
+    tables: dict[_TableKey, TableMetadata],
+    imports: _ImportTables,
+    summary: DatabaseCsvSummary,
+    logger: Logger,
+) -> None:
+    for cycle in cycles:
+        names = ", ".join(f"{tables[key].schema}.{tables[key].name}" for key in cycle)
+        error = ValueError(f"Chu trình khóa ngoại giữa các table: {names}")
+        for key in cycle:
+            _record_import_table_error(tables[key], imports.get(key, ()), summary, logger, error)
+
+
+def _clear_import_tables(
+    connection,
+    adapter: DatabaseAdapter,
+    imports: _ImportTables,
+    edges: Sequence[ForeignKeyEdge],
+    csv_stems: set[str],
+    summary: DatabaseCsvSummary,
+    logger: Logger,
+    cancel: CancelChecker | None,
+) -> set[_TableKey]:
+    tables = {key: csvs[0][1] for key, csvs in imports.items()}
+    parents: dict[_TableKey, set[_TableKey]] = {}
+    children: dict[_TableKey, set[_TableKey]] = {}
+    for edge in edges:
+        parent, child = _fk_table_key(edge.parent), _fk_table_key(edge.child)
+        children.setdefault(parent, set()).add(child)
+        parents.setdefault(child, set()).add(parent)
+        tables.setdefault(child, TableMetadata(edge.child_schema, edge.child_table, []))
+
+    closure = _related_tables(imports, children)
+    order, cycles = order_tables_by_dependency(closure, edges)
+    if cycles:
+        _record_import_cycles(cycles, tables, imports, summary, logger)
+        cyclic = {key for cycle in cycles for key in cycle}
+        blocked = _related_tables(cyclic, parents) & closure
+        # A parent cannot be cleared while a cyclic child and its rows remain.
+        for key in sorted((blocked - cyclic) & imports.keys()):
+            cyclic_children = sorted(_related_tables([key], children) & cyclic)
+            names = ", ".join(f"{tables[child].schema}.{tables[child].name}" for child in cyclic_children)
+            exc = ValueError(f"Không thể xóa dữ liệu vì table phụ thuộc có chu trình khóa ngoại: {names}")
+            _record_import_table_error(tables[key], imports[key], summary, logger, exc)
+        clearable = _related_tables(imports.keys() - blocked, children)
+        order = [key for key in order if key in clearable]
+    if not order:
+        return set()
+
+    clear_steps = [
+        (key, "TRUNCATE TABLE" if key not in children and adapter.transactional_truncate else "DELETE FROM")
+        for key in reversed(order)
+    ]
+    labels = {key: adapter.qualified_table(tables[key]) for key, _ in clear_steps}
+    logger("Thứ tự xóa dữ liệu: " + " → ".join(f"{action} {labels[key]}" for key, action in clear_steps))
+    csv_schemas = {schema for schema, _ in imports}
+    for key, _ in clear_steps:
+        if key not in imports:
+            schema, name = key
+            location = "ngoài tập CSV nhập" if schema in csv_schemas and name in csv_stems else "ngoài folder CSV"
+            logger(f"Xóa thêm table {location}: {labels[key]}")
+
+    cursor = None
+    target = "bắt đầu pha xóa dữ liệu"
+    try:
+        _check_cancel(cancel)
+        cursor = connection.cursor()
+        adapter.validate_import_clear(cursor, [tables[key] for key, _ in clear_steps])
+        for key, action in clear_steps:
+            _check_cancel(cancel)
+            target = f"{action} {labels[key]}"
+            if action == "TRUNCATE TABLE":
+                adapter.truncate_table(cursor, tables[key])
+            else:
+                adapter.execute(cursor, target)
+        _check_cancel(cancel)
+        target = "commit pha xóa dữ liệu"
+        connection.commit()
+    except Exception as exc:
+        try:
+            connection.rollback()
+        except Exception as rollback_error:
+            logger(f"Không thể rollback pha xóa dữ liệu: {rollback_error}")
+        if isinstance(exc, OperationCancelledError):
+            raise
+        error = RuntimeError(f"Pha xóa dữ liệu thất bại tại {target}: {exc}")
+        for key, _ in clear_steps:
+            _record_import_table_error(tables[key], imports.get(key, ()), summary, logger, error)
+        return set()
+    finally:
+        if cursor is not None:
+            _close_cursor(cursor)
+    return set(order)
+
+
 def import_csv_folder(
     root_path: str | Path,
     settings: DatabaseConnectionSettings,
@@ -1337,22 +1681,67 @@ def import_csv_folder(
 
     connection = adapter.connect(settings)
     try:
-        for csv_path in _iter_direct_csv_files(root):
+        csv_paths = _iter_direct_csv_files(root)
+        csv_stems = {csv_path.stem.casefold() for csv_path in csv_paths}
+        imports: _ImportTables = {}
+        for csv_path in csv_paths:
             if requested_table_keys and csv_path.stem.casefold() not in requested_table_keys:
                 continue
             _check_cancel(cancel)
-            _import_one_csv(
-                connection,
-                adapter,
-                settings,
-                root,
-                csv_path,
-                keep_identity,
-                summary,
-                logger,
-                existing_row_mode,
-                cancel,
-            )
+            try:
+                prepared = _read_import_csv(connection, adapter, settings, root, csv_path, keep_identity, summary, logger)
+                if prepared is not None:
+                    metadata = prepared[0]
+                    key = _fk_table_key((metadata.schema, metadata.name))
+                    imports.setdefault(key, []).append((csv_path, metadata))
+                del prepared  # Keep at most one CSV's rows in memory during preparation.
+            except OperationCancelledError:
+                raise
+            except Exception as exc:
+                connection.rollback()
+                _record_error(summary, logger, csv_path, exc, table=csv_path.stem)
+
+        truncate_mode = existing_row_mode == IMPORT_MODE_TRUNCATE_TABLE
+        edges = []
+        if len(imports) > 1 or (imports and truncate_mode):
+            _check_cancel(cancel)
+            try:
+                edges = adapter.list_foreign_keys(connection, settings)
+            except OperationCancelledError:
+                raise
+            except Exception as exc:
+                connection.rollback()
+                logger(f"Không đọc được khóa ngoại: {exc}")
+
+        import_order = list(imports)
+        cleared = set()
+        if edges:
+            if truncate_mode:
+                cleared = _clear_import_tables(connection, adapter, imports, edges, csv_stems, summary, logger, cancel)
+                import_order, _ = order_tables_by_dependency(imports.keys() & cleared, edges)
+            else:
+                import_order, cycles = order_tables_by_dependency(imports, edges)
+                if cycles:
+                    tables = {key: csvs[0][1] for key, csvs in imports.items()}
+                    for cycle in cycles:
+                        names = ", ".join(f"{tables[key].schema}.{tables[key].name}" for key in cycle)
+                        logger(f"Cảnh báo: chu trình khóa ngoại giữa {names}; import theo thứ tự tên")
+                    import_order.extend(sorted(key for cycle in cycles for key in cycle))
+        if import_order:
+            logger("Thứ tự import: " + " → ".join(
+                f"{metadata.schema}.{metadata.name}" for key in import_order for _, metadata in imports[key]
+            ))
+
+        for key in import_order:
+            for csv_path, metadata in imports[key]:
+                _import_one_csv(
+                    connection, adapter, settings, root, csv_path, keep_identity, summary, logger,
+                    existing_row_mode, cancel, already_cleared=key in cleared, metadata=metadata,
+                )
+        summary.skipped_items.extend(
+            DatabaseCsvIssue(name, "Không tìm thấy CSV phù hợp với table đã chọn")
+            for name in requested_tables if name.casefold() not in csv_stems
+        )
         if requested_tables and summary.csv_count == 0:
             message = "Không tìm thấy CSV phù hợp với table đã chọn: " + ", ".join(requested_tables)
             summary.skipped.append(message)
@@ -1360,7 +1749,7 @@ def import_csv_folder(
     finally:
         connection.close()
 
-    _log_summary(summary, logger)
+    _log_summary(summary, logger, include_items=True)
     return summary
 
 
@@ -1383,9 +1772,8 @@ def export_csv_folder(
         tables = requested_tables or adapter.list_tables(connection, settings)
         _check_cancel(cancel)
         if not tables:
-            summary.skipped.append("Không tìm thấy table để xuất.")
-            logger("Không tìm thấy table để xuất.")
-            return summary
+            message = "Không tìm thấy table để xuất."
+            _record_skip(summary, logger, "", message, message)
 
         for raw_table_name in tables:
             _check_cancel(cancel)
@@ -1393,7 +1781,7 @@ def export_csv_folder(
     finally:
         connection.close()
 
-    _log_summary(summary, logger)
+    _log_summary(summary, logger, include_items=True)
     return summary
 
 
@@ -1666,6 +2054,36 @@ def _normalize_one_csv(
         _record_error(summary, logger, csv_path, exc)
 
 
+def _read_import_csv(
+    connection,
+    adapter: DatabaseAdapter,
+    settings: DatabaseConnectionSettings,
+    root: Path,
+    csv_path: Path,
+    keep_identity: bool,
+    summary: DatabaseCsvSummary,
+    logger: Logger,
+    metadata: TableMetadata | None = None,
+) -> tuple[TableMetadata, DbeaverCsv, CsvColumnMapping] | None:
+    relative_csv_path = _relative_to(csv_path, root)
+    table = read_dbeaver_csv(csv_path)
+    if not table.headers:
+        reason = "bỏ qua CSV rỗng"
+    else:
+        try:
+            if metadata is None:
+                metadata = adapter.get_table(connection, settings, csv_path.stem)
+        except TableNotFoundError:
+            reason = f"bỏ qua vì không tìm thấy table: {settings.schema}.{csv_path.stem}"
+        else:
+            mapping = _build_import_mapping(table, metadata.columns, adapter, keep_identity)
+            if mapping.columns:
+                return metadata, table, mapping
+            reason = "bỏ qua vì không có column nào có thể nhập"
+    _record_skip(summary, logger, csv_path.stem, reason, f"{relative_csv_path} -> {reason}")
+    return None
+
+
 def _import_one_csv(
     connection,
     adapter: DatabaseAdapter,
@@ -1677,24 +2095,17 @@ def _import_one_csv(
     logger: Logger,
     existing_row_mode: str = IMPORT_MODE_APPEND,
     cancel: CancelChecker | None = None,
+    *,
+    already_cleared: bool = False,
+    metadata: TableMetadata | None = None,
 ) -> None:
     relative_csv_path = _relative_to(csv_path, root)
     try:
         _check_cancel(cancel)
-        table = read_dbeaver_csv(csv_path)
-        if not table.headers:
-            message = f"{relative_csv_path} -> bỏ qua CSV rỗng"
-            summary.skipped.append(message)
-            logger(message)
+        prepared = _read_import_csv(connection, adapter, settings, root, csv_path, keep_identity, summary, logger, metadata)
+        if prepared is None:
             return
-
-        metadata = adapter.get_table(connection, settings, csv_path.stem)
-        mapping = _build_import_mapping(table, metadata.columns, adapter, keep_identity)
-        if not mapping.columns:
-            message = f"{relative_csv_path} -> bỏ qua vì không có column nào có thể nhập"
-            summary.skipped.append(message)
-            logger(message)
-            return
+        metadata, table, mapping = prepared
 
         insert_rows = [
             [row[mapping.csv_index_by_db_name[column.name]] for column in mapping.columns]
@@ -1704,17 +2115,18 @@ def _import_one_csv(
         cursor = connection.cursor()
         insert_sql = adapter.insert_sql(metadata, mapping.columns, keep_identity)
         try:
-            _prepare_table_for_import(
-                cursor,
-                adapter,
-                metadata,
-                table,
-                mapping,
-                existing_row_mode,
-                relative_csv_path,
-                logger,
-                cancel,
-            )
+            if not already_cleared or existing_row_mode != IMPORT_MODE_TRUNCATE_TABLE:
+                _prepare_table_for_import(
+                    cursor,
+                    adapter,
+                    metadata,
+                    table,
+                    mapping,
+                    existing_row_mode,
+                    relative_csv_path,
+                    logger,
+                    cancel,
+                )
             adapter.before_import(cursor, metadata, mapping.columns, keep_identity)
             import_error: Exception | None = None
             try:
@@ -1747,15 +2159,15 @@ def _import_one_csv(
                 skipped_columns=mapping.skipped_columns,
             )
         )
+        summary.succeeded.append(DatabaseCsvSuccess(csv_path.stem, len(insert_rows)))
         logger(f"{relative_csv_path} -> đã nhập vào {metadata.schema}.{metadata.name} ({len(insert_rows)} dòng)")
     except TableNotFoundError:
-        message = f"{relative_csv_path} -> bỏ qua vì không tìm thấy table: {settings.schema}.{csv_path.stem}"
-        summary.skipped.append(message)
-        logger(message)
+        reason = f"bỏ qua vì không tìm thấy table: {settings.schema}.{csv_path.stem}"
+        _record_skip(summary, logger, csv_path.stem, reason, f"{relative_csv_path} -> {reason}")
     except OperationCancelledError:
         raise
     except Exception as exc:
-        _record_error(summary, logger, csv_path, exc)
+        _record_error(summary, logger, csv_path, exc, table=csv_path.stem)
 
 
 def _prepare_table_for_import(
@@ -1875,14 +2287,15 @@ def _export_one_table(
     logger: Logger,
     cancel: CancelChecker | None = None,
 ) -> None:
-    schema, table_name = _split_table_name(raw_table_name)
+    table_name = raw_table_name
     try:
+        schema, table_name = _split_table_name(raw_table_name)
         metadata = adapter.get_table(connection, settings, table_name, schema=schema)
+        table_name = metadata.name
         columns = metadata.columns
         if not columns:
-            message = f"{raw_table_name} -> bỏ qua vì không có column xuất"
-            summary.skipped.append(message)
-            logger(message)
+            reason = "bỏ qua vì không có column xuất"
+            _record_skip(summary, logger, table_name, reason, f"{raw_table_name} -> {reason}")
             return
 
         cursor = connection.cursor()
@@ -1899,11 +2312,12 @@ def _export_one_table(
             quote_columns,
         )
         summary.csv_results.append(CsvDbResult(csv_path=output_file, table_name=metadata.name, row_count=row_count))
+        summary.succeeded.append(DatabaseCsvSuccess(table_name, row_count))
         logger(f"{metadata.schema}.{metadata.name} -> đã xuất {row_count} dòng: {output_file}")
     except OperationCancelledError:
         raise
     except Exception as exc:
-        _record_error(summary, logger, output / f"{raw_table_name}.csv", exc)
+        _record_error(summary, logger, output / f"{raw_table_name}.csv", exc, table=table_name)
 
 
 def _iter_export_rows(cursor, columns: list[DatabaseColumn], cancel: CancelChecker | None = None):
@@ -3386,18 +3800,39 @@ def _validate_folder(path_value: str | Path, must_exist: bool) -> Path:
     return path
 
 
-def _record_error(summary: DatabaseCsvSummary, logger: Logger, path: Path, exc: Exception) -> None:
-    message = f"LỖI {path}: {exc}"
-    summary.errors.append(message)
+def _record_skip(summary: DatabaseCsvSummary, logger: Logger, table: str, reason: str, message: str) -> None:
+    summary.skipped.append(message)
+    summary.skipped_items.append(DatabaseCsvIssue(table, reason))
     logger(message)
 
 
-def _log_summary(summary: DatabaseCsvSummary, logger: Logger) -> None:
+def _record_error(
+    summary: DatabaseCsvSummary, logger: Logger, path: Path | str, exc: Exception, *, table: str | None = None,
+) -> None:
+    message = f"LỖI {path}: {exc}"
+    summary.errors.append(message)
+    if table is not None:
+        summary.failed.append(DatabaseCsvIssue(table, str(exc)))
+    logger(message)
+
+
+def _log_summary(summary: DatabaseCsvSummary, logger: Logger, *, include_items: bool = False) -> None:
     logger(
         f"{summary.action_name} hoàn tất. "
         f"Xử lý {summary.csv_count} file CSV, {summary.row_count} dòng, "
         f"bỏ qua {len(summary.skipped)} mục, lỗi {summary.error_count} mục."
     )
+    if include_items:
+        logger("===== Tổng kết =====")
+        successes = ", ".join(f"{item.table} ({item.row_count} dòng)" for item in summary.succeeded)
+        logger(f"Thành công ({len(summary.succeeded)}): {successes}" if successes else "Thành công (0)")
+        for label, items in (("Lỗi", summary.failed), ("Bỏ qua", summary.skipped_items)):
+            if not items:
+                logger(f"{label} (0)")
+                continue
+            for index, item in enumerate(items):
+                detail = f"{item.table} — {item.message}" if item.table else item.message
+                logger(f"{label} ({len(items)}): {detail}" if index == 0 else f"  {detail}")
 
 
 def _log_sync_summary(summary: DatabaseSyncSummary, logger: Logger) -> None:

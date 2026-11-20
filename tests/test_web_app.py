@@ -6,7 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from autocompare_tool.database_io import DatabaseConnectionSettings, DatabaseCsvSummary, DatabaseSyncSummary
+from autocompare_tool.database_io import (
+    CsvDbResult,
+    DatabaseConnectionSettings,
+    DatabaseCsvIssue,
+    DatabaseCsvSuccess,
+    DatabaseCsvSummary,
+    DatabaseSyncSummary,
+)
 from autocompare_tool.excel_format_presets import ExcelFormatPresetStore
 from autocompare_tool.excel_image_formatter import ExcelImageFormatSummary
 from autocompare_tool.excel_compare import ExcelCompareResult
@@ -412,6 +419,32 @@ class WebApplicationTests(unittest.TestCase):
         self.assertEqual("delete_matching_keys", import_mock.call_args.kwargs["existing_row_mode"])
         self.assertEqual(["customers", "orders"], import_mock.call_args.kwargs["table_names"])
         self.assertIsNotNone(import_mock.call_args.kwargs["log"])
+
+    def test_database_summary_keeps_legacy_keys_and_serializes_table_results(self) -> None:
+        root = Path.cwd()
+        summary = DatabaseCsvSummary(
+            action_name="Nhập CSV vào CSDL",
+            root_path=root,
+            csv_results=[CsvDbResult(root / "customers.csv", "customers", 3)],
+            errors=["LỖI orders.csv: bad key"],
+            skipped=["empty.csv -> bỏ qua CSV rỗng"],
+            succeeded=[DatabaseCsvSuccess("customers", 3)],
+            failed=[DatabaseCsvIssue("orders", "bad key")],
+            skipped_items=[DatabaseCsvIssue("empty", "bỏ qua CSV rỗng")],
+        )
+
+        self.assertEqual(AutoCompareWebApplication._database_summary(summary), {
+            "action_name": "Nhập CSV vào CSDL",
+            "root_path": str(root),
+            "csv_count": 1,
+            "row_count": 3,
+            "error_count": 1,
+            "errors": ["LỖI orders.csv: bad key"],
+            "skipped": ["empty.csv -> bỏ qua CSV rỗng"],
+            "succeeded": [{"table": "customers", "rows": 3}],
+            "failed": [{"table": "orders", "message": "bad key"}],
+            "skipped_items": [{"table": "empty", "message": "bỏ qua CSV rỗng"}],
+        })
 
     def test_database_sync_passes_incremental_options_to_workflow(self) -> None:
         app = AutoCompareWebApplication()

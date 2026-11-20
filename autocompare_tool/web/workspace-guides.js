@@ -226,7 +226,7 @@ function prepareWorkspaceGuides() {
         "Chọn Folder CSV rồi Quét file CSV. Chỉ CSV nằm trực tiếp trong folder được đọc; tên file (không có .csv) phải trùng tên table, CSV không có table tương ứng bị bỏ qua.",
         "Chọn cách xử lý dữ liệu hiện có: Insert thêm, Xóa record trùng key (xóa record trùng toàn bộ primary key của CSV rồi insert) hoặc Truncate toàn table. Bật giữ identity nếu cần và database hỗ trợ.",
         "Import All xử lý mọi CSV đã quét; Import Single chỉ xử lý table đang chọn (Ctrl+A chọn cả danh sách). Đọc hộp xác nhận rồi mới chạy.",
-        "! Import ghi dữ liệu thật. Truncate xóa sạch table trước khi insert."],
+        "! Truncate xóa sạch table nhập và mọi table tham chiếu trực tiếp hoặc gián tiếp, kể cả ngoài folder CSV."],
       ["Export database ra CSV",
         "Nhập Table cần export, mỗi dòng một tên hoặc cách nhau bằng dấu phẩy. Để trống để xuất mọi table trong schema.",
         "Bấm Export CSV; mỗi table ghi thành một file CSV trong Folder CSV đã chọn.",

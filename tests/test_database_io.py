@@ -5,25 +5,31 @@ import unittest
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from autocompare_tool.dbeaver_csv import DbeaverCsv, read_dbeaver_csv
 from autocompare_tool.database_io import (
     DatabaseAdapter,
     DatabaseColumn,
     DatabaseConnectionSettings,
+    DatabaseCsvIssue,
+    DatabaseCsvSuccess,
     DatabaseCsvSummary,
     DatabaseSyncSummary,
+    ForeignKeyEdge,
     OperationCancelledError,
+    IMPORT_MODE_APPEND,
     IMPORT_MODE_DELETE_MATCHING_KEYS,
     IMPORT_MODE_TRUNCATE_TABLE,
     SYNC_DUPLICATE_UPSERT,
     SYNC_MODE_CONDITION,
     SYNC_MODE_INCREMENTAL,
+    MySqlAdapter,
     OracleAdapter,
     PostgreSqlAdapter,
     SqlServerAdapter,
     TableMetadata,
+    TableNotFoundError,
     _build_export_select_sql,
     _build_delete_by_primary_key_sql,
     _build_import_mapping,
@@ -41,8 +47,10 @@ from autocompare_tool.database_io import (
     _sqlserver_type_name,
     build_update_by_primary_key_sql,
     canonical_row_hash,
+    export_csv_folder,
     import_csv_folder,
     normalize_database_type,
+    order_tables_by_dependency,
     preferred_sqlserver_driver,
     scan_import_csv_tables,
     sync_database_tables,
@@ -961,6 +969,308 @@ class DatabaseIoTests(unittest.TestCase):
             self.assertFalse(connection.committed)
 
 
+class ForeignKeyImportTests(unittest.TestCase):
+    settings = DatabaseConnectionSettings(
+        database_type="sqlserver", host=".", database="sample", schema="dbo", trusted_connection=True,
+    )
+
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+
+    def _import(self, adapter, mode=IMPORT_MODE_APPEND, **options):
+        logs = []
+        with patch("autocompare_tool.database_io.get_adapter", return_value=adapter):
+            summary = import_csv_folder(self.root, self.settings, existing_row_mode=mode, log=logs.append, **options)
+        return summary, logs
+
+    def _write_csvs(self, *names: str) -> None:
+        for name in names:
+            (self.root / f"{name}.csv").write_text("id\n1\n", encoding="utf-8")
+
+    def test_dependency_order_handles_diamond_and_unrelated_tables(self) -> None:
+        edges = [_fk("b", "z"), _fk("c", "z"), _fk("a", "b"), _fk("a", "c")]
+        order, cycles = order_tables_by_dependency(["z", "e", "c", "a", "d", "b"], edges)
+        self.assertEqual(order, ["d", "e", "z", "b", "c", "a"])
+        self.assertEqual(cycles, [])
+
+    def test_dependency_order_matches_case_and_schema_and_ignores_self_and_external_edges(self) -> None:
+        edges = [
+            _fk("Child", "PARENT"),
+            _fk("parent", "Parent"),
+            _fk("not-imported", "child"),
+            ForeignKeyEdge("elsewhere", "parent", "dbo", "child", "FK_other_schema"),
+        ]
+        tables = [("DbO", "PARENT"), ("dbo", "child")]
+        self.assertEqual(order_tables_by_dependency(tables, edges), (tables, []))
+
+    def test_dependency_order_reports_only_cycle_members(self) -> None:
+        edges = [_fk("b", "a"), _fk("a", "b"), _fk("c", "b"), _fk("c", "z"), _fk("e", "d"), _fk("d", "e")]
+        order, cycles = order_tables_by_dependency(["z", "e", "d", "c", "B", "a"], reversed(edges))
+        self.assertEqual(order, ["z", "c"])
+        self.assertEqual(cycles, [["a", "B"], ["d", "e"]])
+
+    def test_adapter_foreign_key_metadata_queries(self) -> None:
+        edge = ForeignKeyEdge("dbo", "child", "dbo", "parent", "FK_test")
+        for adapter, fragments in [
+            (SqlServerAdapter(), ("sys.foreign_keys", "sys.foreign_key_columns")),
+            (MySqlAdapter(), ("information_schema.key_column_usage", "referenced_table_name is not null")),
+            (PostgreSqlAdapter(), ("pg_constraint", "contype = 'f'")),
+            (OracleAdapter(), ("all_constraints", "r_constraint_name", "constraint_type = 'r'")),
+        ]:
+            with self.subTest(adapter=type(adapter).__name__):
+                connection = Mock()
+                cursor = connection.cursor.return_value
+                cursor.fetchall.return_value = [("dbo", "child", "dbo", "parent", "FK_test")]
+                self.assertEqual(adapter.list_foreign_keys(connection, self.settings), [edge])
+                for fragment in fragments:
+                    self.assertIn(fragment, cursor.execute.call_args.args[0].lower())
+                if isinstance(adapter, MySqlAdapter):
+                    self.assertEqual(cursor.execute.call_args.args[1], ("sample",))
+                cursor.execute.assert_called_once()
+                cursor.close.assert_called_once()
+
+    def test_all_import_modes_insert_parents_first(self) -> None:
+        self._write_csvs("a_child", "z_parent")
+        for mode in (IMPORT_MODE_APPEND, IMPORT_MODE_DELETE_MATCHING_KEYS, IMPORT_MODE_TRUNCATE_TABLE):
+            with self.subTest(mode=mode):
+                adapter = FolderImportAdapter(["a_child", "z_parent"], [_fk("a_child", "z_parent")])
+                summary, _ = self._import(adapter, mode)
+                self.assertEqual(adapter.calls.count(("foreign_keys",)), 1)
+                self.assertEqual(summary.succeeded, [DatabaseCsvSuccess("z_parent", 1), DatabaseCsvSuccess("a_child", 1)])
+                self.assertEqual(summary.errors, [])
+                if mode == IMPORT_MODE_DELETE_MATCHING_KEYS:
+                    self.assertEqual(adapter.writes, [
+                        ('DELETE FROM "dbo"."z_parent" WHERE "id" = ?',), ('INSERT INTO "dbo"."z_parent" ("id") VALUES (?)',),
+                        ("commit",),
+                        ('DELETE FROM "dbo"."a_child" WHERE "id" = ?',), ('INSERT INTO "dbo"."a_child" ("id") VALUES (?)',),
+                        ("commit",),
+                    ])
+
+    def test_truncate_clears_transitive_children_once_before_inserts(self) -> None:
+        self._write_csvs("z_parent", "a_child")
+        adapter = FolderImportAdapter(["a_child", "z_parent"], [
+            _fk("a_child", "z_parent"),
+            _fk("outside", "a_child"),
+            ForeignKeyEdge("other", "grandchild", "dbo", "outside", "FK_grandchild"),
+        ])
+        summary, logs = self._import(adapter, IMPORT_MODE_TRUNCATE_TABLE)
+
+        self.assertEqual(adapter.writes, [
+            ('TRUNCATE TABLE "other"."grandchild"',),
+            ('DELETE FROM "dbo"."outside"',),
+            ('DELETE FROM "dbo"."a_child"',),
+            ('DELETE FROM "dbo"."z_parent"',),
+            ("commit",),
+            ('INSERT INTO "dbo"."z_parent" ("id") VALUES (?)',),
+            ("commit",),
+            ('INSERT INTO "dbo"."a_child" ("id") VALUES (?)',),
+            ("commit",),
+        ])
+        self.assertEqual(summary.csv_count, 2)
+        self.assertEqual(summary.errors, [])
+        self.assertIn("Thứ tự xóa dữ liệu: " + " → ".join(sql for (sql,) in adapter.writes[:4]), logs)
+        self.assertIn('Xóa thêm table ngoài folder CSV: "dbo"."outside"', logs)
+        self.assertIn('Xóa thêm table ngoài folder CSV: "other"."grandchild"', logs)
+
+    def test_truncate_rolls_back_and_reports_all_affected_tables_on_failure(self) -> None:
+        self._write_csvs("parent")
+        adapter = FolderImportAdapter(["parent"], [_fk("outside", "parent")], fail_sql='DELETE FROM "dbo"."parent"')
+        summary, _ = self._import(adapter, IMPORT_MODE_TRUNCATE_TABLE)
+        self.assertEqual(adapter.writes, [
+            ('TRUNCATE TABLE "dbo"."outside"',), ('DELETE FROM "dbo"."parent"',), ("rollback",),
+        ])
+        self.assertEqual([item.table for item in summary.failed], ["dbo.outside", "parent"])
+        self.assertTrue(all("FK driver failure" in item.message for item in summary.failed))
+        self.assertEqual(summary.csv_count, 0)
+
+    def test_truncate_cancellation_rolls_back_before_insert(self) -> None:
+        self._write_csvs("parent")
+        adapter = FolderImportAdapter(["parent"], [_fk("outside", "parent")])
+
+        def cancel() -> None:
+            if adapter.writes:
+                raise OperationCancelledError("cancelled during clear")
+
+        with self.assertRaisesRegex(OperationCancelledError, "cancelled during clear"):
+            self._import(adapter, IMPORT_MODE_TRUNCATE_TABLE, cancel=cancel)
+        self.assertEqual(adapter.writes, [('TRUNCATE TABLE "dbo"."outside"',), ("rollback",)])
+        self.assertTrue(adapter.connection.closed)
+
+    def test_truncate_excludes_invalid_csv_roots_and_clears_unselected_children(self) -> None:
+        self._write_csvs("parent", "unselected")
+        (self.root / "bad.csv").write_text("unknown\n1\n", encoding="utf-8")
+        adapter = FolderImportAdapter(["parent", "unselected", "bad"], [
+            _fk("unselected", "parent"), _fk("outside", "bad"),
+        ])
+        summary, logs = self._import(adapter, IMPORT_MODE_TRUNCATE_TABLE, table_names=["parent", "bad"])
+        clears = [sql for (sql,) in adapter.writes if sql.startswith(("DELETE FROM", "TRUNCATE TABLE"))]
+        self.assertEqual(clears, ['TRUNCATE TABLE "dbo"."unselected"', 'DELETE FROM "dbo"."parent"'])
+        self.assertIn('Xóa thêm table ngoài tập CSV nhập: "dbo"."unselected"', logs)
+        self.assertEqual(summary.succeeded, [DatabaseCsvSuccess("parent", 1)])
+        self.assertEqual([item.table for item in summary.failed], ["bad"])
+
+    def test_truncate_uses_rollbackable_delete_when_truncate_auto_commits(self) -> None:
+        self._write_csvs("parent")
+        adapter = FolderImportAdapter(["parent"], [_fk("outside", "parent")])
+        adapter.transactional_truncate = False
+        summary, _ = self._import(adapter, IMPORT_MODE_TRUNCATE_TABLE)
+        self.assertEqual(adapter.writes[:3], [
+            ('DELETE FROM "dbo"."outside"',), ('DELETE FROM "dbo"."parent"',), ("commit",),
+        ])
+        self.assertFalse(summary.failed)
+
+    def test_mysql_rejects_nontransactional_tables_before_clearing(self) -> None:
+        cursor = Mock()
+        cursor.fetchall.return_value = [("parent",)]
+        adapter = MySqlAdapter()
+        tables = [TableMetadata("sample", "parent", []), TableMetadata("sample", "outside", [])]
+        with self.assertRaisesRegex(ValueError, r"sample\.outside"):
+            adapter.validate_import_clear(cursor, tables)
+        cursor.execute.assert_called_once()
+        self.assertIn("e.TRANSACTIONS = 'YES'", cursor.execute.call_args.args[0])
+
+    def test_empty_or_failed_foreign_key_lookup_keeps_per_csv_truncate(self) -> None:
+        self._write_csvs("a_child", "z_parent")
+        for edges in ([], RuntimeError("no catalog access")):
+            with self.subTest(edges=edges):
+                adapter = FolderImportAdapter(["a_child", "z_parent"], edges)
+                summary, logs = self._import(adapter, IMPORT_MODE_TRUNCATE_TABLE)
+                prefix = [("rollback",)] if isinstance(edges, Exception) else []
+                self.assertEqual(adapter.writes, prefix + [
+                    ('TRUNCATE TABLE "dbo"."a_child"',), ('INSERT INTO "dbo"."a_child" ("id") VALUES (?)',),
+                    ("commit",),
+                    ('TRUNCATE TABLE "dbo"."z_parent"',), ('INSERT INTO "dbo"."z_parent" ("id") VALUES (?)',),
+                    ("commit",),
+                ])
+                self.assertEqual(summary.csv_count, 2)
+                self.assertEqual("Không đọc được khóa ngoại: no catalog access" in logs, bool(prefix))
+
+    def test_append_warns_and_imports_cycle_members_last_in_name_order(self) -> None:
+        self._write_csvs("a", "b", "c", "d", "e", "z")
+        adapter = FolderImportAdapter(["a", "b", "c", "d", "e", "z"], [
+            _fk("a", "d"), _fk("d", "a"), _fk("b", "e"), _fk("e", "b"), _fk("c", "z"),
+        ])
+        summary, logs = self._import(adapter)
+        self.assertEqual(summary.succeeded, [DatabaseCsvSuccess(name, 1) for name in ("z", "c", "a", "b", "d", "e")])
+        self.assertEqual(summary.failed, [])
+        self.assertIn("Cảnh báo: chu trình khóa ngoại giữa dbo.a, dbo.d; import theo thứ tự tên", logs)
+        self.assertIn("Cảnh báo: chu trình khóa ngoại giữa dbo.b, dbo.e; import theo thứ tự tên", logs)
+
+    def test_delete_matching_keys_attempts_cycle_members_and_reports_insert_failure(self) -> None:
+        self._write_csvs("a", "b", "c")
+        failed_insert = 'INSERT INTO "dbo"."a" ("id") VALUES (?)'
+        adapter = FolderImportAdapter(["a", "b", "c"], [_fk("a", "b"), _fk("b", "a")], fail_sql=failed_insert)
+        summary, logs = self._import(adapter, IMPORT_MODE_DELETE_MATCHING_KEYS)
+        self.assertEqual(summary.succeeded, [DatabaseCsvSuccess("c", 1), DatabaseCsvSuccess("b", 1)])
+        self.assertEqual(summary.failed, [DatabaseCsvIssue("a", "FK driver failure")])
+        self.assertIn("Cảnh báo: chu trình khóa ngoại giữa dbo.a, dbo.b; import theo thứ tự tên", logs)
+        self.assertEqual(adapter.writes, [
+            ('DELETE FROM "dbo"."c" WHERE "id" = ?',),
+            ('INSERT INTO "dbo"."c" ("id") VALUES (?)',),
+            ("commit",),
+            ('DELETE FROM "dbo"."a" WHERE "id" = ?',),
+            (failed_insert,),
+            ("rollback",),
+            ('DELETE FROM "dbo"."b" WHERE "id" = ?',),
+            ('INSERT INTO "dbo"."b" ("id") VALUES (?)',),
+            ("commit",),
+        ])
+
+    def test_truncate_keeps_cycle_and_its_parent_and_clears_independent_table(self) -> None:
+        self._write_csvs("parent", "independent")
+        adapter = FolderImportAdapter(["parent", "independent"], [
+            _fk("a", "parent"), _fk("b", "a"), _fk("a", "b"), _fk("unused", "parent"),
+        ])
+        summary, _ = self._import(adapter, IMPORT_MODE_TRUNCATE_TABLE)
+        self.assertEqual(adapter.writes, [
+            ('TRUNCATE TABLE "dbo"."independent"',), ("commit",),
+            ('INSERT INTO "dbo"."independent" ("id") VALUES (?)',), ("commit",),
+        ])
+        self.assertEqual([item.table for item in summary.failed], ["dbo.a", "dbo.b", "parent"])
+        self.assertTrue(all("dbo.a, dbo.b" in item.message for item in summary.failed))
+
+    def test_insert_failure_rolls_back_one_csv_and_import_continues(self) -> None:
+        self._write_csvs("parent", "child")
+        adapter = FolderImportAdapter(["parent", "child"], [_fk("child", "parent")],
+                                      fail_sql='DELETE FROM "dbo"."parent" WHERE "id" = ?')
+        summary, _ = self._import(adapter, IMPORT_MODE_DELETE_MATCHING_KEYS)
+        self.assertEqual(summary.failed, [DatabaseCsvIssue("parent", "FK driver failure")])
+        self.assertEqual(summary.succeeded, [DatabaseCsvSuccess("child", 1)])
+        self.assertEqual(adapter.writes[1], ("rollback",))
+        self.assertEqual(adapter.writes[-1], ("commit",))
+
+    def test_import_report_and_preflight_include_only_importable_tables_in_ordering(self) -> None:
+        self._write_csvs("items", "missing", "generated")
+        (self.root / "empty.csv").write_text("", encoding="utf-8")
+        (self.root / "bad.csv").write_text("unknown\n1\n", encoding="utf-8")
+        adapter = FolderImportAdapter(["Items", "generated", "bad"], [_fk("outside", "bad")])
+        adapter.tables["generated"] = TableMetadata("dbo", "generated", [_column("id", is_computed=True)])
+        summary, logs = self._import(adapter)
+
+        self.assertNotIn(("foreign_keys",), adapter.calls)
+        self.assertEqual(summary.succeeded, [DatabaseCsvSuccess("items", 1)])
+        self.assertEqual([item.table for item in summary.failed], ["bad"])
+        self.assertEqual(summary.skipped_items, [
+            DatabaseCsvIssue("empty", "bỏ qua CSV rỗng"),
+            DatabaseCsvIssue("generated", "bỏ qua vì không có column nào có thể nhập"),
+            DatabaseCsvIssue("missing", "bỏ qua vì không tìm thấy table: dbo.missing"),
+        ])
+        self.assertEqual(summary.skipped[0], "empty.csv -> bỏ qua CSV rỗng")
+        self.assertEqual(logs[-6:], [
+            "===== Tổng kết =====",
+            "Thành công (1): items (1 dòng)",
+            f"Lỗi (1): bad — {summary.failed[0].message}",
+            "Bỏ qua (3): empty — bỏ qua CSV rỗng",
+            "  generated — bỏ qua vì không có column nào có thể nhập",
+            "  missing — bỏ qua vì không tìm thấy table: dbo.missing",
+        ])
+
+    def test_export_report_preserves_legacy_results_and_lists_each_issue(self) -> None:
+        connection = Mock()
+        connection.cursor.return_value.fetchmany.side_effect = [[(1,)], []]
+        adapter = FolderImportAdapter(["Items"], [])
+        adapter.connect = Mock(return_value=connection)
+        adapter.tables["empty"] = TableMetadata("dbo", "empty", [])
+        adapter.tables["blank"] = TableMetadata("dbo", "blank", [])
+        logs = []
+        with patch("autocompare_tool.database_io.get_adapter", return_value=adapter):
+            summary = export_csv_folder(self.root, self.settings, ["dbo.items", "missing", "gone", "empty", "blank"], logs.append)
+
+        self.assertEqual(summary.succeeded, [DatabaseCsvSuccess("Items", 1)])
+        self.assertEqual(summary.failed, [DatabaseCsvIssue("missing", "missing"), DatabaseCsvIssue("gone", "gone")])
+        self.assertEqual(summary.skipped_items, [
+            DatabaseCsvIssue("empty", "bỏ qua vì không có column xuất"),
+            DatabaseCsvIssue("blank", "bỏ qua vì không có column xuất"),
+        ])
+        self.assertEqual(summary.errors[0], f"LỖI {self.root.resolve() / 'missing.csv'}: missing")
+        self.assertEqual(summary.skipped[0], "empty -> bỏ qua vì không có column xuất")
+        self.assertEqual(logs[-6:], [
+            "===== Tổng kết =====",
+            "Thành công (1): Items (1 dòng)",
+            "Lỗi (2): missing — missing",
+            "  gone — gone",
+            "Bỏ qua (2): empty — bỏ qua vì không có column xuất",
+            "  blank — bỏ qua vì không có column xuất",
+        ])
+
+    def test_export_with_no_tables_still_logs_report(self) -> None:
+        adapter = FolderImportAdapter([], [])
+        adapter.list_tables = Mock(return_value=[])
+        logs = []
+        with patch("autocompare_tool.database_io.get_adapter", return_value=adapter):
+            summary = export_csv_folder(self.root, self.settings, log=logs.append)
+        self.assertEqual(summary.skipped, ["Không tìm thấy table để xuất."])
+        self.assertEqual(logs[-4:], [
+            "===== Tổng kết =====", "Thành công (0)", "Lỗi (0)", "Bỏ qua (1): Không tìm thấy table để xuất.",
+        ])
+
+
+def _fk(child: str, parent: str) -> ForeignKeyEdge:
+    return ForeignKeyEdge("dbo", child, "dbo", parent, f"FK_{child}_{parent}")
+
+
 def _column(
     name: str,
     data_type: str = "int",
@@ -1149,19 +1459,22 @@ class DeltaRecordingAdapter(DatabaseAdapter):
 
 
 class RecordingImportConnection:
-    def __init__(self) -> None:
+    def __init__(self, calls=None) -> None:
         self.committed = False
         self.rolled_back = False
         self.closed = False
+        self.calls = calls if calls is not None else []
 
     def cursor(self) -> object:
         return object()
 
     def commit(self) -> None:
         self.committed = True
+        self.calls.append(("commit",))
 
     def rollback(self) -> None:
         self.rolled_back = True
+        self.calls.append(("rollback",))
 
     def close(self) -> None:
         self.closed = True
@@ -1186,6 +1499,43 @@ class RecordingImportAdapter(DatabaseAdapter):
 
     def after_import(self, _cursor, _metadata, columns: list[DatabaseColumn], _keep_identity: bool) -> None:
         self.calls.append(("after", [column.name for column in columns]))
+
+
+class FolderImportAdapter(RecordingImportAdapter):
+    def __init__(self, tables, edges, fail_sql=None) -> None:
+        super().__init__(TableMetadata("dbo", "", []))
+        self.tables = {table.casefold(): TableMetadata("dbo", table, [_column("id", is_primary_key=True)])
+                       for table in tables}
+        self.edges = edges
+        self.fail_sql = fail_sql
+        self.writes = []
+        self.connection = RecordingImportConnection(self.writes)
+
+    def connect(self, settings):
+        return self.connection
+
+    def get_table(self, _connection, _settings, table_name, schema=None):
+        try:
+            return self.tables[table_name.casefold()]
+        except KeyError:
+            raise TableNotFoundError(table_name) from None
+
+    def list_foreign_keys(self, connection, settings):
+        self.calls.append(("foreign_keys",))
+        if isinstance(self.edges, Exception):
+            raise self.edges
+        return self.edges
+
+    def truncate_table(self, cursor, metadata) -> None:
+        DatabaseAdapter.truncate_table(self, cursor, metadata)
+
+    def execute(self, cursor, sql, params=()) -> None:
+        self.writes.append((sql,))
+        if sql == self.fail_sql:
+            raise RuntimeError("FK driver failure")
+
+    def executemany(self, cursor, sql, rows) -> None:
+        self.execute(cursor, sql)
 
 
 if __name__ == "__main__":

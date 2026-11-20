@@ -76,6 +76,7 @@ code { padding: 2px 6px; border-radius: 5px; background: #eef2f7; color: #34455c
 .status-pill .status-dot, .activity-header .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; }
 .status-pill.running .status-dot, .activity-panel.running .status-dot { background: var(--blue); box-shadow: 0 0 0 4px rgba(20,104,230,.12); animation: pulse 1.3s infinite; }
 .status-pill.success .status-dot, .activity-panel.success .status-dot { background: var(--green); }
+.status-pill.warning .status-dot, .activity-panel.warning .status-dot { background: var(--amber); }
 .status-pill.error .status-dot, .activity-panel.error .status-dot { background: var(--red); }
 @keyframes pulse { 50% { opacity: .45; transform: scale(.85); } }
 
@@ -279,9 +280,9 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .compare-cell { width: var(--compare-cell-width); min-width: var(--compare-cell-width); max-width: var(--compare-cell-width); height: var(--compare-row-height); min-height: var(--compare-row-height); max-height: var(--compare-row-height); padding: 0; color: #000000; background: white; font-size: 11px; line-height: 1.35; vertical-align: top; white-space: pre; overflow: hidden; overflow-wrap: normal; }
 .compare-cell-clip { display: block; width: 100%; height: var(--compare-row-height); max-height: var(--compare-row-height); overflow: hidden; }
 .compare-status-counts { padding: 6px 12px; color: var(--ink); background: var(--surface); border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 600; }
-.compare-record-header .compare-cell-clip { display: flex; align-items: center; }
-.compare-record-header .compare-cell-value { flex: 1; min-width: 0; }
-.compare-record-status { flex: 0 0 auto; margin-right: 4px; padding: 1px 4px; border: 1px solid currentColor; border-radius: 4px; font-size: 8px; line-height: 16px; font-weight: 700; }
+.compare-status-cell { width: auto; min-width: 0; max-width: none; text-align: center; }
+.compare-status-cell .compare-cell-clip { display: flex; align-items: center; justify-content: center; }
+.compare-record-status { flex: 0 0 auto; padding: 1px 6px; border: 1px solid currentColor; border-radius: 4px; font-size: 9px; line-height: 16px; font-weight: 700; }
 .compare-record-status.status-insert { color: var(--green); background: var(--green-soft); }
 .compare-record-status.status-delete { color: var(--red); background: var(--red-soft); }
 .compare-record-status.status-update { color: var(--amber); background: var(--amber-soft); }
@@ -727,6 +728,7 @@ td select { min-width: 145px; min-height: 33px; padding: 6px 8px; font-size: 10p
 .toast-stack { position: fixed; top: auto; right: auto; bottom: 22px; left: 22px; z-index: 80; display: grid; gap: 8px; width: min(360px, calc(100vw - 44px)); }
 .toast { padding: 12px 14px; border: 1px solid #d5e0eb; border-left: 4px solid var(--blue); border-radius: 10px; color: #405268; background: white; box-shadow: 0 12px 32px rgba(20,39,63,.15); font-size: 11px; line-height: 1.5; animation: toast-in .2s ease; }
 .toast.error { border-left-color: var(--red); }
+.toast.warning { border-left-color: var(--amber); }
 .toast.success { border-left-color: var(--green); }
 @keyframes toast-in { from { opacity: 0; transform: translateX(-12px); } }
 

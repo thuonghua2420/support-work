@@ -1693,7 +1693,7 @@ function importConfirmation(importMode, tableNames = []) {
     },
     truncate_table: {
       title: "Truncate table rồi import?",
-      message: `CẢNH BÁO: ${scopeText} sẽ TRUNCATE table tương ứng, xóa sạch toàn bộ dữ liệu hiện có, rồi mới INSERT dữ liệu CSV. Một số database tự commit lệnh TRUNCATE nên không thể rollback nếu bước insert sau đó lỗi.`,
+      message: `CẢNH BÁO: ${scopeText} sẽ được nhập sau khi xóa sạch các table tương ứng và mọi table tham chiếu trực tiếp hoặc gián tiếp đến chúng, bao gồm cả table ngoài folder CSV. Dữ liệu đã xóa có thể không khôi phục được nếu bước nhập thất bại.`,
     },
   };
   return confirmations[importMode] || confirmations.append;
@@ -2627,9 +2627,35 @@ function buildCompareSheetHtml(sheet) {
     <tbody>${rows.map((row) => `
       <tr>
         <th class="compare-row-number">${escapeHtml(row.number)}</th>
-        ${visibleColumnIndexes.map((index) => compareCellHtml((row.cells || [])[index], row, index, recordStatuses.get(index + 1))).join("")}
+        ${compareRowCellsHtml(row, visibleColumnIndexes, recordStatuses)}
         ${compareCheckCellHtml(row)}
       </tr>`).join("")}</tbody>`;
+}
+
+// Row 1 shows one status badge centred across the two columns of each record pair (UI only).
+function compareRowCellsHtml(row, visibleColumnIndexes, recordStatuses) {
+  const visible = new Set(visibleColumnIndexes);
+  const cells = row.cells || [];
+  const parts = [];
+  for (const index of visibleColumnIndexes) {
+    const status = recordStatuses.get(index + 1);
+    if (Number(row.number) === 1 && COMPARE_RECORD_STATUSES.includes(status) && visible.has(index + 1)) {
+      parts.push(compareStatusCellHtml(cells[index], row, index, status));
+    } else if (Number(row.number) === 1 && index > 0 && COMPARE_RECORD_STATUSES.includes(recordStatuses.get(index)) && visible.has(index - 1)) {
+      continue; // right column of a pair, covered by the colspan cell
+    } else {
+      parts.push(compareCellHtml(cells[index], row, index));
+    }
+  }
+  return parts.join("");
+}
+
+function compareStatusCellHtml(cell, row, columnIndex, status) {
+  const classes = ["compare-cell", "compare-status-cell", ...compareCellColorClasses(cell, row)].filter(Boolean);
+  const columnNumber = Number(cell?.column || columnIndex + 1);
+  const address = `${compareColumnLetter(columnNumber)}1`;
+  const label = `Record ${Math.floor((columnNumber - 3) / 2) + 1}: ${status}`;
+  return `<td class="${classes.join(" ")}" colspan="2" data-compare-address="${escapeHtml(address)}" data-compare-row="1" data-compare-column="${columnNumber}"><div class="compare-cell-clip"><span class="compare-record-status status-${status.toLowerCase()}" aria-label="${label}">${status}</span></div></td>`;
 }
 
 function invalidateCompareSheetHtmlCache() {
@@ -2660,7 +2686,7 @@ function compareColumnStickyClass(index) {
   return "";
 }
 
-function compareCellHtml(cell, row, columnIndex = -1, recordStatus = "") {
+function compareCellHtml(cell, row, columnIndex = -1) {
   const fixmeIndices = compareVisibleFixmeIndices(Array.isArray(cell.fixme_indices) ? cell.fixme_indices : []);
   const classes = ["compare-cell", compareColumnStickyClass(columnIndex), ...compareCellColorClasses(cell, row)].filter(Boolean);
   if (Number(cell?.row || row?.number || 0) === 2) classes.push("compare-header-cell");
@@ -2669,10 +2695,7 @@ function compareCellHtml(cell, row, columnIndex = -1, recordStatus = "") {
   const rowNumber = Number(cell?.row || row?.number || 0);
   const columnNumber = Number(cell?.column || columnIndex + 1);
   const address = `${compareColumnLetter(columnNumber)}${rowNumber}`;
-  const badge = rowNumber === 2 && COMPARE_RECORD_STATUSES.includes(recordStatus)
-    ? `<span class="compare-record-status status-${recordStatus.toLowerCase()}" aria-label="Record ${Math.floor((columnNumber - 3) / 2) + 1}: ${recordStatus}">${recordStatus}</span>` : "";
-  if (badge) classes.push("compare-record-header");
-  return `<td class="${classes.join(" ")}" data-compare-address="${escapeHtml(address)}" data-compare-row="${rowNumber}" data-compare-column="${columnNumber}"><div class="compare-cell-clip">${compareCellContent(cell, fixmeIndices)}${badge}</div></td>`;
+  return `<td class="${classes.join(" ")}" data-compare-address="${escapeHtml(address)}" data-compare-row="${rowNumber}" data-compare-column="${columnNumber}"><div class="compare-cell-clip">${compareCellContent(cell, fixmeIndices)}</div></td>`;
 }
 
 function compareColumnLetter(column) {
@@ -3468,11 +3491,15 @@ function updateJobState(job) {
       body: { write_token: writeToken },
     }).catch(() => {});
   }
+  const isDatabaseCsv = ["db_import", "db_export"].includes(job.action);
+  const hasErrors = (isDatabaseCsv || ["compare", "folder_compare"].includes(job.action)) && job.result?.error_count > 0;
+  const hasSkipped = isDatabaseCsv && (job.result?.skipped_items?.length ?? job.result?.skipped?.length ?? 0) > 0;
+  const finishedKind = hasErrors ? "error" : hasSkipped ? "warning" : "success";
+  const finishedText = hasErrors ? "Hoàn tất có lỗi" : hasSkipped ? "Hoàn tất có mục bỏ qua" : "Hoàn tất";
   if (state.handledJobs.has(job.id)) {
-    const hasCompareErrors = ["compare", "folder_compare"].includes(job.action) && job.result?.error_count > 0;
-    const finishedKind = job.state === "succeeded" ? (hasCompareErrors ? "error" : "success") : (job.state === "cancelled" ? "idle" : "error");
-    const finishedText = job.state === "succeeded" ? (hasCompareErrors ? "Hoàn tất có lỗi" : "Hoàn tất") : (job.state === "cancelled" ? "Đã hủy" : "Thất bại");
-    setJobVisual(finishedKind, finishedText);
+    if (job.state === "succeeded") setJobVisual(finishedKind, finishedText);
+    else if (job.state === "cancelled") setJobVisual("idle", "Đã hủy");
+    else setJobVisual("error", "Thất bại");
     return;
   }
   state.handledJobs.add(job.id);
@@ -3495,14 +3522,12 @@ function updateJobState(job) {
     showToast(["compare", "folder_compare"].includes(job.action) ? "Compare thất bại. Xem vùng Chi tiết compare để kiểm tra file và vị trí lỗi." : job.error || "Tác vụ thất bại.", "error", 7000);
     return;
   }
-  setJobVisual("success", "Hoàn tất");
+  setJobVisual(finishedKind, finishedText);
   consumeJobResult(job);
   renderCompareDiagnostics(job.action, job.result?.errors || [], job.result?.warnings || []);
-  const hasCompareErrors = ["compare", "folder_compare"].includes(job.action) && job.result?.error_count > 0;
-  if (hasCompareErrors) setJobVisual("error", "Hoàn tất có lỗi");
   const message = summaryMessage(job);
-  appendJobFinishLog(job, hasCompareErrors ? "Hoàn tất có lỗi" : "Hoàn tất", message);
-  showToast(message, hasCompareErrors ? "error" : "success", 5500);
+  appendJobFinishLog(job, finishedText, message);
+  showToast(message, finishedKind, 5500);
 }
 
 function consumeJobResult(job) {
@@ -4627,6 +4652,13 @@ function summaryMessage(job) {
     return `Đã đồng bộ ${result.table_count || 0} table: insert ${result.inserted_count || 0}, update ${result.updated_count || 0}, delete ${result.deleted_count || 0}, không đổi ${result.unchanged_count || 0}${retained}.${backup}`;
   }
   if (typeof result.changed_count === "number") return `${result.action_name || "Tác vụ"}: đã thay đổi ${result.changed_count}, bỏ qua ${result.skipped_count || 0}.`;
+  if (["db_import", "db_export"].includes(job.action)) {
+    const action = job.action === "db_import" ? "Import CSV" : "Export CSV";
+    const succeeded = result.succeeded?.length ?? result.csv_count ?? 0;
+    const failed = result.failed?.length ?? result.error_count ?? 0;
+    const skipped = result.skipped_items?.length ?? result.skipped?.length ?? 0;
+    return `${action}: ${succeeded} thành công / ${failed} lỗi / ${skipped} bỏ qua. ${result.row_count || 0} dòng.`;
+  }
   if (typeof result.csv_count === "number") return `${result.action_name || "Tác vụ CSDL"}: ${result.csv_count} CSV / ${result.row_count || 0} dòng.`;
   if (job.action === "apply_fixmes") return `Đã áp dụng ${result.selected_entry_count || 0} note cho ${result.cell_count || 0} ô, ${result.sheet_count || 0} sheet trong ${result.workbook_count || 0} workbook.`;
   return "Tác vụ đã hoàn tất.";
@@ -4636,11 +4668,11 @@ function setJobVisual(kind, text) {
   const pill = $("#job-status-button");
   const panel = $("#activity-panel");
   pill.className = `status-pill ${kind}`;
-  panel.classList.remove("running", "success", "error");
+  panel.classList.remove("running", "success", "warning", "error");
   if (kind !== "idle") panel.classList.add(kind);
   $("#job-status-text").textContent = text;
   $("#activity-title").textContent = text;
-  $("#activity-toggle").classList.remove("running", "success", "error");
+  $("#activity-toggle").classList.remove("running", "success", "warning", "error");
   if (kind !== "idle") $("#activity-toggle").classList.add(kind);
 }
 

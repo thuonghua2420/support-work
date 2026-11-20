@@ -1161,6 +1161,9 @@ class AutoCompareWebApplication:
             "error_count": summary.error_count,
             "errors": summary.errors,
             "skipped": summary.skipped,
+            "succeeded": [{"table": item.table, "rows": item.row_count} for item in summary.succeeded],
+            "failed": [{"table": item.table, "message": item.message} for item in summary.failed],
+            "skipped_items": [{"table": item.table, "message": item.message} for item in summary.skipped_items],
         }
 
     @staticmethod
