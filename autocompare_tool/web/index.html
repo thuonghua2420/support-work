@@ -460,10 +460,10 @@
           <form class="card dc-card" id="excel-compare-form" data-doc-compare="excel" novalidate>
             <header class="dc-head">
               <span class="dc-icon" aria-hidden="true"><i data-lucide="file-diff"></i></span>
-              <div><h3>So sánh 2 file Excel</h3><p>Tìm mọi ô khác nhau giữa bản cũ và bản mới. Kết quả hiện ngay bên dưới và được lưu thành một file Excel.</p></div>
+              <div><h3>So sánh 2 file Excel</h3><p>Tìm mọi ô khác nhau giữa bản cũ và bản mới. Kết quả hiện ngay bên dưới, không tạo file kết quả.</p></div>
             </header>
             <ol class="dc-steps" aria-label="Các bước thực hiện">
-              <li><b>1</b>Chọn file cũ và file mới</li><li><b>2</b>Bấm So sánh</li><li><b>3</b>Xem kết quả hoặc mở file</li>
+              <li><b>1</b>Chọn file cũ và file mới</li><li><b>2</b>Bấm So sánh</li><li><b>3</b>Xem kết quả ngay bên dưới</li>
             </ol>
             <div class="dc-sources">
               <label class="field dc-source dc-old"><span><i class="dc-badge">CŨ</i>File Excel cũ (Old)</span><span class="path-control"><input id="excel-compare-old" autocomplete="off" spellcheck="false" placeholder="Chọn file hoặc dán đường dẫn .xlsx"><button class="browse-button" type="button" data-browse-target="excel-compare-old" data-browse-kind="file" data-browse-ext="xlsx,xlsm,xltx,xltm">Chọn file</button></span></label>
@@ -471,18 +471,16 @@
               <label class="field dc-source dc-new"><span><i class="dc-badge">MỚI</i>File Excel mới (New)</span><span class="path-control"><input id="excel-compare-new" autocomplete="off" spellcheck="false" placeholder="Chọn file hoặc dán đường dẫn .xlsx"><button class="browse-button" type="button" data-browse-target="excel-compare-new" data-browse-kind="file" data-browse-ext="xlsx,xlsm,xltx,xltm">Chọn file</button></span></label>
             </div>
             <details class="dc-options">
-              <summary>Tùy chọn nâng cao <small>nơi lưu kết quả · cách ghép sheet</small></summary>
+              <summary>Tùy chọn nâng cao <small>cách ghép sheet</small></summary>
               <div class="dc-options-body">
-                <label class="field"><span>Lưu file kết quả tại</span><span class="path-control"><input id="excel-compare-output" autocomplete="off" spellcheck="false" placeholder="Tự đặt tên sau khi chọn file"><button class="browse-button" type="button" data-browse-target="excel-compare-output" data-browse-kind="save" data-browse-ext="xlsx">Chọn</button></span><small>Mặc định: cùng thư mục với file mới, tên <code>&lt;tên file mới&gt;_compare.xlsx</code>. File cùng tên sẽ bị ghi đè.</small></label>
                 <label class="dc-check"><input type="checkbox" id="excel-compare-pair-position" checked><span><strong>Sheet khác tên thì ghép theo thứ tự tab</strong><small>Hữu ích khi sheet bị đổi tên. Bỏ chọn nếu muốn sheet khác tên được coi là sheet bị xóa / sheet mới thêm.</small></span></label>
               </div>
             </details>
             <p class="dc-error hidden" id="excel-compare-error" role="alert"></p>
             <div class="dc-actions-bar">
-              <p class="dc-saveto" id="excel-compare-saveto"></p>
               <button class="primary-button" type="submit">So sánh</button>
             </div>
-            <div class="dc-result hidden" id="excel-compare-result" aria-live="polite"></div>
+            <div class="dc-result hidden" id="excel-compare-result"></div>
           </form>
         </section>
 

@@ -2,6 +2,22 @@
 
 Use this file for lightweight architecture decisions. Add newest entries at the top.
 
+## 2026-11-24 - Compare Excel Streams And Shows Differences Inline (No Result Workbook)
+
+Decision:
+
+- Compare Excel no longer writes a report workbook. It reads both files in `read_only` mode, compares cell by cell as before (same semantics, positional), spools every difference to a temporary SQLite file and the UI pages through it (sheet navigator, search, change-type and column filters, highlighted old/new values).
+- `[excel_compare] max_detail_rows` (default 2,000,000) caps stored details; totals stay exact.
+
+Why:
+
+- The old implementation loaded each file twice, copied every sheet into an output workbook and instantiated a cell for every coordinate: about 2.6 KB per cell (1 GB at 400k cells per file) and a crash for multi-million-cell files. Measured after the change: same differences, ~40 MB peak.
+
+Consequences:
+
+- No `_compare.xlsx` file any more; Excel compare has no export (a CSV export can be added later if needed). `ExcelCompareResult`/`SheetCompareSummary` lost `output_path`/`samples`; the `output_path` payload field is ignored.
+- openpyxl still loads shared strings into memory, so workbooks with huge shared-string tables use more memory than the benchmark.
+
 ## 2026-11-20 - Multi-Database CSV Import/Export And Compact Connection Popup
 
 Decision:

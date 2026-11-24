@@ -81,14 +81,14 @@ details.dc-item[open] > summary { border-bottom: 1px solid var(--line-soft); }
 .dc-pill.warn { color: #6f5120; background: #f8ecd0; }
 .dc-item-body { padding: 12px 14px 14px; overflow-x: auto; }
 /* The global table rules (min-width, sticky uppercase headers, capped cells) are for the big review grids. */
-.dc-table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
-.dc-table th, .dc-table td { position: static; max-width: none; padding: 6px 10px; border-top: 0; border-bottom: 1px solid var(--line-soft); color: var(--ink); background: transparent; text-align: left; text-transform: none; letter-spacing: 0; line-height: 1.5; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; font-weight: 400; }
-.dc-table thead th { color: var(--muted); font-weight: 600; font-size: 11px; }
-.dc-table th:first-child { width: 64px; }
-.dc-table tbody th { font-weight: 600; font-size: 12px; font-family: ui-monospace, Consolas, monospace; }
-.dc-table td:nth-child(2) { background: #fff8f8; }
-.dc-table td:nth-child(3) { background: #f6fbf7; }
-.dc-empty { color: #9aa0a8; }
+.dc-table { width: 100%; min-width: 565px; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+.dc-table th, .dc-table td { position: static; max-width: none; padding: 4px 8px; border: 0; border-bottom: 1px solid var(--line-soft); color: var(--ink); background: transparent; text-align: left; text-transform: none; letter-spacing: 0; line-height: 1.45; vertical-align: top; overflow-wrap: anywhere; font-size: 12px; font-weight: 400; }
+.dc-table thead th { position: sticky; top: 0; z-index: 1; color: var(--muted); background: var(--surface); font-weight: 600; font-size: 11px; box-shadow: 0 1px var(--line); }
+.dc-table th:nth-child(1) { width: 76px; }
+.dc-table th:nth-child(2) { width: 65px; }
+.dc-table th:nth-child(3) { width: 98px; }
+.dc-table th:nth-child(4) { width: 102px; }
+.dc-empty { color: var(--muted); }
 .dc-diff { margin: 0; padding: 10px 12px; border-radius: 8px; background: #f7f8fa; font: 12px/1.6 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dc-diff span { display: block; white-space: pre-wrap; }
 .dc-diff .add { color: #1d5941; background: #e6f5ec; }
@@ -112,6 +112,64 @@ details.dc-item[open] > summary { border-bottom: 1px solid var(--line-soft); }
 /* Compare Image reuses the same badges so Old / New read the same on every page. */
 #page-image-compare .ic-bar > strong { display: inline-flex; align-items: center; gap: 8px; }
 
+/* Excel differences */
+#excel-compare-form .dc-actions-bar { justify-content: flex-end; }
+#excel-compare-result { margin-top: 14px; padding-top: 10px; scroll-margin-top: 76px; }
+#excel-compare-result .dc-verdict { align-items: center; gap: 10px; padding: 9px 12px; }
+#excel-compare-result .dc-verdict p { margin-top: 0; }
+#excel-compare-result .dc-verdict,
+#excel-compare-result .dc-pill,
+#excel-compare-result .dc-note.warn { color: var(--ink); border-color: var(--line); }
+#excel-compare-result .dc-pill { background: var(--blue-soft); }
+#excel-compare-result .dc-pill.ok { background: var(--green-soft); }
+#excel-compare-result .dc-pill.bad { background: var(--red-soft); }
+#excel-compare-result .dc-pill.warn { background: var(--amber-soft); }
+#excel-compare-result .dc-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+#excel-compare-result .dc-stats li { padding: 5px 10px; gap: 0; background: var(--surface); }
+#excel-compare-result .dc-stats span { overflow-wrap: anywhere; }
+.dc-excel-body { display: grid; grid-template-columns: minmax(0, 182px) minmax(0, 1fr); align-items: start; gap: 12px; margin-top: 10px; }
+.dc-sheet-nav { min-width: 0; padding: 7px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.dc-sheet-nav .dc-check { gap: 6px; margin: 1px 0 6px; }
+.dc-sheet-nav .dc-check span { font-size: 11px; }
+.dc-sheet-list { display: grid; gap: 4px; max-height: 49vh; padding: 3px; overflow: auto; }
+.dc-sheet-button { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; width: 100%; min-width: 0; padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; background: var(--canvas); text-align: left; cursor: pointer; }
+.dc-sheet-button .dc-name { flex-basis: 100%; }
+.dc-sheet-button .dc-pill { padding-inline: 5px; }
+.dc-sheet-button:is([aria-current="true"], :hover), .dc-chip:is([aria-pressed="true"], :hover) { border-color: var(--blue); background: var(--blue-soft); }
+.dc-excel-detail { min-width: 0; }
+.dc-sheet-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 0 0 5px; overflow-wrap: anywhere; }
+.dc-sheet-info span, .dc-column-filters > span { color: var(--muted); font-size: 11px; }
+.dc-excel-detail .dc-note.warn { margin: 0 0 5px; padding: 4px 8px; }
+.dc-toolbar { display: grid; gap: 4px; margin-bottom: 6px; }
+.dc-search-row, .dc-column-filters, .dc-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
+.workspace-theme .dc-search-row input { flex: 1 1 220px; min-width: 0; min-height: 29px; padding: 3px 8px; border-color: var(--line); background: var(--surface); color: var(--ink); font-size: 12px; }
+.dc-column-filters .dc-chips { flex: 1 1 240px; }
+.dc-chip, .dc-pager button { max-width: 100%; min-height: 24px; padding: 2px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 11px; line-height: 1.35; cursor: pointer; }
+.dc-chip[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--blue); }
+.dc-table-wrap { max-height: clamp(260px, 49vh, 470px); overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.dc-column-label { display: flex; align-items: baseline; gap: 5px; }
+.dc-column-header { min-width: 0; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.dc-link-button { padding: 0 2px; border: 0; border-radius: 3px; color: var(--blue); background: transparent; font-size: 12px; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.dc-table .dc-coord { font-family: ui-monospace, Consolas, monospace; }
+.dc-value-text { white-space: pre-wrap; }
+.dc-value-text mark { color: inherit; background: var(--red-soft); font-weight: 600; }
+.dc-value-new mark { background: var(--green-soft); }
+.dc-expand { display: block; margin-top: 2px; }
+.dc-table-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; margin-top: 6px; color: var(--muted); font-size: 12px; }
+.dc-status-error { color: var(--red); }
+.dc-pager { display: flex; align-items: center; gap: 4px; }
+.dc-pager button { min-width: 24px; color: var(--ink); font-size: 14px; }
+.dc-pager button[aria-disabled="true"] { opacity: .48; cursor: default; }
+.dc-pager span { padding-inline: 3px; }
+
+@media (max-width: 900px) {
+  .dc-excel-body { grid-template-columns: minmax(0, 1fr); }
+  .dc-sheet-list { max-height: 210px; }
+}
+@media (max-width: 540px) {
+  #excel-compare-result .dc-stats { grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); }
+}
+
 @media (max-width: 760px) {
   .dc-card { padding: 16px; }
   .dc-sources { grid-template-columns: minmax(0, 1fr); gap: 8px; }
@@ -119,7 +177,5 @@ details.dc-item[open] > summary { border-bottom: 1px solid var(--line-soft); }
   .dc-actions-bar { flex-direction: column; align-items: stretch; }
   .dc-saveto { white-space: normal; overflow-wrap: anywhere; }
   .dc-steps { flex-direction: column; }
-  .dc-table th, .dc-table td { padding: 6px; }
-  .dc-table th:first-child { width: 44px; }
   .dc-item-body { padding: 10px 8px 12px; }
 }

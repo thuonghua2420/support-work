@@ -91,7 +91,6 @@ Behavior:
 Input:
 
 - An Old workbook and a New workbook in `.xlsx`, `.xlsm`, `.xltx`, or `.xltm` format.
-- An `.xlsx` output path distinct from both source files. The web page suggests `<New file name>_compare.xlsx` beside the New file until the user edits the path.
 - Option `pair_by_position` (default on): pair sheets whose names differ by tab order.
 
 Behavior:
@@ -99,10 +98,8 @@ Behavior:
 - Pairs worksheets by exact name first, then (when `pair_by_position`) pairs remaining sheets by tab order; Old workbook order is preserved and unmatched New tail sheets are appended. With the option off, unmatched sheets are reported as Old-only / New-only.
 - A formula cell differs when its formula differs, or when both files store a cached result and the results differ. A missing cached result on either side is not a difference (openpyxl-written files have none).
 - When both sides render to the same text but differ (text `"5"` vs number `5`, trailing or doubled spaces), the compare cell adds `(văn bản)` / `(số)` hints or wraps both values in quotes.
-- The job result carries per-sheet summaries (`sheets`: pairing, difference count, up to 100 sample cells) so the page can show the outcome without opening the workbook.
-- Creates three output worksheets per pair: `<name>_Old`, `<name>_New`, and `<name>_compare` (truncated and made unique within Excel's 31-character limit).
-- Copies source cell values/formulas and basic worksheet formatting into the Old/New snapshots.
-- Leaves equal compare cells blank. A differing cell contains rich text `Old:<old value> # New:<new value>`, with only `Old:` and `New:` bold.
+- No result workbook is written. The job result carries `report_id` and per-sheet summaries (pairing, counts by change type, top differing columns, sizes); every differing cell (sheet, cell, row, column, row-1 header, change type, old and new value) is read page by page from `POST /api/excel-compare/differences`.
+- Cells are compared 1:1 by position; inserting or deleting a row shifts everything below. Formats, images, charts and merged-cell layout are not compared.
 - Treats sheets missing from either workbook as blank on that side, so added or removed sheets are not lost.
 
 ### Compare PDF
@@ -123,8 +120,8 @@ Behavior:
 
 ### Compare Excel / PDF / Image page flow
 
-- Excel and PDF share `web/file-compare.js` + `file-compare.css` (`dc-*` classes): pick Old and New, optional advanced options (output path, sheet pairing), one `So sánh` button, then an inline verdict, stats and per-sheet / per-page list. Image uses the same `dc-*` header/steps and compares automatically once both images are present.
-- Result files are opened through `POST /api/open-result`, which only serves paths produced by Excel/PDF compare jobs in the current server session (`_openable_results`).
+- Excel and PDF share `web/file-compare.js` + `file-compare.css` (`dc-*` classes): pick Old and New, optional advanced options (sheet pairing; PDF also has an output path), one `So sánh` button, then an inline verdict, stats and per-sheet / per-page list. Image uses the same `dc-*` header/steps and compares automatically once both images are present.
+- Result files are opened through `POST /api/open-result`, which only serves paths produced by PDF compare jobs in the current server session (`_openable_results`). Excel compare produces no file; its panel (sheet navigator, filters, paged table of differences) renders from the differences API.
 - Excel/PDF failures are explained inline on the page; the activity log is not force-opened for them.
 - Global `table` CSS in `app.css` (min-width, sticky uppercase headers) is meant for the big review grids; `.dc-table` overrides it.
 

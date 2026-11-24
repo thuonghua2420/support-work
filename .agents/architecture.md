@@ -12,7 +12,7 @@ run.bat
       -> processor.py       -> excel_writer.py -> compare.py -> csv_table.py
       -> compare_workbook_view.py -> generated compare .xlsx
       -> folder_compare.py  -> excel_writer.py -> compare.py -> csv_table.py
-      -> excel_compare.py   -> openpyxl cell-by-cell workbook compare
+      -> excel_compare.py   -> streaming read-only cell compare -> excel_compare_store.py (temp SQLite)
       -> pdf_compare.py     -> PyMuPDF/Pillow/reportlab evidence report
       -> excel_image_formatter.py -> Microsoft Excel Desktop COM
       -> excel_format_presets.py -> excel_format_presets.json
@@ -163,11 +163,11 @@ Keep:
 
 Owns:
 
-- Validating two OOXML Excel inputs and a distinct `.xlsx` output path.
+- Validating two OOXML Excel inputs. No output workbook is created.
 - Pairing exact sheet names first, then pairing remaining sheets by tab order and retaining unmatched tail sheets.
-- Copying source cell content and basic formatting into `_Old` and `_New` snapshots.
-- Exact cell value/type comparison and rich-text `_compare` cells with bold `Old:` / `New:` labels.
-- Excel-safe, unique sheet names that keep the required suffix within the 31-character limit.
+- Streaming both files in `read_only` mode (formulas + cached values, four row iterators in lockstep) so memory does not grow with file size.
+- Exact cell value/type comparison, change-type classification (`changed`, `added`, `removed`, `kind`, `formula`) and per-sheet summaries (counts, top columns, row-1 headers).
+- `excel_compare_store.py` spools every difference to a temporary SQLite file (last 3 reports, removed on exit) and serves paged / searchable / filtered queries through `POST /api/excel-compare/differences`. `[excel_compare] max_detail_rows` caps stored details; counts stay exact.
 
 ### `autocompare_tool/image_compare.py`
 
