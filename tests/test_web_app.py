@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import json
 import tempfile
+import threading
 import time
 import unittest
+from dataclasses import replace
+from http.client import HTTPConnection
 from pathlib import Path
 from unittest.mock import patch
+
+from openpyxl import Workbook
 
 from autocompare_tool.database_io import (
     CsvDbResult,
@@ -256,7 +262,7 @@ class WebApplicationTests(unittest.TestCase):
         old_path = Path.cwd() / "old.xlsx"
         new_path = Path.cwd() / "new.xlsx"
         output_path = Path.cwd() / "Compare_Excel.xlsx"
-        summary = ExcelCompareResult(old_path, new_path, output_path, 2, 5, 0, 0)
+        summary = ExcelCompareResult(old_path, new_path, "test-report", 2, 5, 0, 0, False, False, ())
 
         with patch("autocompare_tool.web_app.compare_excel_workbooks", return_value=summary) as compare_mock:
             operation = app._operation("excel_compare", {
@@ -264,14 +270,80 @@ class WebApplicationTests(unittest.TestCase):
                 "new_path": str(new_path),
                 "output_path": str(output_path),
             })
-            from autocompare_tool.web_app import CancelToken
             result = operation(lambda _message: None, CancelToken())
 
-        self.assertEqual(str(output_path), result["output_path"])
+        self.assertEqual("test-report", result["report_id"])
+        self.assertNotIn("output_path", result)
+        self.assertEqual(str(old_path), result["old_path"])
         self.assertEqual(5, result["difference_count"])
-        self.assertEqual(str(old_path), compare_mock.call_args.args[0])
-        self.assertEqual(str(new_path), compare_mock.call_args.args[1])
-        self.assertEqual(str(output_path), compare_mock.call_args.args[2])
+        self.assertEqual((str(old_path), str(new_path)), compare_mock.call_args.args)
+        self.assertIs(app.excel_compare_store, compare_mock.call_args.kwargs["store"])
+        self.assertEqual(app.config.excel_compare.max_detail_rows, compare_mock.call_args.kwargs["max_detail_rows"])
+        self.assertEqual(set(), app._openable_results)
+
+    def test_excel_differences_endpoint_returns_filtered_pages_and_truncation(self) -> None:
+        app = AutoCompareWebApplication()
+        # Use a small in-memory config override to exercise truncation with small workbooks.
+        app.config = replace(app.config, excel_compare=replace(app.config.excel_compare, max_detail_rows=2))
+        directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        for name, row in (("old", ["Header", 1, 2, 3]), ("new", ["Header", 4, 5, 6])):
+            book = Workbook()
+            book.active.append(row)
+            book.save(directory / f"{name}.xlsx")
+        operation = app._operation("excel_compare", {
+            "old_path": str(directory / "old.xlsx"),
+            "new_path": str(directory / "new.xlsx"),
+        })
+        summary = operation(lambda _message: None, CancelToken())
+        self.addCleanup(app.excel_compare_store.delete, summary["report_id"])
+        self.assertEqual(3, summary["difference_count"])
+        self.assertTrue(summary["details_truncated"])
+        self.assertNotIn("output_path", summary)
+        self.assertEqual(0, summary["sheets"][0]["index"])
+
+        address = self._start_test_server(app)
+        payload = {"report_id": summary["report_id"], "sheet": 0, "limit": 1}
+        status, page = _post_excel_differences(address, payload)
+        self.assertEqual(200, status)
+        self.assertEqual({
+            "total": 2,
+            "rows": [{"row": 1, "col": 2, "coord": "B1", "column": "B", "change_type": "changed",
+                      "header": "4", "old": "1", "new": "4"}],
+            "truncated": True,
+        }, page)
+        self.assertEqual("C1", _post_excel_differences(address, dict(payload, offset=1))[1]["rows"][0]["coord"])
+        _, filtered = _post_excel_differences(address, dict(payload, column="C", search="5", change_types=["changed"]))
+        self.assertEqual((1, ["C1"]), (filtered["total"], [row["coord"] for row in filtered["rows"]]))
+        self.assertEqual(400, _post_excel_differences(address, dict(payload, column="XFE"))[0])
+        self.assertEqual(400, _post_excel_differences(address, dict(payload, sheet=-1))[0])
+        app.excel_compare_store.delete(summary["report_id"])
+        status, expired = _post_excel_differences(address, payload)
+        self.assertEqual(404, status)
+        self.assertIn("hết hạn", expired["error"])
+
+    def test_excel_differences_endpoint_rejects_unknown_reports_and_invalid_types(self) -> None:
+        address = self._start_test_server(AutoCompareWebApplication())
+        payload = {"report_id": "missing", "sheet": 0}
+        status, result = _post_excel_differences(address, payload)
+        self.assertEqual(404, status)
+        self.assertIn("không tồn tại", result["error"])
+        for key, value in (
+            ("report_id", 12), ("sheet", True), ("offset", 1.5), ("limit", "50"),
+            ("search", None), ("column", 2), ("change_types", "changed"),
+            ("change_types", ["unknown"]), ("change_types", [{}]),
+        ):
+            with self.subTest(key=key, value=value):
+                status, result = _post_excel_differences(address, dict(payload, **{key: value}))
+                self.assertEqual(400, status)
+                self.assertIn(key, result["error"])
+
+    def _start_test_server(self, app: AutoCompareWebApplication) -> tuple[str, int]:
+        server = self.enterContext(AutoCompareServer(("127.0.0.1", 0), app))
+        worker = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+        worker.start()
+        self.addCleanup(worker.join)
+        self.addCleanup(server.shutdown)
+        return server.server_address
 
     def test_pdf_compare_action_maps_paths_and_returns_json_safe_result(self) -> None:
         app = AutoCompareWebApplication()
@@ -633,6 +705,17 @@ class WebApplicationTests(unittest.TestCase):
         self.assertEqual(120, sync_mock.call_args.kwargs["step_timeout"])
         self.assertTrue(sync_mock.call_args.kwargs["delete_target_only"])
         self.assertTrue(sync_mock.call_args.kwargs["keep_identity"])
+
+
+def _post_excel_differences(address: tuple[str, int], payload: dict) -> tuple[int, dict]:
+    client = HTTPConnection(*address, timeout=5)
+    try:
+        client.request("POST", "/api/excel-compare/differences", json.dumps(payload),
+                       {"Content-Type": "application/json"})
+        response = client.getresponse()
+        return response.status, json.loads(response.read())
+    finally:
+        client.close()
 
 
 class JobManagerTests(unittest.TestCase):

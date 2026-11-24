@@ -14,6 +14,20 @@ from autocompare_tool.app_config import (
 
 
 class AppConfigHeaderTests(unittest.TestCase):
+    def test_excel_compare_detail_limit_uses_its_own_section_and_validates_bounds(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "autocompare_config.ini"
+            for section, raw, expected in (
+                ("excel_compare_style", "1500", 2_000_000),
+                ("excel_compare", "1500", 1_500),
+                ("excel_compare", "invalid", 2_000_000),
+                ("excel_compare", "999", 2_000_000),
+                ("excel_compare", "20000001", 2_000_000),
+            ):
+                with self.subTest(section=section, value=raw):
+                    config_path.write_text(f"[{section}]\nmax_detail_rows = {raw}\n", encoding="utf-8")
+                    self.assertEqual(expected, load_app_config(config_path).excel_compare.max_detail_rows)
+
     def test_multi_database_default_is_opt_in_and_invalid_values_fall_back(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "autocompare_config.ini"

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 CONFIG_FILE_NAME = "autocompare_config.ini"
+DEFAULT_EXCEL_COMPARE_MAX_DETAIL_ROWS = 2_000_000
 
 WORKFLOW_HTM_BEFORE_AFTER = "htm_before_after"
 WORKFLOW_HTC_BEFORE_AFTER = "htc_before_after"
@@ -114,6 +115,11 @@ class DatabaseWorkspaceConfig:
 
 
 @dataclass(frozen=True)
+class ExcelCompareConfig:
+    max_detail_rows: int = DEFAULT_EXCEL_COMPARE_MAX_DETAIL_ROWS
+
+
+@dataclass(frozen=True)
 class AppConfig:
     folders: FolderConfig
     workbooks: WorkbookConfig
@@ -127,6 +133,7 @@ class AppConfig:
     copy_input_default: bool = False
     sort_by_key_default: bool = False
     multi_database_default: bool = False
+    excel_compare: ExcelCompareConfig = field(default_factory=ExcelCompareConfig)
 
 
 def load_app_config(config_path: str | Path | None = None) -> AppConfig:
@@ -316,6 +323,12 @@ def load_app_config(config_path: str | Path | None = None) -> AppConfig:
         copy_input_default=_get_bool(parser, "compare_workflows", "copy_input_enabled", False),
         sort_by_key_default=_get_bool(parser, "compare_workflows", "sort_by_key_enabled", False),
         multi_database_default=multi_database_default,
+        excel_compare=ExcelCompareConfig(
+            max_detail_rows=_get_bounded_int(
+                parser, "excel_compare", "max_detail_rows",
+                DEFAULT_EXCEL_COMPARE_MAX_DETAIL_ROWS, 1_000, 20_000_000,
+            ),
+        ),
     )
 
 

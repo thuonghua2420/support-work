@@ -60,6 +60,7 @@ from .database_sync_worker import run_sync_isolated
 from .text_compare import TextCompareFiles, run_folder_compare, DEFAULT_EXCLUDE
 from .search_replace import SearchReplace
 from .excel_compare import compare_excel_workbooks
+from .excel_compare_store import CHANGE_TYPES, ExcelCompareStore
 from .pdf_compare import compare_pdf_files
 from .image_compare import compare_images
 from .excel_format_presets import ExcelFormatPreset, ExcelFormatPresetStore
@@ -276,6 +277,7 @@ class AutoCompareWebApplication:
         self.config: AppConfig = load_app_config()
         self.note_store = FixmeNoteStore()
         self.excel_format_preset_store = ExcelFormatPresetStore()
+        self.excel_compare_store = ExcelCompareStore()
         self.sql_workspace = SqlDatabaseWorkspaceManager(self.config.database_workspace)
         self.jobs = JobManager()
         self.text_compare_files = TextCompareFiles()
@@ -743,16 +745,14 @@ class AutoCompareWebApplication:
             )
         if action == "excel_compare":
             return lambda log, cancel: self._file_summary(
-                self._remember_results(
-                    compare_excel_workbooks(
-                        _text(payload, "old_path"),
-                        _text(payload, "new_path"),
-                        _text(payload, "output_path"),
-                        pair_by_position=_bool(payload, "pair_by_position", True),
-                        log=log,
-                        cancel=cancel.throw_if_cancelled,
-                    ),
-                    "output_path",
+                compare_excel_workbooks(
+                    _text(payload, "old_path"),
+                    _text(payload, "new_path"),
+                    pair_by_position=_bool(payload, "pair_by_position", True),
+                    log=log,
+                    cancel=cancel.throw_if_cancelled,
+                    store=self.excel_compare_store,
+                    max_detail_rows=self.config.excel_compare.max_detail_rows,
                 )
             )
         if action == "pdf_compare":
@@ -1192,6 +1192,30 @@ class AutoCompareWebApplication:
             os.startfile(str(path))  # type: ignore[attr-defined]
         return {"path": str(path)}
 
+    def excel_compare_differences(self, payload: dict[str, Any]) -> dict[str, Any]:
+        report_id = payload.get("report_id")
+        if not isinstance(report_id, str) or not report_id.strip():
+            raise ValueError("report_id phải là chuỗi không rỗng.")
+        sheet = payload.get("sheet")
+        offset = payload.get("offset", 0)
+        limit = payload.get("limit", 200)
+        for name, value in (("sheet", sheet), ("offset", offset), ("limit", limit)):
+            if type(value) is not int:
+                raise ValueError(f"{name} phải là số nguyên.")
+        search = payload.get("search", "")
+        column = payload.get("column", "")
+        for name, value in (("search", search), ("column", column)):
+            if not isinstance(value, str):
+                raise ValueError(f"{name} phải là chuỗi.")
+        change_types = payload.get("change_types", [])
+        if not isinstance(change_types, list) or any(item not in CHANGE_TYPES for item in change_types):
+            raise ValueError("change_types phải là danh sách các loại sai khác hợp lệ.")
+
+        store = self.excel_compare_store
+        truncated = store.sheet_truncated(report_id, sheet)
+        total, rows = store.query(report_id, sheet, offset, limit, search, change_types, column)
+        return {"total": total, "rows": rows, "truncated": truncated}
+
     @staticmethod
     def _file_summary(summary: Any) -> dict[str, Any]:
         return _jsonable(summary)
@@ -1345,6 +1369,9 @@ class AutoCompareRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/open-result":
                 self._send_json(self.app.open_result_path(payload))
+                return
+            if parsed.path == "/api/excel-compare/differences":
+                self._send_json(self.app.excel_compare_differences(payload))
                 return
             if parsed.path == "/api/image-compare":
                 self._send_json(compare_images(payload.get("old"), payload.get("new")))
